@@ -1,1 +1,0 @@
-{"version":3,"file":"send-to-accounting.dto.js","sourceRoot":"","sources":["../../../../src/modules/invoices/dto/send-to-accounting.dto.ts"],"names":[],"mappings":";;;;;;;;;;;;AAAA,qDAA2D;AAE3D,MAAa,mBAAmB;IAG9B,oBAAoB,CAAS;CAC9B;AAJD,kDAIC;AADC;IAFC,IAAA,4BAAU,EAAC,EAAE,OAAO,EAAE,+CAA+C,EAAE,CAAC;IACxE,IAAA,8BAAY,EAAC,EAAE,EAAE,EAAE,OAAO,EAAE,iDAAiD,EAAE,CAAC;;iEACpD"}

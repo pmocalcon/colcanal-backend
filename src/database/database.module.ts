@@ -20,6 +20,7 @@ import * as entities from './entities';
         logging: configService.get('nodeEnv') === 'development',
         migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
         migrationsRun: false,
+        ssl: { rejectUnauthorized: false },
       }),
     }),
   ],
