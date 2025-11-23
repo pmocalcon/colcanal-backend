@@ -39,39 +39,38 @@ export class AuthController {
     Autentica a un usuario con correo electrónico corporativo y contraseña.
 
     ## Dominios de correo permitidos
-    Solo se aceptan correos electrónicos de los siguientes dominios corporativos:
-    - **@canalco.com** - Empleados de Canales & Contactos
-    - **@alumbrado.com** - Empleados de empresas asociadas
+    Solo se aceptan correos electrónicos del siguiente dominio corporativo:
+    - **@canalcongroup.com** - Canal Con Group
 
     ## Usuarios de prueba disponibles
 
     ### 1. Gerencia (Aprueba requisiciones)
-    - Email: \`gerencia@canalco.com\`
+    - Email: \`gerencia@canalcongroup.com\`
     - Password: \`Canalco2025!\`
     - Rol: Gerencia
 
     ### 2. Director Técnico (Revisa y aprueba)
-    - Email: \`director.tecnico@canalco.com\`
+    - Email: \`director.tecnico@canalcongroup.com\`
     - Password: \`Canalco2025!\`
     - Rol: Director Técnico
 
     ### 3. Analista PMO (Crea requisiciones)
-    - Email: \`analista.pmo@canalco.com\`
+    - Email: \`analista.pmo@canalcongroup.com\`
     - Password: \`Canalco2025!\`
     - Rol: Analista PMO
 
-    ### 4. PQRS (Crea requisiciones)
-    - Email: \`pqrs@canalco.com\`
+    ### 4. PQRS El Cerrito (Crea requisiciones)
+    - Email: \`pqrs.elcerrito@canalcongroup.com\`
     - Password: \`Canalco2025!\`
-    - Rol: PQRS
+    - Rol: PQRS El Cerrito
 
-    ### 5. Compras (Solo consulta)
-    - Email: \`compras@canalco.com\`
+    ### 5. Compras (Cotiza y gestiona)
+    - Email: \`compras@canalcongroup.com\`
     - Password: \`Canalco2025!\`
     - Rol: Compras
 
     ### 6. Director PMO (Revisa requisiciones)
-    - Email: \`director.pmo@canalco.com\`
+    - Email: \`director.pmo@canalcongroup.com\`
     - Password: \`Canalco2025!\`
     - Rol: Director PMO
 

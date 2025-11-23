@@ -14,7 +14,7 @@ export default () => ({
     expiresIn: parseInt(process.env.JWT_EXPIRATION || '3600', 10),
     refreshExpiresIn: parseInt(process.env.JWT_REFRESH_EXPIRATION || '604800', 10),
   },
-  corporateEmailDomain: process.env.CORPORATE_EMAIL_DOMAIN || '@canalco.com',
+  corporateEmailDomain: process.env.CORPORATE_EMAIL_DOMAIN || '@canalcongroup.com',
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || '60', 10),
     limit: parseInt(process.env.THROTTLE_LIMIT || '10', 10),

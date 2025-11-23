@@ -4,8 +4,8 @@ import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 export class LoginDto {
   @ApiProperty({
     description:
-      'Correo electrónico corporativo. Solo se permiten dominios @canalco.com y @alumbrado.com',
-    example: 'admin@canalco.com',
+      'Correo electrónico corporativo. Solo se permite el dominio @canalcongroup.com',
+    example: 'gerencia@canalcongroup.com',
     type: String,
     required: true,
     format: 'email',

@@ -74,10 +74,9 @@ async function bootstrap() {
       4. Pega el token y autoriza
       5. ¡Explora todos los endpoints!
 
-      ### Dominios de email permitidos
+      ### Dominio de email permitido
 
-      - @canalco.com
-      - @alumbrado.com
+      - @canalcongroup.com
 
       ---
 
