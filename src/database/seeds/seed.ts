@@ -1127,7 +1127,7 @@ async function seed() {
     const usersData = [
       // Gerencia
       {
-        email: 'gerencia@canalco.com',
+        email: 'gerencia@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Laura Pérez',
         cargo: 'Gerente General',
@@ -1136,7 +1136,7 @@ async function seed() {
       },
       // Directores de Área
       {
-        email: 'director.pmo@canalco.com',
+        email: 'director.pmo@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Roberto Mendoza',
         cargo: 'Director PMO',
@@ -1144,7 +1144,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.comercial@canalco.com',
+        email: 'director.comercial@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Patricia Vargas',
         cargo: 'Directora Comercial',
@@ -1152,7 +1152,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.juridico@canalco.com',
+        email: 'director.juridico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Andrés Morales',
         cargo: 'Director Jurídico',
@@ -1160,7 +1160,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.tecnico@canalco.com',
+        email: 'director.tecnico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Carlos Rivas',
         cargo: 'Director Técnico',
@@ -1168,7 +1168,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.financiero@canalco.com',
+        email: 'director.financiero@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Diana Torres',
         cargo: 'Directora Financiera y Administrativa',
@@ -1177,7 +1177,7 @@ async function seed() {
       },
       // Directores de Proyecto
       {
-        email: 'director.antioquia@canalco.com',
+        email: 'director.antioquia@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Ana Restrepo',
         cargo: 'Directora de Proyecto Antioquia',
@@ -1185,7 +1185,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.quindio@canalco.com',
+        email: 'director.quindio@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Jorge Cardona',
         cargo: 'Director de Proyecto Quindío',
@@ -1193,7 +1193,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.valle@canalco.com',
+        email: 'director.valle@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Claudia Ramírez',
         cargo: 'Directora de Proyecto Valle',
@@ -1201,7 +1201,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'director.putumayo@canalco.com',
+        email: 'director.putumayo@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Miguel Ángel Castro',
         cargo: 'Director de Proyecto Putumayo',
@@ -1210,7 +1210,7 @@ async function seed() {
       },
       // Analistas y Coordinadores
       {
-        email: 'analista.pmo@canalco.com',
+        email: 'analista.pmo@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Sandra Jiménez',
         cargo: 'Analista PMO',
@@ -1218,7 +1218,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'analista.comercial@canalco.com',
+        email: 'analista.comercial@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Luis Fernando López',
         cargo: 'Analista Comercial',
@@ -1226,7 +1226,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'analista.juridico@canalco.com',
+        email: 'analista.juridico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Carolina Herrera',
         cargo: 'Analista Jurídica',
@@ -1234,7 +1234,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'analista.admin@canalco.com',
+        email: 'analista.admin@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Javier Sánchez',
         cargo: 'Analista Administrativo',
@@ -1242,7 +1242,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'coordinador.financiero@canalco.com',
+        email: 'coordinador.financiero@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Marcela Rojas',
         cargo: 'Coordinadora Financiera',
@@ -1250,7 +1250,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'coordinador.juridico@canalco.com',
+        email: 'coordinador.juridico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Ricardo Bermúdez',
         cargo: 'Coordinador Jurídico',
@@ -1259,7 +1259,7 @@ async function seed() {
       },
       // PQRS (Personal de campo)
       {
-        email: 'pqrs.elcerrito@canalco.com',
+        email: 'pqrs.elcerrito@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Sofía Martínez',
         cargo: 'PQRS El Cerrito',
@@ -1267,7 +1267,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.guacari@canalco.com',
+        email: 'pqrs.guacari@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Juan Pablo García',
         cargo: 'PQRS Guacarí',
@@ -1275,7 +1275,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.circasia@canalco.com',
+        email: 'pqrs.circasia@canalcongroup.com',
         password: hashedPassword,
         nombre: 'María Fernanda Álvarez',
         cargo: 'PQRS Circasia',
@@ -1283,7 +1283,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.quimbaya@canalco.com',
+        email: 'pqrs.quimbaya@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Andrés Felipe Ospina',
         cargo: 'PQRS Quimbaya',
@@ -1291,7 +1291,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.jerico@canalco.com',
+        email: 'pqrs.jerico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Natalia Vélez',
         cargo: 'PQRS Jericó',
@@ -1299,7 +1299,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.ciudadbolivar@canalco.com',
+        email: 'pqrs.ciudadbolivar@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Daniel Mejía',
         cargo: 'PQRS Ciudad Bolívar',
@@ -1307,7 +1307,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.tarso@canalco.com',
+        email: 'pqrs.tarso@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Mario Gómez',
         cargo: 'PQRS Tarso',
@@ -1315,7 +1315,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.pueblorico@canalco.com',
+        email: 'pqrs.pueblorico@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Laura Cristina Montoya',
         cargo: 'PQRS Pueblo Rico',
@@ -1323,7 +1323,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.santabarbara@canalco.com',
+        email: 'pqrs.santabarbara@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Camilo Andrés Quintero',
         cargo: 'PQRS Santa Bárbara',
@@ -1331,7 +1331,7 @@ async function seed() {
         estado: true,
       },
       {
-        email: 'pqrs.puertoasis@canalco.com',
+        email: 'pqrs.puertoasis@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Valentina Garzón',
         cargo: 'PQRS Puerto Asís',
@@ -1340,7 +1340,7 @@ async function seed() {
       },
       // Compras
       {
-        email: 'compras@canalco.com',
+        email: 'compras@canalcongroup.com',
         password: hashedPassword,
         nombre: 'Paola Silva',
         cargo: 'Coordinadora de Compras',
@@ -1358,81 +1358,81 @@ async function seed() {
     console.log('Seeding authorizations...');
 
     // Obtener usuarios
-    const gerenciaUser = users.find((u) => u.email === 'gerencia@canalco.com')!;
-    const dirPMOUser = users.find((u) => u.email === 'director.pmo@canalco.com')!;
+    const gerenciaUser = users.find((u) => u.email === 'gerencia@canalcongroup.com')!;
+    const dirPMOUser = users.find((u) => u.email === 'director.pmo@canalcongroup.com')!;
     const dirComercialUser = users.find(
-      (u) => u.email === 'director.comercial@canalco.com',
+      (u) => u.email === 'director.comercial@canalcongroup.com',
     )!;
     const dirJuridicoUser = users.find(
-      (u) => u.email === 'director.juridico@canalco.com',
+      (u) => u.email === 'director.juridico@canalcongroup.com',
     )!;
     const dirTecnicoUser = users.find(
-      (u) => u.email === 'director.tecnico@canalco.com',
+      (u) => u.email === 'director.tecnico@canalcongroup.com',
     )!;
     const dirFinancieroUser = users.find(
-      (u) => u.email === 'director.financiero@canalco.com',
+      (u) => u.email === 'director.financiero@canalcongroup.com',
     )!;
     const dirProyAntioquiaUser = users.find(
-      (u) => u.email === 'director.antioquia@canalco.com',
+      (u) => u.email === 'director.antioquia@canalcongroup.com',
     )!;
     const dirProyQuindioUser = users.find(
-      (u) => u.email === 'director.quindio@canalco.com',
+      (u) => u.email === 'director.quindio@canalcongroup.com',
     )!;
     const dirProyValleUser = users.find(
-      (u) => u.email === 'director.valle@canalco.com',
+      (u) => u.email === 'director.valle@canalcongroup.com',
     )!;
     const dirProyPutumayoUser = users.find(
-      (u) => u.email === 'director.putumayo@canalco.com',
+      (u) => u.email === 'director.putumayo@canalcongroup.com',
     )!;
     const analistaPMOUser = users.find(
-      (u) => u.email === 'analista.pmo@canalco.com',
+      (u) => u.email === 'analista.pmo@canalcongroup.com',
     )!;
     const analistaComercialUser = users.find(
-      (u) => u.email === 'analista.comercial@canalco.com',
+      (u) => u.email === 'analista.comercial@canalcongroup.com',
     )!;
     const analistaJuridicoUser = users.find(
-      (u) => u.email === 'analista.juridico@canalco.com',
+      (u) => u.email === 'analista.juridico@canalcongroup.com',
     )!;
     const analistaAdminUser = users.find(
-      (u) => u.email === 'analista.admin@canalco.com',
+      (u) => u.email === 'analista.admin@canalcongroup.com',
     )!;
     const coordFinancieroUser = users.find(
-      (u) => u.email === 'coordinador.financiero@canalco.com',
+      (u) => u.email === 'coordinador.financiero@canalcongroup.com',
     )!;
     const coordJuridicoUser = users.find(
-      (u) => u.email === 'coordinador.juridico@canalco.com',
+      (u) => u.email === 'coordinador.juridico@canalcongroup.com',
     )!;
 
     // PQRS de cada región
     const pqrsElCerritoUser = users.find(
-      (u) => u.email === 'pqrs.elcerrito@canalco.com',
+      (u) => u.email === 'pqrs.elcerrito@canalcongroup.com',
     )!;
     const pqrsGuacariUser = users.find(
-      (u) => u.email === 'pqrs.guacari@canalco.com',
+      (u) => u.email === 'pqrs.guacari@canalcongroup.com',
     )!;
     const pqrsCircasiaUser = users.find(
-      (u) => u.email === 'pqrs.circasia@canalco.com',
+      (u) => u.email === 'pqrs.circasia@canalcongroup.com',
     )!;
     const pqrsQuimbayaUser = users.find(
-      (u) => u.email === 'pqrs.quimbaya@canalco.com',
+      (u) => u.email === 'pqrs.quimbaya@canalcongroup.com',
     )!;
     const pqrsJericoUser = users.find(
-      (u) => u.email === 'pqrs.jerico@canalco.com',
+      (u) => u.email === 'pqrs.jerico@canalcongroup.com',
     )!;
     const pqrsCiudadBolivarUser = users.find(
-      (u) => u.email === 'pqrs.ciudadbolivar@canalco.com',
+      (u) => u.email === 'pqrs.ciudadbolivar@canalcongroup.com',
     )!;
     const pqrsTarsoUser = users.find(
-      (u) => u.email === 'pqrs.tarso@canalco.com',
+      (u) => u.email === 'pqrs.tarso@canalcongroup.com',
     )!;
     const pqrsPuebloRicoUser = users.find(
-      (u) => u.email === 'pqrs.pueblorico@canalco.com',
+      (u) => u.email === 'pqrs.pueblorico@canalcongroup.com',
     )!;
     const pqrsSantaBarbaraUser = users.find(
-      (u) => u.email === 'pqrs.santabarbara@canalco.com',
+      (u) => u.email === 'pqrs.santabarbara@canalcongroup.com',
     )!;
     const pqrsPuertoAsisUser = users.find(
-      (u) => u.email === 'pqrs.puertoasis@canalco.com',
+      (u) => u.email === 'pqrs.puertoasis@canalcongroup.com',
     )!;
 
     const authorizationsData = [
@@ -1836,38 +1836,38 @@ async function seed() {
     console.log(`   - ${authorizations.length} authorizations (cadenas completas)`);
     console.log('\n🔑 Credenciales de prueba (Password: Canalco2025!):');
     console.log('\n   GERENCIA:');
-    console.log('   - gerencia@canalco.com');
+    console.log('   - gerencia@canalcongroup.com');
     console.log('\n   DIRECTORES DE ÁREA:');
-    console.log('   - director.pmo@canalco.com');
-    console.log('   - director.comercial@canalco.com');
-    console.log('   - director.juridico@canalco.com');
-    console.log('   - director.tecnico@canalco.com');
-    console.log('   - director.financiero@canalco.com');
+    console.log('   - director.pmo@canalcongroup.com');
+    console.log('   - director.comercial@canalcongroup.com');
+    console.log('   - director.juridico@canalcongroup.com');
+    console.log('   - director.tecnico@canalcongroup.com');
+    console.log('   - director.financiero@canalcongroup.com');
     console.log('\n   DIRECTORES DE PROYECTO:');
-    console.log('   - director.antioquia@canalco.com');
-    console.log('   - director.quindio@canalco.com');
-    console.log('   - director.valle@canalco.com');
-    console.log('   - director.putumayo@canalco.com');
+    console.log('   - director.antioquia@canalcongroup.com');
+    console.log('   - director.quindio@canalcongroup.com');
+    console.log('   - director.valle@canalcongroup.com');
+    console.log('   - director.putumayo@canalcongroup.com');
     console.log('\n   ANALISTAS/COORDINADORES:');
-    console.log('   - analista.pmo@canalco.com');
-    console.log('   - analista.comercial@canalco.com');
-    console.log('   - analista.juridico@canalco.com');
-    console.log('   - analista.admin@canalco.com');
-    console.log('   - coordinador.financiero@canalco.com');
-    console.log('   - coordinador.juridico@canalco.com');
+    console.log('   - analista.pmo@canalcongroup.com');
+    console.log('   - analista.comercial@canalcongroup.com');
+    console.log('   - analista.juridico@canalcongroup.com');
+    console.log('   - analista.admin@canalcongroup.com');
+    console.log('   - coordinador.financiero@canalcongroup.com');
+    console.log('   - coordinador.juridico@canalcongroup.com');
     console.log('\n   PQRS (10 municipios):');
-    console.log('   - pqrs.elcerrito@canalco.com');
-    console.log('   - pqrs.guacari@canalco.com');
-    console.log('   - pqrs.circasia@canalco.com');
-    console.log('   - pqrs.quimbaya@canalco.com');
-    console.log('   - pqrs.jerico@canalco.com');
-    console.log('   - pqrs.ciudadbolivar@canalco.com');
-    console.log('   - pqrs.tarso@canalco.com');
-    console.log('   - pqrs.pueblorico@canalco.com');
-    console.log('   - pqrs.santabarbara@canalco.com');
-    console.log('   - pqrs.puertoasis@canalco.com');
+    console.log('   - pqrs.elcerrito@canalcongroup.com');
+    console.log('   - pqrs.guacari@canalcongroup.com');
+    console.log('   - pqrs.circasia@canalcongroup.com');
+    console.log('   - pqrs.quimbaya@canalcongroup.com');
+    console.log('   - pqrs.jerico@canalcongroup.com');
+    console.log('   - pqrs.ciudadbolivar@canalcongroup.com');
+    console.log('   - pqrs.tarso@canalcongroup.com');
+    console.log('   - pqrs.pueblorico@canalcongroup.com');
+    console.log('   - pqrs.santabarbara@canalcongroup.com');
+    console.log('   - pqrs.puertoasis@canalcongroup.com');
     console.log('\n   COMPRAS:');
-    console.log('   - compras@canalco.com');
+    console.log('   - compras@canalcongroup.com');
     console.log('\n' + '='.repeat(50) + '\n');
 
     await dataSource.destroy();

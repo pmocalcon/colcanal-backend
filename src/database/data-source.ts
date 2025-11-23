@@ -20,6 +20,9 @@ export const dataSourceOptions: DataSourceOptions = {
     tableName: 'typeorm_query_cache',
     duration: 86400000, // 24 horas (estados de catálogo no cambian frecuentemente)
   },
+  ssl: process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1'
+    ? { rejectUnauthorized: false }
+    : false,
   extra: {
     // Configurar zona horaria de Colombia en PostgreSQL
     timezone: 'America/Bogota',
