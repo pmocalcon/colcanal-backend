@@ -33,7 +33,7 @@ export class AuthService {
       // Validate corporate email domain
       const corporateDomain =
         this.configService.get<string>('corporateEmailDomain') ||
-        '@canalco.com';
+        '@canalcongroup.com';
       if (!email.endsWith(corporateDomain)) {
         throw new BadRequestException(
           `Email must be from ${corporateDomain} domain`,
