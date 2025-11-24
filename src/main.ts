@@ -107,6 +107,7 @@ async function bootstrap() {
       'JWT-auth',
     )
     .addServer('http://localhost:3000', 'Servidor de Desarrollo Local')
+    .addServer('https://colcanal-backend.onrender.com', 'Servidor de Render')
     .addServer('https://api.canalco.com', 'Servidor de Producción')
     .build();
 
