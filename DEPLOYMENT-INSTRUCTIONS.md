@@ -46,7 +46,7 @@ npm run create:gerencia-proyectos
 ✅ Usuario creado exitosamente:
 
    📧 Email:    gerencia.proyectos@canalcongroup.com
-   🔑 Password: password123
+   🔑 Password: Canalco2025!
    👤 Nombre:   Carlos Ramírez
    💼 Cargo:    Gerente de Proyectos
    🆔 User ID:  123
@@ -85,7 +85,7 @@ SELECT rol_id FROM roles WHERE nombre_rol = 'Gerencia de Proyectos';
 SELECT user_id, email FROM users WHERE email = 'gerencia.proyectos@canalcongroup.com';
 
 -- 3. Si NO existe, crear el usuario (reemplaza $HASH con el hash de bcrypt)
--- Nota: Necesitarás generar el hash de 'password123' con bcrypt antes
+-- Nota: Necesitarás generar el hash de 'Canalco2025!' con bcrypt antes
 INSERT INTO users (email, password, nombre, cargo, rol_id, estado)
 VALUES (
   'gerencia.proyectos@canalcongroup.com',
@@ -97,7 +97,7 @@ VALUES (
 );
 ```
 
-**Nota**: El hash incluido arriba es para la contraseña `password123`.
+**Nota**: El hash incluido arriba es para la contraseña `Canalco2025!`.
 
 ## Paso 3: Verificar que todo funciona
 
@@ -111,7 +111,7 @@ Usa Swagger o Postman para probar:
 ```json
 {
   "email": "gerencia.proyectos@canalcongroup.com",
-  "password": "password123"
+  "password": "Canalco2025!"
 }
 ```
 
@@ -155,13 +155,13 @@ Content-Type: application/json
 
 1. Login como Director de Proyecto Antioquia:
    - Email: `director.antioquia@canalcongroup.com`
-   - Password: `password123`
+   - Password: `Canalco2025!`
 
 2. Crear una requisición para el proyecto "Ciudad Bolívar"
 
 3. Login como Director PMO:
    - Email: `director.pmo@canalcongroup.com`
-   - Password: `password123`
+   - Password: `Canalco2025!`
 
 4. Revisar y aprobar la requisición
 

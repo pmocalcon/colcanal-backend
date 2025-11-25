@@ -60,7 +60,7 @@ async function createGerenciaProyectosUser() {
 
     // 3. Crear el hash de la contraseña
     console.log('\n🔐 Generando hash de contraseña...');
-    const password = 'password123'; // Cambiar en producción si es necesario
+    const password = 'Canalco2025!';
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('✅ Hash generado');
 
@@ -82,7 +82,7 @@ async function createGerenciaProyectosUser() {
 
     console.log('✅ Usuario creado exitosamente:\n');
     console.log('   📧 Email:    gerencia.proyectos@canalcongroup.com');
-    console.log('   🔑 Password: password123');
+    console.log('   🔑 Password: Canalco2025!');
     console.log('   👤 Nombre:   Carlos Ramírez');
     console.log('   💼 Cargo:    Gerente de Proyectos');
     console.log(`   🆔 User ID:  ${result[0].user_id}`);

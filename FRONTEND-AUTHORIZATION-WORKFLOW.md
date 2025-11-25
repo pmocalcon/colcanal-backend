@@ -92,7 +92,7 @@ Se agregaron **2 nuevos estados** en el flujo:
 
 ```
 Email: gerencia.proyectos@canalcongroup.com
-Password: password123
+Password: Canalco2025!
 Nombre: Carlos Ramírez
 Cargo: Gerente de Proyectos
 ```

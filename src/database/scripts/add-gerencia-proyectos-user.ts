@@ -37,7 +37,7 @@ async function addUser() {
     }
 
     // Crear el hash de la contraseña
-    const hashedPassword = await bcrypt.hash('password123', 10);
+    const hashedPassword = await bcrypt.hash('Canalco2025!', 10);
 
     // Crear el usuario
     await queryRunner.query(
@@ -55,7 +55,7 @@ async function addUser() {
 
     console.log('✅ Usuario gerencia.proyectos@canalcongroup.com creado exitosamente');
     console.log('   Email: gerencia.proyectos@canalcongroup.com');
-    console.log('   Password: password123');
+    console.log('   Password: Canalco2025!');
 
     await queryRunner.release();
     await dataSource.destroy();
