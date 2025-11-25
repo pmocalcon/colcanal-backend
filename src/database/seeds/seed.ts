@@ -123,6 +123,11 @@ async function seed() {
         category: 'GERENCIA',
       },
       {
+        nombreRol: 'Gerencia de Proyectos',
+        descripcion: 'Autoriza requisiciones creadas por Directores de Proyecto',
+        category: 'GERENCIA',
+      },
+      {
         nombreRol: 'Director PMO',
         descripcion: 'Dirige área de PMO y revisa requisiciones de analistas',
         category: 'DIRECTOR_AREA',
@@ -278,6 +283,10 @@ async function seed() {
         nombrePermiso: 'Aprobar',
         descripcion: 'Permiso para aprobar requisiciones',
       },
+      {
+        nombrePermiso: 'Autorizar',
+        descripcion: 'Permiso para autorizar requisiciones de Directores de Proyecto',
+      },
       { nombrePermiso: 'Cotizar', descripcion: 'Permiso para cotizar' },
       { nombrePermiso: 'Exportar', descripcion: 'Permiso para exportar datos' },
     ];
@@ -356,6 +365,24 @@ async function seed() {
       }
     }
 
+    // Asignar Inventarios a Gerencia de Proyectos (para recepción de materiales)
+    const inventariosGestion = gestiones.find((g) => g.slug === 'inventarios');
+    if (inventariosGestion) {
+      const gerenciaProyectosRole = roles.find(
+        (r) => r.nombreRol === 'Gerencia de Proyectos',
+      );
+
+      if (gerenciaProyectosRole) {
+        await roleGestionRepository.save({
+          rolId: gerenciaProyectosRole.rolId,
+          gestionId: inventariosGestion.gestionId,
+        });
+        console.log(
+          `✅ Assigned Inventarios gestion to Gerencia de Proyectos`,
+        );
+      }
+    }
+
     // ============================================
     // 5. SEED COMPANIES
     // ============================================
@@ -369,6 +396,8 @@ async function seed() {
       { name: 'Unión Temporal Alumbrado Público Puerto Asís' },
       { name: 'Unión Temporal Alumbrado Público Quimbaya' },
       { name: 'Unión Temporal Alumbrado Público Santa Bárbara' },
+      { name: 'Uniones y Alianzas' },
+      { name: 'Inversiones Garcés Escalante' },
     ];
 
     const companies = await companyRepository.save(companiesData);
@@ -382,7 +411,7 @@ async function seed() {
       c.name.includes('Canales & Contactos'),
     )!;
     const projectsData = [
-      { companyId: canalesCompany.companyId, name: 'Administrativo' },
+      { companyId: canalesCompany.companyId, name: 'Oficina Principal' },
       { companyId: canalesCompany.companyId, name: 'Ciudad Bolívar' },
       { companyId: canalesCompany.companyId, name: 'Jericó' },
       { companyId: canalesCompany.companyId, name: 'Pueblo Rico' },
@@ -400,7 +429,7 @@ async function seed() {
       // Canales & Contactos projects
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Administrativo')!.projectId,
+        projectId: projects.find((p) => p.name === 'Oficina Principal')!.projectId,
         code: '008',
       },
       {
@@ -463,6 +492,20 @@ async function seed() {
           .companyId,
         projectId: undefined,
         code: '007',
+      },
+      // Uniones y Alianzas
+      {
+        companyId: companies.find((c) => c.name.includes('Uniones y Alianzas'))!
+          .companyId,
+        projectId: undefined,
+        code: '009',
+      },
+      // Inversiones Garcés Escalante
+      {
+        companyId: companies.find((c) => c.name.includes('Inversiones Garcés Escalante'))!
+          .companyId,
+        projectId: undefined,
+        code: '010',
       },
     ];
 
@@ -552,7 +595,7 @@ async function seed() {
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Administrativo')!.projectId,
+        projectId: projects.find((p) => p.name === 'Oficina Principal')!.projectId,
         prefix: 'C&C',
       },
       {
@@ -615,6 +658,20 @@ async function seed() {
         projectId: undefined,
         prefix: 'SB',
       },
+      // Uniones y Alianzas
+      {
+        companyId: companies.find((c) => c.name.includes('Uniones y Alianzas'))!
+          .companyId,
+        projectId: undefined,
+        prefix: 'U&A',
+      },
+      // Inversiones Garcés Escalante
+      {
+        companyId: companies.find((c) => c.name.includes('Inversiones Garcés Escalante'))!
+          .companyId,
+        projectId: undefined,
+        prefix: 'IGE',
+      },
     ];
 
     const requisitionPrefixes = await requisitionPrefixRepository.save(
@@ -662,72 +719,86 @@ async function seed() {
       {
         code: 'aprobada_revisor',
         name: 'Aprobada por revisor',
-        description: 'Lista para revisión de Gerencia',
+        description: 'Pendiente de autorización de Gerencia de Proyectos',
         color: 'green',
         order: 3,
+      },
+      {
+        code: 'pendiente_autorizacion',
+        name: 'Pendiente de autorización',
+        description: 'Esperando autorización de Gerencia de Proyectos',
+        color: 'amber',
+        order: 4,
+      },
+      {
+        code: 'autorizado',
+        name: 'Autorizado',
+        description: 'Autorizado por Gerencia de Proyectos, listo para Gerencia',
+        color: 'lime',
+        order: 5,
       },
       {
         code: 'aprobada_gerencia',
         name: 'Aprobada por gerencia',
         description: 'Lista para cotización por Compras',
         color: 'emerald',
-        order: 4,
+        order: 6,
       },
       {
         code: 'en_cotizacion',
         name: 'En cotización',
         description: 'En proceso de cotización por Compras',
         color: 'cyan',
-        order: 5,
+        order: 7,
       },
       {
         code: 'rechazada_revisor',
         name: 'Rechazada por revisor',
         description: 'Devuelta al solicitante',
         color: 'orange',
-        order: 6,
+        order: 8,
       },
       {
         code: 'rechazada_gerencia',
         name: 'Rechazada por gerencia',
         description: 'Devuelta al solicitante por Gerencia',
         color: 'red',
-        order: 7,
+        order: 9,
       },
       {
         code: 'cotizada',
         name: 'Cotizada',
         description: 'Cotizaciones registradas',
         color: 'yellow',
-        order: 8,
+        order: 10,
       },
       {
         code: 'en_orden_compra',
         name: 'En orden de compra',
         description: 'Orden generada y en trámite',
         color: 'indigo',
-        order: 9,
+        order: 11,
       },
       {
         code: 'pendiente_recepcion',
         name: 'Pendiente de recepción',
         description: 'Orden emitida, en espera de materiales',
         color: 'purple',
-        order: 10,
+        order: 12,
       },
       {
         code: 'en_recepcion',
         name: 'En recepción',
         description: 'Recepción parcial de materiales en proceso',
         color: 'violet',
-        order: 11,
+        order: 13,
       },
       {
         code: 'recepcion_completa',
         name: 'Recepción completa',
         description: 'Todos los materiales recibidos',
         color: 'teal',
-        order: 12,
+        order: 14,
       },
     ];
 
@@ -1123,6 +1194,9 @@ async function seed() {
       (r) => r.nombreRol === 'PQRS Puerto Asís',
     )!;
     const comprasRole = roles.find((r) => r.nombreRol === 'Compras')!;
+    const gerenciaProyectosRole = roles.find(
+      (r) => r.nombreRol === 'Gerencia de Proyectos',
+    )!;
 
     const usersData = [
       // Gerencia
@@ -1132,6 +1206,14 @@ async function seed() {
         nombre: 'Laura Pérez',
         cargo: 'Gerente General',
         rolId: gerenciaRole.rolId,
+        estado: true,
+      },
+      {
+        email: 'gerencia.proyectos@canalcongroup.com',
+        password: hashedPassword,
+        nombre: 'Carlos Ramírez',
+        cargo: 'Gerente de Proyectos',
+        rolId: gerenciaProyectosRole.rolId,
         estado: true,
       },
       // Directores de Área
@@ -1803,6 +1885,9 @@ async function seed() {
 
     // Gerencia: Ver, Aprobar
     addRolePermissions('Gerencia', ['Ver', 'Aprobar']);
+
+    // Gerencia de Proyectos: Ver, Crear, Autorizar
+    addRolePermissions('Gerencia de Proyectos', ['Ver', 'Crear', 'Autorizar']);
 
     // Compras: Ver, Cotizar
     addRolePermissions('Compras', ['Ver', 'Cotizar']);

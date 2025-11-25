@@ -75,4 +75,6 @@ async function updateEmailDomain() {
   }
 }
 
-updateEmailDomain();
+// Comentado para evitar ejecución automática durante migraciones
+// Ejecutar manualmente con: npm run update:emails
+// updateEmailDomain();

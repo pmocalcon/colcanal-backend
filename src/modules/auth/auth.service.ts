@@ -31,12 +31,12 @@ export class AuthService {
       const { email, password } = loginDto;
 
       // Validate corporate email domain
-      const corporateDomain =
-        this.configService.get<string>('corporateEmailDomain') ||
-        '@canalcongroup.com';
-      if (!email.endsWith(corporateDomain)) {
+      const allowedDomains = ['@canalco.com', '@alumbrado.com', '@canalcongroup.com'];
+      const emailDomain = '@' + email.split('@')[1];
+
+      if (!allowedDomains.includes(emailDomain)) {
         throw new BadRequestException(
-          `Email must be from ${corporateDomain} domain`,
+          `El correo electrónico corporativo debe terminar en ${allowedDomains.join(', ')}`,
         );
       }
 

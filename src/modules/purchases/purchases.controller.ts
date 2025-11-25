@@ -548,6 +548,45 @@ export class PurchasesController {
     );
   }
 
+  @Post(':id/authorize')
+  @ApiOperation({
+    summary: 'Autorizar requisición (Gerencia de Proyectos)',
+    description:
+      'Permite a Gerencia de Proyectos autorizar o rechazar requisiciones creadas por Directores de Proyecto en proyectos específicos.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID de la requisición a autorizar',
+    type: Number,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Requisición autorizada exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'La requisición no está en estado válido para autorización',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'No tiene permisos para autorizar esta requisición',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Requisición no encontrada',
+  })
+  async authorizeRequisition(
+    @GetUser() user: User,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() authorizeDto: { decision: 'authorize' | 'reject'; comments?: string },
+  ) {
+    return this.purchasesService.authorizeRequisition(
+      id,
+      user.userId,
+      authorizeDto,
+    );
+  }
+
   @Get(':id/item-approvals')
   @ApiOperation({
     summary: 'Obtener aprobaciones de ítems previas',

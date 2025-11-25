@@ -24,7 +24,8 @@
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
     "seed:run": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
-    "update:emails": "ts-node -r tsconfig-paths/register src/database/migrations/update-email-domain.ts"
+    "update:emails": "ts-node -r tsconfig-paths/register src/database/migrations/update-email-domain.ts",
+    "migrate:companies": "ts-node -r tsconfig-paths/register src/database/migrations/update-companies-and-projects.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

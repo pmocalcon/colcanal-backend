@@ -272,6 +272,74 @@ export class PurchasesService {
   }
 
   // ============================================
+  // HELPER: Determinar si requiere autorización de Gerencia de Proyectos
+  // ============================================
+  private async requiresProjectManagementAuthorization(
+    requisition: Requisition,
+  ): Promise<boolean> {
+    // 1. Obtener información del creador
+    const creator = await this.userRepository.findOne({
+      where: { userId: requisition.createdBy },
+      relations: ['role'],
+    });
+
+    if (!creator) {
+      return false;
+    }
+
+    // 2. Verificar si el creador es Director de Proyecto
+    const isProjectDirector = [
+      'Director de Proyecto Antioquia',
+      'Director de Proyecto Quindío',
+      'Director de Proyecto Valle',
+      'Director de Proyecto Putumayo',
+    ].includes(creator.role.nombreRol);
+
+    if (!isProjectDirector) {
+      return false;
+    }
+
+    // 3. Obtener información de la empresa
+    const company = await this.companyRepository.findOne({
+      where: { companyId: requisition.companyId },
+    });
+
+    if (!company) {
+      return false;
+    }
+
+    // 4. Si es una UT (no Canales & Contactos) → requiere autorización
+    if (!company.name.includes('Canales & Contactos')) {
+      return true;
+    }
+
+    // 5. Si es Canales & Contactos, verificar el proyecto
+    if (requisition.projectId) {
+      const project = await this.dataSource
+        .getRepository('Project')
+        .findOne({
+          where: { projectId: requisition.projectId },
+        });
+
+      if (!project) {
+        return false;
+      }
+
+      // Proyectos que requieren autorización
+      const projectsRequiringAuth = [
+        'Ciudad Bolívar',
+        'Jericó',
+        'Pueblo Rico',
+        'Tarso',
+      ];
+
+      return projectsRequiringAuth.includes(project.name);
+    }
+
+    return false;
+  }
+
+  // ============================================
   // MÉTODOS CRUD BÁSICOS
   // ============================================
 
@@ -973,9 +1041,18 @@ export class PurchasesService {
       let action: string;
 
       if (dto.decision === 'approve') {
-        // Cambiar a estado "aprobada por revisor"
-        newStatusCode = 'aprobada_revisor';
-        action = 'revisar_aprobar';
+        // Verificar si requiere autorización de Gerencia de Proyectos
+        const requiresAuth = await this.requiresProjectManagementAuthorization(requisition);
+
+        if (requiresAuth) {
+          // Si requiere autorización, cambiar a "pendiente de autorización"
+          newStatusCode = 'pendiente_autorizacion';
+          action = 'revisar_aprobar_pendiente_autorizacion';
+        } else {
+          // Si NO requiere autorización, cambiar a "aprobada por revisor"
+          newStatusCode = 'aprobada_revisor';
+          action = 'revisar_aprobar';
+        }
       } else {
         // Rechazar
         newStatusCode = 'rechazada_revisor';
@@ -1027,6 +1104,91 @@ export class PurchasesService {
     }
   }
 
+  // ============================================
+  // AUTORIZAR REQUISICIÓN (Gerencia de Proyectos)
+  // ============================================
+  async authorizeRequisition(
+    requisitionId: number,
+    userId: number,
+    dto: { decision: 'authorize' | 'reject'; comments?: string },
+  ) {
+    const requisition = await this.requisitionRepository.findOne({
+      where: { requisitionId },
+      relations: ['status'],
+    });
+
+    if (!requisition) {
+      throw new NotFoundException('Requisición no encontrada');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+
+    // Validar que el usuario es Gerencia de Proyectos
+    if (user?.role.nombreRol !== 'Gerencia de Proyectos') {
+      throw new ForbiddenException('Solo Gerencia de Proyectos puede autorizar requisiciones');
+    }
+
+    // Validar estado actual: debe estar en "pendiente_autorizacion"
+    if (requisition.status.code !== 'pendiente_autorizacion') {
+      throw new BadRequestException(
+        `Esta requisición no puede ser autorizada en su estado actual: ${requisition.status.code}`,
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const previousStatus = requisition.status.code;
+      let newStatusCode: string;
+      let action: string;
+
+      if (dto.decision === 'authorize') {
+        // Autorizar: cambiar a "autorizado"
+        newStatusCode = 'autorizado';
+        action = 'autorizar_aprobar';
+      } else {
+        // Rechazar: devolver a "rechazada_revisor" para que el creador corrija
+        newStatusCode = 'rechazada_revisor';
+        action = 'autorizar_rechazar';
+      }
+
+      const newStatusId = await this.getStatusIdByCode(newStatusCode);
+
+      // Actualizar la requisición con el nuevo estado
+      await queryRunner.manager.update(Requisition, requisitionId, {
+        statusId: newStatusId,
+      });
+
+      // Registrar log
+      const log = queryRunner.manager.create(RequisitionLog, {
+        requisitionId,
+        userId,
+        action,
+        previousStatus,
+        newStatus: newStatusCode,
+        comments:
+          dto.comments ||
+          `Requisición ${dto.decision === 'authorize' ? 'autorizada' : 'rechazada'} por Gerencia de Proyectos`,
+      });
+
+      await queryRunner.manager.save(log);
+
+      await queryRunner.commitTransaction();
+
+      return this.getRequisitionById(requisitionId, userId);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async approveRequisition(
     requisitionId: number,
     userId: number,
@@ -1051,9 +1213,10 @@ export class PurchasesService {
       throw new ForbiddenException('Solo Gerencia puede aprobar requisiciones');
     }
 
-    // Validar estado actual: acepta 'pendiente' (para Directores de Área/Técnico)
-    // o 'aprobada_revisor' (para roles que pasaron por revisor)
-    const validStatuses = ['pendiente', 'aprobada_revisor'];
+    // Validar estado actual: acepta 'pendiente' (para Directores de Área/Técnico),
+    // 'aprobada_revisor' (para roles que pasaron por revisor),
+    // o 'autorizado' (para requisiciones que pasaron por autorización de Gerencia de Proyectos)
+    const validStatuses = ['pendiente', 'aprobada_revisor', 'autorizado'];
     if (!validStatuses.includes(requisition.status.code)) {
       throw new BadRequestException(
         `Esta requisición no puede ser aprobada en su estado actual: ${requisition.status.code}`,
