@@ -277,29 +277,7 @@ export class PurchasesService {
   private async requiresProjectManagementAuthorization(
     requisition: Requisition,
   ): Promise<boolean> {
-    // 1. Obtener información del creador
-    const creator = await this.userRepository.findOne({
-      where: { userId: requisition.createdBy },
-      relations: ['role'],
-    });
-
-    if (!creator) {
-      return false;
-    }
-
-    // 2. Verificar si el creador es Director de Proyecto
-    const isProjectDirector = [
-      'Director de Proyecto Antioquia',
-      'Director de Proyecto Quindío',
-      'Director de Proyecto Valle',
-      'Director de Proyecto Putumayo',
-    ].includes(creator.role.nombreRol);
-
-    if (!isProjectDirector) {
-      return false;
-    }
-
-    // 3. Obtener información de la empresa
+    // 1. Obtener información de la empresa
     const company = await this.companyRepository.findOne({
       where: { companyId: requisition.companyId },
     });
@@ -308,12 +286,12 @@ export class PurchasesService {
       return false;
     }
 
-    // 4. Si es una UT (no Canales & Contactos) → requiere autorización
+    // 2. Si es una UT (no Canales & Contactos) → requiere autorización
     if (!company.name.includes('Canales & Contactos')) {
       return true;
     }
 
-    // 5. Si es Canales & Contactos, verificar el proyecto
+    // 3. Si es Canales & Contactos, verificar el proyecto
     if (requisition.projectId) {
       const project = await this.dataSource
         .getRepository('Project')
