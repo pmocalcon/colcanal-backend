@@ -14,7 +14,6 @@ import { ProjectCode } from '../entities/project-code.entity';
 import { RequisitionPrefix } from '../entities/requisition-prefix.entity';
 import { RequisitionSequence } from '../entities/requisition-sequence.entity';
 import { RequisitionStatus } from '../entities/requisition-status.entity';
-import { PurchaseOrderStatus } from '../entities/purchase-order-status.entity';
 import { MaterialGroup } from '../entities/material-group.entity';
 import { Material } from '../entities/material.entity';
 import { Authorization } from '../entities/authorization.entity';
@@ -44,8 +43,6 @@ async function seed() {
       dataSource.getRepository(RequisitionSequence);
     const requisitionStatusRepository =
       dataSource.getRepository(RequisitionStatus);
-    const purchaseOrderStatusRepository =
-      dataSource.getRepository(PurchaseOrderStatus);
     const materialGroupRepository = dataSource.getRepository(MaterialGroup);
     const materialRepository = dataSource.getRepository(Material);
     const authorizationRepository = dataSource.getRepository(Authorization);
@@ -858,11 +855,21 @@ async function seed() {
       },
     ];
 
-    const purchaseOrderStatuses = await purchaseOrderStatusRepository.save(
-      purchaseOrderStatusesData,
-    );
+    // Usar upsert para evitar errores de duplicados
+    for (const status of purchaseOrderStatusesData) {
+      await dataSource.query(
+        `INSERT INTO purchase_order_statuses (code, name, description, color, "order")
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (code) DO UPDATE SET
+           name = EXCLUDED.name,
+           description = EXCLUDED.description,
+           color = EXCLUDED.color,
+           "order" = EXCLUDED."order"`,
+        [status.code, status.name, status.description, status.color, status.order],
+      );
+    }
     console.log(
-      `✅ Created ${purchaseOrderStatuses.length} purchase order statuses`,
+      `✅ Created/Updated ${purchaseOrderStatusesData.length} purchase order statuses`,
     );
 
     // ============================================
