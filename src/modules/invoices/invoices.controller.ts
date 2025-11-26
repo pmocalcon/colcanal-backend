@@ -24,6 +24,7 @@ import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { SendToAccountingDto } from './dto/send-to-accounting.dto';
+import { ReceivedByAccountingDto } from './dto/received-by-accounting.dto';
 import { User } from '../../database/entities/user.entity';
 
 @ApiTags('Invoices - Facturas')
@@ -121,5 +122,60 @@ export class InvoicesController {
     @Body() sendToAccountingDto: SendToAccountingDto,
   ) {
     return this.invoicesService.sendToAccounting(purchaseOrderId, sendToAccountingDto);
+  }
+
+  // ============================================
+  // ENDPOINTS PARA CONTABILIDAD
+  // ============================================
+
+  @Get('accounting/pending')
+  @ApiOperation({
+    summary: 'Listar facturas pendientes de recibir por contabilidad',
+    description: 'Obtiene las órdenes de compra con facturas enviadas a contabilidad pero aún no marcadas como recibidas',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Lista obtenida exitosamente' })
+  async getInvoicesPendingAccountingReception(
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+  ) {
+    return this.invoicesService.getInvoicesPendingAccountingReception(page, limit);
+  }
+
+  @Get('accounting/received')
+  @ApiOperation({
+    summary: 'Listar facturas ya recibidas por contabilidad',
+    description: 'Obtiene las órdenes de compra con facturas que ya fueron marcadas como recibidas por contabilidad',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Lista obtenida exitosamente' })
+  async getInvoicesReceivedByAccounting(
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+  ) {
+    return this.invoicesService.getInvoicesReceivedByAccounting(page, limit);
+  }
+
+  @Post('accounting/mark-received/:purchaseOrderId')
+  @ApiOperation({
+    summary: 'Marcar facturas como recibidas por contabilidad',
+    description: 'Marca todas las facturas de una orden como recibidas por contabilidad. Este es el paso final del proceso de facturación.',
+  })
+  @ApiParam({ name: 'purchaseOrderId', type: Number })
+  @ApiResponse({ status: 200, description: 'Facturas marcadas como recibidas exitosamente' })
+  @ApiResponse({ status: 400, description: 'Las facturas no han sido enviadas a contabilidad' })
+  @ApiResponse({ status: 404, description: 'Orden de compra no encontrada' })
+  async markAsReceivedByAccounting(
+    @Param('purchaseOrderId', ParseIntPipe) purchaseOrderId: number,
+    @GetUser() user: User,
+    @Body() receivedByAccountingDto: ReceivedByAccountingDto,
+  ) {
+    return this.invoicesService.markAsReceivedByAccounting(
+      purchaseOrderId,
+      user.userId,
+      receivedByAccountingDto,
+    );
   }
 }

@@ -12,6 +12,7 @@ import { Requisition } from '../../database/entities/requisition.entity';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { SendToAccountingDto } from './dto/send-to-accounting.dto';
+import { ReceivedByAccountingDto } from './dto/received-by-accounting.dto';
 
 @Injectable()
 export class InvoicesService {
@@ -450,5 +451,129 @@ export class InvoicesService {
     purchaseOrder.invoiceStatus = invoiceStatus;
 
     await this.purchaseOrderRepository.save(purchaseOrder);
+  }
+
+  /**
+   * Obtener órdenes de compra con facturas enviadas a contabilidad pero pendientes de recibir
+   */
+  async getInvoicesPendingAccountingReception(
+    page: number = 1,
+    limit: number = 10,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const [purchaseOrders, total] = await this.purchaseOrderRepository
+      .createQueryBuilder('po')
+      .leftJoinAndSelect('po.requisition', 'requisition')
+      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
+      .leftJoinAndSelect('operationCenter.company', 'company')
+      .leftJoinAndSelect('po.supplier', 'supplier')
+      .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
+      .leftJoinAndSelect('po.invoices', 'invoices')
+      .leftJoinAndSelect('invoices.creator', 'invoiceCreator')
+      .where('po.invoiceStatus = :status', { status: 'enviada_contabilidad' })
+      .skip(skip)
+      .take(limit)
+      .orderBy('po.createdAt', 'DESC')
+      .getManyAndCount();
+
+    return {
+      data: purchaseOrders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Obtener órdenes de compra con facturas ya recibidas por contabilidad
+   */
+  async getInvoicesReceivedByAccounting(
+    page: number = 1,
+    limit: number = 10,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const [purchaseOrders, total] = await this.purchaseOrderRepository
+      .createQueryBuilder('po')
+      .leftJoinAndSelect('po.requisition', 'requisition')
+      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
+      .leftJoinAndSelect('operationCenter.company', 'company')
+      .leftJoinAndSelect('po.supplier', 'supplier')
+      .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
+      .leftJoinAndSelect('po.invoices', 'invoices')
+      .leftJoinAndSelect('invoices.creator', 'invoiceCreator')
+      .leftJoinAndSelect('invoices.receivedByAccountingUser', 'receivedByUser')
+      .where('po.invoiceStatus = :status', { status: 'recibida_contabilidad' })
+      .skip(skip)
+      .take(limit)
+      .orderBy('po.createdAt', 'DESC')
+      .getManyAndCount();
+
+    return {
+      data: purchaseOrders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Marcar facturas como recibidas por contabilidad
+   * Este es el paso final del proceso de facturación
+   */
+  async markAsReceivedByAccounting(
+    purchaseOrderId: number,
+    userId: number,
+    receivedByAccountingDto: ReceivedByAccountingDto,
+  ) {
+    const purchaseOrder = await this.purchaseOrderRepository.findOne({
+      where: { purchaseOrderId },
+      relations: ['invoices'],
+    });
+
+    if (!purchaseOrder) {
+      throw new NotFoundException(
+        `Orden de compra con ID ${purchaseOrderId} no encontrada`,
+      );
+    }
+
+    // Verificar que las facturas hayan sido enviadas a contabilidad
+    if (purchaseOrder.invoiceStatus !== 'enviada_contabilidad') {
+      throw new BadRequestException(
+        'Solo se pueden marcar como recibidas las facturas que ya fueron enviadas a contabilidad. ' +
+        `Estado actual: ${purchaseOrder.invoiceStatus}`,
+      );
+    }
+
+    // Verificar que tenga facturas
+    if (!purchaseOrder.invoices || purchaseOrder.invoices.length === 0) {
+      throw new BadRequestException(
+        'La orden de compra no tiene facturas registradas',
+      );
+    }
+
+    // Marcar todas las facturas como recibidas por contabilidad
+    const receivedDate = new Date(receivedByAccountingDto.receivedDate);
+
+    for (const invoice of purchaseOrder.invoices) {
+      invoice.receivedByAccounting = true;
+      invoice.receivedByAccountingDate = receivedDate;
+      invoice.receivedByAccountingUserId = userId;
+      await this.invoiceRepository.save(invoice);
+    }
+
+    // Actualizar estado de la orden de compra al estado final
+    purchaseOrder.invoiceStatus = 'recibida_contabilidad';
+    await this.purchaseOrderRepository.save(purchaseOrder);
+
+    return {
+      message: 'Facturas marcadas como recibidas por contabilidad exitosamente',
+      receivedDate: receivedDate.toISOString().split('T')[0],
+      invoicesCount: purchaseOrder.invoices.length,
+      receivedBy: userId,
+    };
   }
 }

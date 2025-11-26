@@ -36,6 +36,16 @@ export class Invoice {
   @Column({ name: 'sent_to_accounting_date', type: 'date', nullable: true })
   sentToAccountingDate: Date | null;
 
+  // Campos para recepción por contabilidad
+  @Column({ name: 'received_by_accounting', default: false })
+  receivedByAccounting: boolean;
+
+  @Column({ name: 'received_by_accounting_date', type: 'date', nullable: true })
+  receivedByAccountingDate: Date | null;
+
+  @Column({ name: 'received_by_accounting_user_id', nullable: true })
+  receivedByAccountingUserId: number | null;
+
   @Column({ name: 'created_by' })
   createdBy: number;
 
@@ -53,4 +63,8 @@ export class Invoice {
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
   creator: User;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'received_by_accounting_user_id' })
+  receivedByAccountingUser: User;
 }
