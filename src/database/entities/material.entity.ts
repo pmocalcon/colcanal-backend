@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { MaterialGroup } from './material-group.entity';
 import { RequisitionItem } from './requisition-item.entity';
+import { MaterialPriceHistory } from './material-price-history.entity';
 
 @Entity('materials')
 export class Material {
@@ -29,4 +30,7 @@ export class Material {
 
   @OneToMany(() => RequisitionItem, (item) => item.material)
   requisitionItems: RequisitionItem[];
+
+  @OneToMany(() => MaterialPriceHistory, (price) => price.material)
+  priceHistory: MaterialPriceHistory[];
 }

@@ -14,6 +14,7 @@ import { ProjectCode } from '../entities/project-code.entity';
 import { RequisitionPrefix } from '../entities/requisition-prefix.entity';
 import { RequisitionSequence } from '../entities/requisition-sequence.entity';
 import { RequisitionStatus } from '../entities/requisition-status.entity';
+import { MaterialCategory } from '../entities/material-category.entity';
 import { MaterialGroup } from '../entities/material-group.entity';
 import { Material } from '../entities/material.entity';
 import { Authorization } from '../entities/authorization.entity';
@@ -43,6 +44,7 @@ async function seed() {
       dataSource.getRepository(RequisitionSequence);
     const requisitionStatusRepository =
       dataSource.getRepository(RequisitionStatus);
+    const materialCategoryRepository = dataSource.getRepository(MaterialCategory);
     const materialGroupRepository = dataSource.getRepository(MaterialGroup);
     const materialRepository = dataSource.getRepository(Material);
     const authorizationRepository = dataSource.getRepository(Authorization);
@@ -72,6 +74,9 @@ async function seed() {
     );
     await dataSource.query(
       'TRUNCATE TABLE "material_groups" RESTART IDENTITY CASCADE',
+    );
+    await dataSource.query(
+      'TRUNCATE TABLE "material_categories" RESTART IDENTITY CASCADE',
     );
     await dataSource.query(
       'TRUNCATE TABLE "requisition_sequences" RESTART IDENTITY CASCADE',
@@ -873,23 +878,33 @@ async function seed() {
     );
 
     // ============================================
-    // 13. SEED MATERIAL GROUPS
+    // 13. SEED MATERIAL CATEGORIES
+    // ============================================
+    console.log('Seeding material categories...');
+    const pendingCategory = await materialCategoryRepository.save({
+      name: 'Pendiente',
+      description: 'Categoría temporal para materiales sin categorizar',
+    });
+    console.log(`✅ Created category: ${pendingCategory.name}`);
+
+    // ============================================
+    // 14. SEED MATERIAL GROUPS
     // ============================================
     console.log('Seeding material groups...');
     const materialGroupsData = [
-      { name: 'Luminarias y Reflectores' },
-      { name: 'Herrajes' },
-      { name: 'Conectores' },
-      { name: 'Protectores' },
-      { name: 'Electrónico' },
-      { name: 'Suministros de Oficina' },
+      { name: 'Luminarias y Reflectores', categoryId: pendingCategory.categoryId },
+      { name: 'Herrajes', categoryId: pendingCategory.categoryId },
+      { name: 'Conectores', categoryId: pendingCategory.categoryId },
+      { name: 'Protectores', categoryId: pendingCategory.categoryId },
+      { name: 'Electrónico', categoryId: pendingCategory.categoryId },
+      { name: 'Suministros de Oficina', categoryId: pendingCategory.categoryId },
     ];
-    
+
     const materialGroups = await materialGroupRepository.save(materialGroupsData);
     console.log(`✅ Created ${materialGroups.length} material groups`);
 
     // ============================================
-    // 14. SEED MATERIALS (catálogo básico)
+    // 15. SEED MATERIALS (catálogo básico)
     // ============================================
     console.log('Seeding materials...');
 
@@ -1205,241 +1220,81 @@ async function seed() {
       (r) => r.nombreRol === 'Gerencia de Proyectos',
     )!;
 
-    const usersData = [
-      // Gerencia
-      {
-        email: 'gerencia@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Laura Pérez',
-        cargo: 'Gerente General',
-        rolId: gerenciaRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'gerencia.proyectos@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Carlos Ramírez',
-        cargo: 'Gerente de Proyectos',
-        rolId: gerenciaProyectosRole.rolId,
-        estado: true,
-      },
-      // Directores de Área
-      {
-        email: 'director.pmo@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Roberto Mendoza',
-        cargo: 'Director PMO',
-        rolId: dirPMORole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.comercial@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Patricia Vargas',
-        cargo: 'Directora Comercial',
-        rolId: dirComercialRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.juridico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Andrés Morales',
-        cargo: 'Director Jurídico',
-        rolId: dirJuridicoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.tecnico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Carlos Rivas',
-        cargo: 'Director Técnico',
-        rolId: dirTecnicoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.financiero@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Diana Torres',
-        cargo: 'Directora Financiera y Administrativa',
-        rolId: dirFinancieroRole.rolId,
-        estado: true,
-      },
-      // Directores de Proyecto
-      {
-        email: 'director.antioquia@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Ana Restrepo',
-        cargo: 'Directora de Proyecto Antioquia',
-        rolId: dirProyAntioquiaRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.quindio@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Jorge Cardona',
-        cargo: 'Director de Proyecto Quindío',
-        rolId: dirProyQuindioRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.valle@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Claudia Ramírez',
-        cargo: 'Directora de Proyecto Valle',
-        rolId: dirProyValleRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'director.putumayo@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Miguel Ángel Castro',
-        cargo: 'Director de Proyecto Putumayo',
-        rolId: dirProyPutumayoRole.rolId,
-        estado: true,
-      },
-      // Analistas y Coordinadores
-      {
-        email: 'analista.pmo@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Sandra Jiménez',
-        cargo: 'Analista PMO',
-        rolId: analistaPMORole.rolId,
-        estado: true,
-      },
-      {
-        email: 'analista.comercial@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Luis Fernando López',
-        cargo: 'Analista Comercial',
-        rolId: analistaComercialRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'analista.juridico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Carolina Herrera',
-        cargo: 'Analista Jurídica',
-        rolId: analistaJuridicoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'analista.admin@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Javier Sánchez',
-        cargo: 'Analista Administrativo',
-        rolId: analistaAdminRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'coordinador.financiero@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Marcela Rojas',
-        cargo: 'Coordinadora Financiera',
-        rolId: coordFinancieroRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'coordinador.juridico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Ricardo Bermúdez',
-        cargo: 'Coordinador Jurídico',
-        rolId: coordJuridicoRole.rolId,
-        estado: true,
-      },
-      // PQRS (Personal de campo)
-      {
-        email: 'pqrs.elcerrito@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Sofía Martínez',
-        cargo: 'PQRS El Cerrito',
-        rolId: pqrsElCerritoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.guacari@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Juan Pablo García',
-        cargo: 'PQRS Guacarí',
-        rolId: pqrsGuacariRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.circasia@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'María Fernanda Álvarez',
-        cargo: 'PQRS Circasia',
-        rolId: pqrsCircasiaRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.quimbaya@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Andrés Felipe Ospina',
-        cargo: 'PQRS Quimbaya',
-        rolId: pqrsQuimbayaRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.jerico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Natalia Vélez',
-        cargo: 'PQRS Jericó',
-        rolId: pqrsJericoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.ciudadbolivar@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Daniel Mejía',
-        cargo: 'PQRS Ciudad Bolívar',
-        rolId: pqrsCiudadBolivarRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.tarso@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Mario Gómez',
-        cargo: 'PQRS Tarso',
-        rolId: pqrsTarsoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.pueblorico@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Laura Cristina Montoya',
-        cargo: 'PQRS Pueblo Rico',
-        rolId: pqrsPuebloRicoRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.santabarbara@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Camilo Andrés Quintero',
-        cargo: 'PQRS Santa Bárbara',
-        rolId: pqrsSantaBarbaraRole.rolId,
-        estado: true,
-      },
-      {
-        email: 'pqrs.puertoasis@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Valentina Garzón',
-        cargo: 'PQRS Puerto Asís',
-        rolId: pqrsPuertoAsisRole.rolId,
-        estado: true,
-      },
-      // Compras
-      {
-        email: 'compras@canalcongroup.com',
-        password: hashedPassword,
-        nombre: 'Paola Silva',
-        cargo: 'Coordinadora de Compras',
-        rolId: comprasRole.rolId,
-        estado: true,
-      },
+    // ============================================
+    // 14. SEED USERS - ENFOQUE DATA-DRIVEN
+    // ============================================
+    console.log('Seeding users...');
+
+    // 📊 ESTRUCTURA DE DATOS: Define aquí todos los usuarios a crear
+    // Cada fila representa un usuario con su contraseña individual
+    const usersDataSource = [
+      // GERENCIA
+      { email: 'gerencia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Laura Pérez', cargo: 'Gerente General', rol: 'Gerencia', estado: true },
+      { email: 'gerencia.proyectos@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carlos Ramírez', cargo: 'Gerente de Proyectos', rol: 'Gerencia de Proyectos', estado: true },
+
+      // DIRECTORES DE ÁREA
+      { email: 'director.pmo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Roberto Mendoza', cargo: 'Director PMO', rol: 'Director PMO', estado: true },
+      { email: 'director.comercial@canalcongroup.com', password: 'Canalco2025!', nombre: 'Patricia Vargas', cargo: 'Directora Comercial', rol: 'Director Comercial', estado: true },
+      { email: 'director.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Andrés Morales', cargo: 'Director Jurídico', rol: 'Director Jurídico', estado: true },
+      { email: 'director.tecnico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carlos Rivas', cargo: 'Director Técnico', rol: 'Director Técnico', estado: true },
+      { email: 'director.financiero@canalcongroup.com', password: 'Canalco2025!', nombre: 'Diana Torres', cargo: 'Directora Financiera y Administrativa', rol: 'Director Financiero y Administrativo', estado: true },
+
+      // DIRECTORES DE PROYECTO
+      { email: 'director.antioquia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Ana Restrepo', cargo: 'Directora de Proyecto Antioquia', rol: 'Director de Proyecto Antioquia', estado: true },
+      { email: 'director.quindio@canalcongroup.com', password: 'Canalco2025!', nombre: 'Jorge Cardona', cargo: 'Director de Proyecto Quindío', rol: 'Director de Proyecto Quindío', estado: true },
+      { email: 'director.valle@canalcongroup.com', password: 'Canalco2025!', nombre: 'Claudia Ramírez', cargo: 'Directora de Proyecto Valle', rol: 'Director de Proyecto Valle', estado: true },
+      { email: 'director.putumayo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Miguel Ángel Castro', cargo: 'Director de Proyecto Putumayo', rol: 'Director de Proyecto Putumayo', estado: true },
+
+      // ANALISTAS
+      { email: 'analista.pmo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Sandra Jiménez', cargo: 'Analista PMO', rol: 'Analista PMO', estado: true },
+      { email: 'analista.comercial@canalcongroup.com', password: 'Canalco2025!', nombre: 'Luis Fernando López', cargo: 'Analista Comercial', rol: 'Analista Comercial', estado: true },
+      { email: 'analista.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carolina Herrera', cargo: 'Analista Jurídica', rol: 'Analista Jurídico', estado: true },
+      { email: 'analista.admin@canalcongroup.com', password: 'Canalco2025!', nombre: 'Javier Sánchez', cargo: 'Analista Administrativo', rol: 'Analista Administrativo', estado: true },
+
+      // COORDINADORES
+      { email: 'coordinadora.financiera1@canalcongroup.com', password: 'Canalco2025!', nombre: 'Marcela Rojas', cargo: 'Coordinadora Financiera', rol: 'Coordinador Financiero', estado: true },
+      { email: 'coordinador.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Ricardo Bermúdez', cargo: 'Coordinador Jurídico', rol: 'Coordinador Jurídico', estado: true },
+
+      // PQRS
+      { email: 'pqrs.elcerrito@canalcongroup.com', password: 'Canalco2025!', nombre: 'Gloria Estrada', cargo: 'Responsable PQRS El Cerrito', rol: 'PQRS El Cerrito', estado: true },
+      { email: 'pqrs.guacari@canalcongroup.com', password: 'Canalco2025!', nombre: 'Fernando Córdoba', cargo: 'Responsable PQRS Guacarí', rol: 'PQRS Guacarí', estado: true },
+      { email: 'pqrs.circasia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Liliana Gómez', cargo: 'Responsable PQRS Circasia', rol: 'PQRS Circasia', estado: true },
+      { email: 'pqrs.quimbaya@canalcongroup.com', password: 'Canalco2025!', nombre: 'Diego Murillo', cargo: 'Responsable PQRS Quimbaya', rol: 'PQRS Quimbaya', estado: true },
+      { email: 'pqrs.jerico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Beatriz Salazar', cargo: 'Responsable PQRS Jericó', rol: 'PQRS Jericó', estado: true },
+      { email: 'pqrs.ciudadbolivar@canalcongroup.com', password: 'Canalco2025!', nombre: 'Alberto Henao', cargo: 'Responsable PQRS Ciudad Bolívar', rol: 'PQRS Ciudad Bolívar', estado: true },
+      { email: 'pqrs.tarso@canalcongroup.com', password: 'Canalco2025!', nombre: 'María Eugenia Ríos', cargo: 'Responsable PQRS Tarso', rol: 'PQRS Tarso', estado: true },
+      { email: 'pqrs.pueblorico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Hernán Zapata', cargo: 'Responsable PQRS Pueblo Rico', rol: 'PQRS Pueblo Rico', estado: true },
+      { email: 'pqrs.santabarbara@canalcongroup.com', password: 'Canalco2025!', nombre: 'Claudia Montoya', cargo: 'Responsable PQRS Santa Bárbara', rol: 'PQRS Santa Bárbara', estado: true },
+      { email: 'pqrs.puertoasis@canalcongroup.com', password: 'Canalco2025!', nombre: 'Rodrigo Carvajal', cargo: 'Responsable PQRS Puerto Asís', rol: 'PQRS Puerto Asís', estado: true },
+
+      // COMPRAS
+      { email: 'compras@canalcongroup.com', password: 'Canalco2025!', nombre: 'Fabián Gutiérrez', cargo: 'Responsable de Compras', rol: 'Compras', estado: true },
     ];
 
+    // 🔄 PROCESAMIENTO: Hash de contraseñas y mapeo de roles
+    const rolesMap = new Map(roles.map(r => [r.nombreRol, r]));
+
+    const usersData = await Promise.all(
+      usersDataSource.map(async (userData) => {
+        const role = rolesMap.get(userData.rol);
+        if (!role) {
+          throw new Error(`Rol no encontrado: ${userData.rol}`);
+        }
+
+        return {
+          email: userData.email,
+          password: await bcrypt.hash(userData.password, 10),
+          nombre: userData.nombre,
+          cargo: userData.cargo,
+          rolId: role.rolId,
+          estado: userData.estado,
+        };
+      })
+    );
+
+    // 💾 GUARDADO: Inserción en base de datos
     const users = await userRepository.save(usersData);
-    console.log(`✅ Created ${users.length} test users`);
+    console.log(`✅ Created ${users.length} users`);
 
     // ============================================
     // 15. SEED AUTHORIZATIONS (jerarquía de supervisión completa)
@@ -1959,7 +1814,7 @@ async function seed() {
     console.log('   - pqrs.santabarbara@canalcongroup.com');
     console.log('   - pqrs.puertoasis@canalcongroup.com');
     console.log('\n   COMPRAS:');
-    console.log('   - compras@canalcongroup.com');
+    console.log('   - coordinadora.financiera1@canalcongroup.com');
     console.log('\n' + '='.repeat(50) + '\n');
 
     await dataSource.destroy();

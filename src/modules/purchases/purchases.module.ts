@@ -18,6 +18,7 @@ import { OperationCenter } from '../../database/entities/operation-center.entity
 import { ProjectCode } from '../../database/entities/project-code.entity';
 import { Material } from '../../database/entities/material.entity';
 import { MaterialGroup } from '../../database/entities/material-group.entity';
+import { MaterialCategory } from '../../database/entities/material-category.entity';
 import { User } from '../../database/entities/user.entity';
 import { Role } from '../../database/entities/role.entity';
 import { Authorization } from '../../database/entities/authorization.entity';
@@ -50,6 +51,7 @@ import { PurchaseOrderItemApproval } from '../../database/entities/purchase-orde
       ProjectCode,
       Material,
       MaterialGroup,
+      MaterialCategory,
       // Auth entities
       User,
       Role,

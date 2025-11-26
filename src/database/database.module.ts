@@ -21,6 +21,10 @@ import * as entities from './entities';
         migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
         migrationsRun: false,
         ssl: { rejectUnauthorized: false },
+        extra: {
+          // Configurar zona horaria de Colombia en PostgreSQL
+          timezone: 'America/Bogota',
+        },
       }),
     }),
   ],

@@ -5,9 +5,11 @@ import {
   ManyToOne,
   JoinColumn,
   CreateDateColumn,
+  OneToMany,
 } from 'typeorm';
 import { PurchaseOrder } from './purchase-order.entity';
 import { User } from './user.entity';
+import { PurchaseOrderItemApproval } from './purchase-order-item-approval.entity';
 
 export enum ApprovalStatus {
   PENDING = 'pendiente',
@@ -60,4 +62,8 @@ export class PurchaseOrderApproval {
   @ManyToOne(() => User)
   @JoinColumn({ name: 'approver_id' })
   approver: User;
+
+  // Aprobaciones individuales de items de esta orden de compra
+  @OneToMany(() => PurchaseOrderItemApproval, (itemApproval) => itemApproval.purchaseOrderApproval)
+  itemApprovals: PurchaseOrderItemApproval[];
 }

@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { RequisitionItemQuotation } from './requisition-item-quotation.entity';
 import { PurchaseOrder } from './purchase-order.entity';
+import { MaterialPriceHistory } from './material-price-history.entity';
 
 @Entity('suppliers')
 export class Supplier {
@@ -57,4 +58,8 @@ export class Supplier {
 
   @OneToMany(() => PurchaseOrder, (order) => order.supplier)
   purchaseOrders: PurchaseOrder[];
+
+  // Historial de precios de materiales de este proveedor
+  @OneToMany(() => MaterialPriceHistory, (price) => price.supplier)
+  priceHistory: MaterialPriceHistory[];
 }

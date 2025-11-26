@@ -12,6 +12,7 @@ import { Company } from '../../database/entities/company.entity';
 import { Project } from '../../database/entities/project.entity';
 import { Material } from '../../database/entities/material.entity';
 import { MaterialGroup } from '../../database/entities/material-group.entity';
+import { MaterialCategory } from '../../database/entities/material-category.entity';
 import { RequisitionStatus } from '../../database/entities/requisition-status.entity';
 import { OperationCenter } from '../../database/entities/operation-center.entity';
 import { ProjectCode } from '../../database/entities/project-code.entity';
@@ -30,6 +31,8 @@ export class MasterDataController {
     private readonly materialRepository: Repository<Material>,
     @InjectRepository(MaterialGroup)
     private readonly materialGroupRepository: Repository<MaterialGroup>,
+    @InjectRepository(MaterialCategory)
+    private readonly materialCategoryRepository: Repository<MaterialCategory>,
     @InjectRepository(RequisitionStatus)
     private readonly statusRepository: Repository<RequisitionStatus>,
     @InjectRepository(OperationCenter)
@@ -235,17 +238,186 @@ export class MasterDataController {
     };
   }
 
+  @Get('material-categories')
+  @ApiOperation({
+    summary: 'Obtener categorías de materiales',
+    description: `
+    Retorna la lista de categorías de materiales disponibles.
+
+    ## Nueva funcionalidad ✨
+
+    Se ha implementado un sistema de categorización de materiales con 3 niveles jerárquicos:
+
+    **MaterialCategory** → **MaterialGroup** → **Material**
+
+    ### Ejemplo de jerarquía:
+    \`\`\`
+    Categoría: "Oficina"
+      └── Grupo: "Papelería"
+            └── Material: "Resma de papel"
+      └── Grupo: "Implementos"
+            └── Material: "Grapadora"
+    \`\`\`
+
+    ## Uso en el formulario
+
+    Este endpoint se usa para:
+    1. Mostrar filtros por categoría en la búsqueda de materiales
+    2. Organizar el catálogo de materiales jerárquicamente
+    3. Facilitar la navegación del usuario al seleccionar materiales
+
+    ## Categoría "Pendiente"
+
+    - Todos los grupos existentes están asignados a la categoría **"Pendiente"**
+    - Esta categoría se usa temporalmente mientras se organizan los materiales
+    - Podrán crear nuevas categorías según la organización necesite
+
+    ## Ejemplo de uso en frontend
+
+    \`\`\`typescript
+    // Obtener categorías para filtro
+    const { data: categories } = await fetch('/api/purchases/master-data/material-categories')
+
+    // Al seleccionar una categoría, filtrar grupos
+    const handleCategoryChange = async (categoryId) => {
+      const { data: groups } = await fetch(
+        \`/api/purchases/master-data/material-groups?categoryId=\${categoryId}\`
+      )
+      setGroupOptions(groups)
+    }
+    \`\`\`
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de categorías retornada exitosamente',
+    schema: {
+      example: {
+        data: [
+          {
+            categoryId: 1,
+            name: 'Pendiente',
+            description: 'Categoría temporal para materiales sin categorizar',
+          },
+          {
+            categoryId: 2,
+            name: 'Oficina',
+            description: 'Materiales y suministros de oficina',
+          },
+          {
+            categoryId: 3,
+            name: 'Eléctrico',
+            description: 'Materiales eléctricos y componentes',
+          },
+        ],
+        total: 3,
+      },
+    },
+  })
+  async getMaterialCategories() {
+    const categories = await this.materialCategoryRepository.find({
+      order: { name: 'ASC' },
+    });
+
+    return {
+      data: categories,
+      total: categories.length,
+    };
+  }
+
   @Get('material-groups')
   @ApiOperation({
-    summary: 'Obtener grupos de materiales',
-    description: 'Retorna la lista de grupos de materiales disponibles',
+    summary: 'Obtener grupos de materiales (opcionalmente filtrados por categoría)',
+    description: `
+    Retorna la lista de grupos de materiales disponibles.
+
+    ## ⚠️ CAMBIO IMPORTANTE - Nueva estructura jerárquica
+
+    Los grupos ahora pertenecen a una **categoría**. La jerarquía completa es:
+
+    **MaterialCategory** → **MaterialGroup** → **Material**
+
+    ### Opción 1: Obtener todos los grupos
+    \`\`\`
+    GET /api/purchases/master-data/material-groups
+    \`\`\`
+
+    ### Opción 2: Filtrar por categoría (Nuevo ✨)
+    \`\`\`
+    GET /api/purchases/master-data/material-groups?categoryId=1
+    \`\`\`
+
+    ## Datos retornados
+
+    Cada grupo ahora incluye:
+    - **groupId**: ID único del grupo
+    - **name**: Nombre del grupo
+    - **categoryId**: ID de la categoría a la que pertenece (NUEVO)
+    - **category**: Objeto con datos de la categoría (NUEVO)
+      - categoryId
+      - name
+      - description
+
+    ## Ejemplo de uso en frontend
+
+    \`\`\`typescript
+    // Filtrado en cascada: Categoría → Grupo → Material
+
+    // 1. Usuario selecciona categoría
+    const handleCategorySelect = async (categoryId) => {
+      const { data: groups } = await fetch(
+        \`/api/purchases/master-data/material-groups?categoryId=\${categoryId}\`
+      )
+      setAvailableGroups(groups)
+    }
+
+    // 2. Usuario selecciona grupo
+    const handleGroupSelect = async (groupId) => {
+      const { data: materials } = await fetch(
+        \`/api/purchases/master-data/materials?groupId=\${groupId}\`
+      )
+      setAvailableMaterials(materials)
+    }
+    \`\`\`
+    `,
   })
   @ApiResponse({
     status: 200,
     description: 'Lista de grupos de materiales retornada exitosamente',
+    schema: {
+      example: {
+        data: [
+          {
+            groupId: 1,
+            name: 'Luminarias y Reflectores',
+            categoryId: 1,
+            category: {
+              categoryId: 1,
+              name: 'Pendiente',
+              description: 'Categoría temporal para materiales sin categorizar',
+            },
+          },
+          {
+            groupId: 2,
+            name: 'Herrajes',
+            categoryId: 1,
+            category: {
+              categoryId: 1,
+              name: 'Pendiente',
+              description: 'Categoría temporal para materiales sin categorizar',
+            },
+          },
+        ],
+        total: 6,
+      },
+    },
   })
-  async getMaterialGroups() {
+  async getMaterialGroups(@Query('categoryId') categoryId?: string) {
+    const where = categoryId ? { categoryId: parseInt(categoryId) } : {};
+
     const groups = await this.materialGroupRepository.find({
+      where,
+      relations: ['category'],
       order: { name: 'ASC' },
     });
 

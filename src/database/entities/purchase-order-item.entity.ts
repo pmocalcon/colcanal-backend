@@ -10,6 +10,8 @@ import { PurchaseOrder } from './purchase-order.entity';
 import { RequisitionItem } from './requisition-item.entity';
 import { RequisitionItemQuotation } from './requisition-item-quotation.entity';
 import { MaterialReceipt } from './material-receipt.entity';
+import { MaterialPriceHistory } from './material-price-history.entity';
+import { PurchaseOrderItemApproval } from './purchase-order-item-approval.entity';
 
 @Entity('purchase_order_items')
 export class PurchaseOrderItem {
@@ -64,4 +66,10 @@ export class PurchaseOrderItem {
 
   @OneToMany(() => MaterialReceipt, (receipt) => receipt.purchaseOrderItem)
   receipts: MaterialReceipt[];
+
+  @OneToMany(() => MaterialPriceHistory, (price) => price.purchaseOrderItem)
+  priceHistoryEntries: MaterialPriceHistory[];
+
+  @OneToMany(() => PurchaseOrderItemApproval, (approval) => approval.purchaseOrderItem)
+  itemApprovals: PurchaseOrderItemApproval[];
 }

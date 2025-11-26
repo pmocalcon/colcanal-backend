@@ -10,6 +10,7 @@ import { Requisition } from './requisition.entity';
 import { Material } from './material.entity';
 import { RequisitionItemQuotation } from './requisition-item-quotation.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
+import { RequisitionItemApproval } from './requisition-item-approval.entity';
 
 @Entity('requisition_items')
 export class RequisitionItem {
@@ -47,4 +48,7 @@ export class RequisitionItem {
 
   @OneToMany(() => PurchaseOrderItem, (poItem) => poItem.requisitionItem)
   purchaseOrderItems: PurchaseOrderItem[];
+
+  @OneToMany(() => RequisitionItemApproval, (approval) => approval.requisitionItem)
+  itemApprovals: RequisitionItemApproval[];
 }

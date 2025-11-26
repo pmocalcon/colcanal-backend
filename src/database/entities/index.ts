@@ -14,6 +14,7 @@ export { OperationCenter } from './operation-center.entity';
 export { ProjectCode } from './project-code.entity';
 export { RequisitionPrefix } from './requisition-prefix.entity';
 export { RequisitionSequence } from './requisition-sequence.entity';
+export { MaterialCategory } from './material-category.entity';
 export { MaterialGroup } from './material-group.entity';
 export { Material } from './material.entity';
 
