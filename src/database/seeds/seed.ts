@@ -265,6 +265,12 @@ async function seed() {
           'Cotiza y gestiona órdenes de compra, no crea requisiciones',
         category: 'COMPRAS',
       },
+      {
+        nombreRol: 'Contabilidad',
+        descripcion:
+          'Gestiona facturación y recepción de facturas, puede crear requisiciones',
+        category: 'CONTABILIDAD',
+      },
     ];
 
     const roles = await roleRepository.save(rolesData);
