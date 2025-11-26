@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Invoice } from '../../database/entities/invoice.entity';
 import { PurchaseOrder } from '../../database/entities/purchase-order.entity';
+import { Requisition } from '../../database/entities/requisition.entity';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { SendToAccountingDto } from './dto/send-to-accounting.dto';
@@ -19,6 +20,8 @@ export class InvoicesService {
     private invoiceRepository: Repository<Invoice>,
     @InjectRepository(PurchaseOrder)
     private purchaseOrderRepository: Repository<PurchaseOrder>,
+    @InjectRepository(Requisition)
+    private requisitionRepository: Repository<Requisition>,
   ) {}
 
   /**
@@ -85,7 +88,8 @@ export class InvoicesService {
   }
 
   /**
-   * Obtener todas las órdenes de compra aprobadas para facturar
+   * Obtener todas las órdenes de compra disponibles para facturar
+   * IMPORTANTE: Solo muestra OCs aprobadas Y con recepción de materiales completa
    */
   async getPurchaseOrdersForInvoicing(
     page: number = 1,
@@ -96,19 +100,38 @@ export class InvoicesService {
     const [purchaseOrders, total] = await this.purchaseOrderRepository
       .createQueryBuilder('po')
       .leftJoinAndSelect('po.requisition', 'requisition')
+      .leftJoinAndSelect('requisition.status', 'requisitionStatus')
       .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
       .leftJoinAndSelect('operationCenter.company', 'company')
       .leftJoinAndSelect('po.supplier', 'supplier')
       .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
       .leftJoinAndSelect('po.invoices', 'invoices')
+      .leftJoinAndSelect('po.items', 'items')
       .where('approvalStatus.code = :status', { status: 'aprobada_gerencia' })
+      .andWhere('requisitionStatus.code = :requisitionStatus', { requisitionStatus: 'recepcion_completa' })
       .skip(skip)
       .take(limit)
       .orderBy('po.createdAt', 'DESC')
       .getManyAndCount();
 
+    // Agregar información de valores por defecto para cada OC
+    const purchaseOrdersWithDefaults = purchaseOrders.map(po => {
+      const totalQuantity = po.items?.reduce(
+        (sum, item) => sum + Number(item.quantity),
+        0,
+      ) || 0;
+
+      return {
+        ...po,
+        defaultInvoiceValues: {
+          amount: po.totalAmount,
+          materialQuantity: totalQuantity,
+        },
+      };
+    });
+
     return {
-      data: purchaseOrders,
+      data: purchaseOrdersWithDefaults,
       total,
       page,
       limit,
@@ -118,14 +141,15 @@ export class InvoicesService {
 
   /**
    * Crear una nueva factura
+   * IMPORTANTE: Solo se puede crear una factura después de que la recepción de materiales esté completa
    */
   async create(userId: number, createInvoiceDto: CreateInvoiceDto) {
-    const { purchaseOrderId, invoiceNumber, issueDate, amount, materialQuantity } = createInvoiceDto;
+    const { purchaseOrderId, invoiceNumber, issueDate } = createInvoiceDto;
 
     // Verificar que la orden de compra exista y esté aprobada
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
-      relations: ['approvalStatus', 'invoices'],
+      relations: ['approvalStatus', 'invoices', 'items', 'requisition', 'requisition.status'],
     });
 
     if (!purchaseOrder) {
@@ -138,6 +162,14 @@ export class InvoicesService {
     if (purchaseOrder.approvalStatus.code !== 'aprobada_gerencia') {
       throw new BadRequestException(
         'Solo se pueden registrar facturas para órdenes de compra aprobadas por gerencia',
+      );
+    }
+
+    // NUEVA VALIDACIÓN: Verificar que la recepción de materiales esté completa
+    if (purchaseOrder.requisition?.status?.code !== 'recepcion_completa') {
+      throw new BadRequestException(
+        'Solo se pueden registrar facturas después de que la recepción de materiales esté completa. ' +
+        `Estado actual de la requisición: ${purchaseOrder.requisition?.status?.name || 'desconocido'}`,
       );
     }
 
@@ -160,13 +192,26 @@ export class InvoicesService {
       );
     }
 
+    // Calcular cantidad total de la OC (suma de cantidades de los items)
+    const totalQuantityFromPO = purchaseOrder.items?.reduce(
+      (sum, item) => sum + Number(item.quantity),
+      0,
+    ) || 0;
+
+    // Usar valores por defecto de la OC si no se especifican
+    const finalAmount = createInvoiceDto.amount !== undefined
+      ? Number(createInvoiceDto.amount)
+      : Number(purchaseOrder.totalAmount);
+
+    const finalMaterialQuantity = createInvoiceDto.materialQuantity !== undefined
+      ? Number(createInvoiceDto.materialQuantity)
+      : totalQuantityFromPO;
+
     // Calcular totales actuales
     const currentInvoicedAmount = Number(purchaseOrder.totalInvoicedAmount) || 0;
-    const currentInvoicedQuantity = Number(purchaseOrder.totalInvoicedQuantity) || 0;
 
     // Verificar que no exceda el total de la orden
-    const newTotalAmount = currentInvoicedAmount + Number(amount);
-    const newTotalQuantity = currentInvoicedQuantity + Number(materialQuantity);
+    const newTotalAmount = currentInvoicedAmount + finalAmount;
 
     if (newTotalAmount > Number(purchaseOrder.totalAmount)) {
       throw new BadRequestException(
@@ -174,13 +219,13 @@ export class InvoicesService {
       );
     }
 
-    // Crear la factura
+    // Crear la factura con valores por defecto de la OC
     const invoice = this.invoiceRepository.create({
       purchaseOrderId,
       invoiceNumber,
       issueDate: new Date(issueDate),
-      amount: Number(amount),
-      materialQuantity: Number(materialQuantity),
+      amount: finalAmount,
+      materialQuantity: finalMaterialQuantity,
       createdBy: userId,
     });
 
