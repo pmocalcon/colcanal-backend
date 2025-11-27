@@ -286,8 +286,10 @@ export class PurchasesService {
       return false;
     }
 
-    // 2. Si es una UT (no Canales & Contactos) → requiere autorización
-    if (!company.name.includes('Canales & Contactos')) {
+    // 2. Si es una UTAP (Unión Temporal) → requiere autorización
+    const isCanalesContactos = company.name.includes('Canales & Contactos');
+    if (!isCanalesContactos) {
+      // Es una UTAP, requiere autorización de Gerencia de Proyectos
       return true;
     }
 
@@ -303,17 +305,16 @@ export class PurchasesService {
         return false;
       }
 
-      // Proyectos que requieren autorización
-      const projectsRequiringAuth = [
-        'Ciudad Bolívar',
-        'Jericó',
-        'Pueblo Rico',
-        'Tarso',
-      ];
+      // Solo "Oficina Principal" NO requiere autorización
+      // Todos los demás proyectos de Canales & Contactos SÍ requieren autorización
+      const isOficinaPrincipal = project.name.toLowerCase().includes('oficina principal');
 
-      return projectsRequiringAuth.includes(project.name);
+      // Si es Oficina Principal, NO requiere autorización
+      // Si es cualquier otro proyecto, SÍ requiere autorización
+      return !isOficinaPrincipal;
     }
 
+    // Si es Canales & Contactos sin proyecto, no requiere autorización
     return false;
   }
 
