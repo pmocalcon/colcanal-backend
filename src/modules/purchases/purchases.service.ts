@@ -385,6 +385,8 @@ export class PurchasesService {
         projectCodeId: projectCodeId || undefined,
         createdBy: userId,
         statusId: pendingStatusId,
+        obra: dto.obra,
+        codigoObra: dto.codigoObra,
       });
 
       const savedRequisition = await queryRunner.manager.save(requisition);
