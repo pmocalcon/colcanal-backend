@@ -1426,29 +1426,44 @@ export class PurchasesService {
       return true;
     }
 
-    // Caso especial: Gerencia puede ver requisiciones aprobadas por revisores
+    // Obtener el usuario y su rol
     const user = await this.userRepository.findOne({
       where: { userId },
       relations: ['role'],
     });
 
-    if (user?.role.nombreRol === 'Gerencia') {
-      // Cargar el status si no está cargado
-      let status = requisition.status;
-      if (!status) {
-        const fullRequisition = await this.requisitionRepository.findOne({
-          where: { requisitionId: requisition.requisitionId },
-          relations: ['status'],
-        });
-        if (fullRequisition?.status) {
-          status = fullRequisition.status;
-        }
-      }
+    if (!user) {
+      return false;
+    }
 
-      // Gerencia puede ver requisiciones pendientes, aprobadas por revisor, y las que ellos han procesado
+    // Cargar el status si no está cargado
+    let status = requisition.status;
+    if (!status) {
+      const fullRequisition = await this.requisitionRepository.findOne({
+        where: { requisitionId: requisition.requisitionId },
+        relations: ['status'],
+      });
+      if (fullRequisition?.status) {
+        status = fullRequisition.status;
+      }
+    }
+
+    // Gerencia de Proyectos puede ver requisiciones pendientes de autorización y autorizadas
+    if (user.role.nombreRol === 'Gerencia de Proyectos') {
+      if (
+        status?.code === 'pendiente_autorizacion' ||
+        status?.code === 'autorizado'
+      ) {
+        return true;
+      }
+    }
+
+    // Gerencia puede ver requisiciones aprobadas por revisor, autorizadas, y las que ellos han procesado
+    if (user.role.nombreRol === 'Gerencia') {
       if (
         status?.code === 'aprobada_revisor' ||
         status?.code === 'pendiente' ||
+        status?.code === 'autorizado' ||
         status?.code === 'aprobada_gerencia' ||
         status?.code === 'rechazada_gerencia'
       ) {
