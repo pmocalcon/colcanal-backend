@@ -10,6 +10,7 @@ export { RoleGestion } from './role-gestion.entity';
 // Business entities
 export { Company } from './company.entity';
 export { Project } from './project.entity';
+export { CompanyContact } from './company-contact.entity';
 export { OperationCenter } from './operation-center.entity';
 export { ProjectCode } from './project-code.entity';
 export { RequisitionPrefix } from './requisition-prefix.entity';

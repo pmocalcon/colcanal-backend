@@ -3,6 +3,7 @@ import { Project } from './project.entity';
 import { OperationCenter } from './operation-center.entity';
 import { ProjectCode } from './project-code.entity';
 import { RequisitionPrefix } from './requisition-prefix.entity';
+import { CompanyContact } from './company-contact.entity';
 
 @Entity('companies')
 export class Company {
@@ -23,4 +24,7 @@ export class Company {
 
   @OneToMany(() => RequisitionPrefix, (prefix) => prefix.company)
   requisitionPrefixes: RequisitionPrefix[];
+
+  @OneToMany(() => CompanyContact, (contact) => contact.company)
+  contacts: CompanyContact[];
 }

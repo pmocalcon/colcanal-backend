@@ -9,6 +9,7 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { CompanyContactsModule } from './modules/company-contacts/company-contacts.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -30,6 +31,7 @@ import configuration from './config/configuration';
     SuppliersModule,
     AuditModule,
     InvoicesModule,
+    CompanyContactsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

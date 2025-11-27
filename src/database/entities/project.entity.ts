@@ -11,6 +11,7 @@ import { Company } from './company.entity';
 import { OperationCenter } from './operation-center.entity';
 import { ProjectCode } from './project-code.entity';
 import { RequisitionPrefix } from './requisition-prefix.entity';
+import { CompanyContact } from './company-contact.entity';
 
 @Entity('projects')
 @Unique(['companyId', 'name'])
@@ -36,4 +37,7 @@ export class Project {
 
   @OneToMany(() => RequisitionPrefix, (prefix) => prefix.project)
   requisitionPrefixes: RequisitionPrefix[];
+
+  @OneToMany(() => CompanyContact, (contact) => contact.project)
+  contacts: CompanyContact[];
 }
