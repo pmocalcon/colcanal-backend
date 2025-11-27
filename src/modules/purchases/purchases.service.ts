@@ -38,6 +38,18 @@ import { CreatePurchaseOrdersDto } from './dto/create-purchase-orders.dto';
 import { CreateMaterialReceiptDto } from './dto/create-material-receipt.dto';
 import { UpdateMaterialReceiptDto } from './dto/update-material-receipt.dto';
 import { ApprovePurchaseOrderDto } from './dto/approve-purchase-order.dto';
+import { RolePermission } from '../../database/entities/role-permission.entity';
+
+// Constantes para los IDs de permisos (basado en tabla permisos)
+const PERMISO = {
+  VER: 1,
+  CREAR: 2,
+  REVISAR: 3,
+  APROBAR: 4,
+  AUTORIZAR: 5,
+  COTIZAR: 6,
+  EXPORTAR: 7,
+} as const;
 
 @Injectable()
 export class PurchasesService {
@@ -86,8 +98,30 @@ export class PurchasesService {
     private purchaseOrderItemApprovalRepository: Repository<PurchaseOrderItemApproval>,
     @InjectRepository(PurchaseOrderStatus)
     private purchaseOrderStatusRepository: Repository<PurchaseOrderStatus>,
+    @InjectRepository(RolePermission)
+    private rolePermissionRepository: Repository<RolePermission>,
     private dataSource: DataSource,
   ) {}
+
+  // ============================================
+  // HELPER: Validar permiso del usuario
+  // ============================================
+  private async hasPermission(roleId: number, permisoId: number): Promise<boolean> {
+    const permission = await this.rolePermissionRepository.findOne({
+      where: {
+        rolId: roleId,
+        permisoId: permisoId,
+      },
+    });
+    return !!permission;
+  }
+
+  private async validatePermission(roleId: number, permisoId: number, actionName: string): Promise<void> {
+    const hasPermission = await this.hasPermission(roleId, permisoId);
+    if (!hasPermission) {
+      throw new ForbiddenException(`No tiene permiso para ${actionName}`);
+    }
+  }
 
   // ============================================
   // HELPER: Obtener status ID por código
@@ -985,6 +1019,16 @@ export class PurchasesService {
     userId: number,
     dto: ReviewRequisitionDto,
   ) {
+    // Validar permiso de revisar
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    await this.validatePermission(user.role.rolId, PERMISO.REVISAR, 'revisar requisiciones');
+
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
       relations: ['creator', 'status'],
@@ -1094,6 +1138,16 @@ export class PurchasesService {
     userId: number,
     dto: { decision: 'authorize' | 'reject'; comments?: string },
   ) {
+    // Validar permiso de autorizar
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    await this.validatePermission(user.role.rolId, PERMISO.AUTORIZAR, 'autorizar requisiciones');
+
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
       relations: ['status'],
@@ -1101,16 +1155,6 @@ export class PurchasesService {
 
     if (!requisition) {
       throw new NotFoundException('Requisición no encontrada');
-    }
-
-    const user = await this.userRepository.findOne({
-      where: { userId },
-      relations: ['role'],
-    });
-
-    // Validar que el usuario es Gerencia de Proyectos
-    if (user?.role.nombreRol !== 'Gerencia de Proyectos') {
-      throw new ForbiddenException('Solo Gerencia de Proyectos puede autorizar requisiciones');
     }
 
     // Validar estado actual: debe estar en "pendiente_autorizacion"
@@ -1176,6 +1220,16 @@ export class PurchasesService {
     userId: number,
     dto: { comments?: string; itemDecisions?: Array<{ itemId: number; decision: 'approve' | 'reject'; comments?: string }> },
   ) {
+    // Validar permiso de aprobar
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    await this.validatePermission(user.role.rolId, PERMISO.APROBAR, 'aprobar requisiciones');
+
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
       relations: ['status'],
@@ -1183,16 +1237,6 @@ export class PurchasesService {
 
     if (!requisition) {
       throw new NotFoundException('Requisición no encontrada');
-    }
-
-    const user = await this.userRepository.findOne({
-      where: { userId },
-      relations: ['role'],
-    });
-
-    // Validar que el usuario es Gerencia
-    if (user?.role.nombreRol !== 'Gerencia') {
-      throw new ForbiddenException('Solo Gerencia puede aprobar requisiciones');
     }
 
     // Validar estado actual: acepta 'pendiente' (para Directores de Área/Técnico),
@@ -1393,10 +1437,8 @@ export class PurchasesService {
   }
 
   private async validateUserCanCreate(user: User): Promise<void> {
-    const restrictedRoles = ['Gerencia', 'Compras'];
-    if (restrictedRoles.includes(user.role.nombreRol)) {
-      throw new ForbiddenException('Su rol no puede crear requisiciones');
-    }
+    // Validar permiso de crear usando la tabla roles_permisos
+    await this.validatePermission(user.role.rolId, PERMISO.CREAR, 'crear requisiciones');
   }
 
   private async isAuthorizer(
@@ -1677,6 +1719,7 @@ export class PurchasesService {
     userId: number,
     dto: ManageQuotationDto,
   ) {
+    // Validar permiso de cotizar
     const user = await this.userRepository.findOne({
       where: { userId },
       relations: ['role'],
@@ -1686,12 +1729,7 @@ export class PurchasesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Validar que el usuario es del rol Compras
-    if (user.role.nombreRol !== 'Compras') {
-      throw new ForbiddenException(
-        'Solo el rol Compras puede gestionar cotizaciones',
-      );
-    }
+    await this.validatePermission(user.role.rolId, PERMISO.COTIZAR, 'gestionar cotizaciones');
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
