@@ -800,17 +800,17 @@ export class PurchasesService {
       .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus');
 
     if (roleName === 'Gerencia') {
-      // Gerencia ve TODAS las requisiciones que pasaron por revisión + pendientes de subordinados
+      // Gerencia ve TODAS las requisiciones que pasaron por revisión (incluyendo autorizadas) + pendientes de subordinados
       if (subordinateIds.length > 0) {
         queryBuilder.where(
-          `(requisitionStatus.code IN ('aprobada_revisor', 'aprobada_gerencia', 'rechazada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion')) OR
+          `(requisitionStatus.code IN ('aprobada_revisor', 'autorizado', 'aprobada_gerencia', 'rechazada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion')) OR
            (requisitionStatus.code = 'pendiente' AND requisition.createdBy IN (:...subordinateIds))`,
           { subordinateIds },
         );
       } else {
         // Si no tiene subordinados directos, ve todas las requisiciones que pasaron por revisión
         queryBuilder.where('requisitionStatus.code IN (:...statuses)', {
-          statuses: ['aprobada_revisor', 'aprobada_gerencia', 'rechazada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion'],
+          statuses: ['aprobada_revisor', 'autorizado', 'aprobada_gerencia', 'rechazada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion'],
         });
       }
     } else if (roleName.includes('Director')) {
@@ -865,8 +865,9 @@ export class PurchasesService {
           }
         }
       } else if (roleName === 'Gerencia') {
-        // Pendiente si está aprobada por revisor o pendiente de subordinado
+        // Pendiente si está aprobada por revisor, autorizada por Gerencia de Proyectos, o pendiente de subordinado
         isPending = req.status.code === 'aprobada_revisor' ||
+                   req.status.code === 'autorizado' ||
                    (req.status.code === 'pendiente' && subordinateIds.includes(req.createdBy));
 
         // Si está procesada, buscar fecha de aprobación/rechazo por gerencia
