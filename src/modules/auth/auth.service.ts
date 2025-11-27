@@ -11,7 +11,19 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../../database/entities/user.entity';
 import { Gestion } from '../../database/entities/gestion.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
+import { RolePermission } from '../../database/entities/role-permission.entity';
 import { LoginDto } from './dto/login.dto';
+
+// Constantes para los IDs de permisos (basado en tabla permisos)
+const PERMISO_IDS = {
+  VER: 1,
+  CREAR: 2,
+  REVISAR: 3,
+  APROBAR: 4,
+  AUTORIZAR: 5,
+  COTIZAR: 6,
+  EXPORTAR: 7,
+} as const;
 
 @Injectable()
 export class AuthService {
@@ -22,6 +34,8 @@ export class AuthService {
     private gestionRepository: Repository<Gestion>,
     @InjectRepository(RoleGestion)
     private roleGestionRepository: Repository<RoleGestion>,
+    @InjectRepository(RolePermission)
+    private rolePermissionRepository: Repository<RolePermission>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
@@ -155,10 +169,31 @@ export class AuthService {
       where: { rolId: user.rolId },
     });
 
+    // Get role permissions for this user's role
+    const rolePermisos = await this.rolePermissionRepository.find({
+      where: { rolId: user.rolId },
+    });
+
     // Create a set of gestionIds that the role has access to
     const allowedGestionIds = new Set(
       roleGestiones.map((rg) => rg.gestionId),
     );
+
+    // Create a set of permisoIds that the role has
+    const allowedPermisoIds = new Set(
+      rolePermisos.map((rp) => rp.permisoId),
+    );
+
+    // Build permissions object
+    const permisos = {
+      ver: allowedPermisoIds.has(PERMISO_IDS.VER),
+      crear: allowedPermisoIds.has(PERMISO_IDS.CREAR),
+      revisar: allowedPermisoIds.has(PERMISO_IDS.REVISAR),
+      aprobar: allowedPermisoIds.has(PERMISO_IDS.APROBAR),
+      autorizar: allowedPermisoIds.has(PERMISO_IDS.AUTORIZAR),
+      cotizar: allowedPermisoIds.has(PERMISO_IDS.COTIZAR),
+      exportar: allowedPermisoIds.has(PERMISO_IDS.EXPORTAR),
+    };
 
     // Map all gestiones and mark which ones are accessible
     return allGestiones.map((gestion) => ({
@@ -167,6 +202,7 @@ export class AuthService {
       slug: gestion.slug,
       icono: gestion.icono,
       hasAccess: allowedGestionIds.has(gestion.gestionId),
+      permisos,
     }));
   }
 }
