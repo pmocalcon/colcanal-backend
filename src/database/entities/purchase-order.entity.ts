@@ -82,10 +82,10 @@ export class PurchaseOrder {
   @Column({ name: 'invoice_status', type: 'varchar', length: 50, default: 'sin_factura' })
   invoiceStatus: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   // Relations

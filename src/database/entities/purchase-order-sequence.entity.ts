@@ -20,10 +20,10 @@ export class PurchaseOrderSequence {
   @Column({ name: 'last_number', type: 'integer', default: 0 })
   lastNumber: number;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   @ManyToOne(() => OperationCenter, { onDelete: 'CASCADE' })

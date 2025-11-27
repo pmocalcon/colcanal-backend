@@ -42,16 +42,16 @@ export class PurchaseOrderApproval {
   @Column({ name: 'rejection_reason', type: 'text', nullable: true })
   rejectionReason: string | null;
 
-  @Column({ name: 'approval_date', type: 'timestamp', nullable: true })
+  @Column({ name: 'approval_date', type: 'timestamptz', nullable: true })
   approvalDate: Date | null;
 
-  @Column({ name: 'deadline', type: 'timestamp' })
+  @Column({ name: 'deadline', type: 'timestamptz' })
   deadline: Date;
 
   @Column({ name: 'is_overdue', type: 'boolean', default: false })
   isOverdue: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   // Relations

@@ -49,7 +49,7 @@ export class MaterialPriceHistory {
   @Column({ name: 'created_by' })
   createdBy: number;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   // Relations

@@ -37,7 +37,7 @@ export class PurchaseOrderItemApproval {
   @Column({ name: 'comments', type: 'text', nullable: true })
   comments: string | null;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   // Relations

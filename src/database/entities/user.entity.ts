@@ -45,8 +45,7 @@ export class User {
 
   @CreateDateColumn({
     name: 'creado_en',
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
+    type: 'timestamptz',
   })
   creadoEn: Date;
 
