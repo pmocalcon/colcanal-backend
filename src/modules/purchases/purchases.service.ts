@@ -2884,6 +2884,8 @@ export class PurchasesService {
         'items.requisitionItem.material',
         'items.quotation',
         'approvalStatus',
+        'approvals',
+        'approvals.approver',
       ],
     });
 
