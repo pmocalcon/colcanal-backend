@@ -592,6 +592,7 @@ export class PurchasesService {
     const editableStatuses = [
       'pendiente',
       'rechazada_revisor',
+      'rechazada_autorizador',
       'rechazada_gerencia',
     ];
     if (!editableStatuses.includes(requisition.status.code)) {
@@ -630,8 +631,8 @@ export class PurchasesService {
 
       // Si estaba rechazada, volver al estado apropiado según quién rechazó
       let newStatusCode = previousStatus;
-      if (previousStatus === 'rechazada_revisor' || previousStatus === 'rechazada_gerencia') {
-        // Si fue rechazada (por revisor o gerencia), vuelve a pendiente para que el revisor la vea nuevamente
+      if (previousStatus === 'rechazada_revisor' || previousStatus === 'rechazada_autorizador' || previousStatus === 'rechazada_gerencia') {
+        // Si fue rechazada (por revisor, autorizador o gerencia), vuelve a pendiente para que el revisor la vea nuevamente
         const pendingStatusId = await this.getStatusIdByCode('pendiente');
         requisition.statusId = pendingStatusId;
         // Eliminar la relación status para evitar conflictos con TypeORM
@@ -1178,8 +1179,8 @@ export class PurchasesService {
         newStatusCode = 'autorizado';
         action = 'autorizar_aprobar';
       } else {
-        // Rechazar: devolver a "rechazada_revisor" para que el creador corrija
-        newStatusCode = 'rechazada_revisor';
+        // Rechazar: devolver a "rechazada_autorizador" para que el creador corrija
+        newStatusCode = 'rechazada_autorizador';
         action = 'autorizar_rechazar';
       }
 
@@ -1493,11 +1494,12 @@ export class PurchasesService {
       }
     }
 
-    // Gerencia de Proyectos puede ver requisiciones pendientes de autorización y autorizadas
+    // Gerencia de Proyectos puede ver requisiciones pendientes de autorización, autorizadas y rechazadas por ellos
     if (user.role.nombreRol === 'Gerencia de Proyectos') {
       if (
         status?.code === 'pendiente_autorizacion' ||
-        status?.code === 'autorizado'
+        status?.code === 'autorizado' ||
+        status?.code === 'rechazada_autorizador'
       ) {
         return true;
       }
