@@ -1137,7 +1137,7 @@ export class PurchasesService {
   async authorizeRequisition(
     requisitionId: number,
     userId: number,
-    dto: { decision: 'authorize' | 'reject'; comments?: string },
+    dto: { decision: 'approve' | 'authorize' | 'reject'; comments?: string },
   ) {
     // Validar permiso de autorizar
     const user = await this.userRepository.findOne({
@@ -1174,7 +1174,7 @@ export class PurchasesService {
       let newStatusCode: string;
       let action: string;
 
-      if (dto.decision === 'authorize') {
+      if (dto.decision === 'approve' || dto.decision === 'authorize') {
         // Autorizar: cambiar a "autorizado"
         newStatusCode = 'autorizado';
         action = 'autorizar_aprobar';

@@ -578,7 +578,7 @@ export class PurchasesController {
   async authorizeRequisition(
     @GetUser() user: User,
     @Param('id', ParseIntPipe) id: number,
-    @Body() authorizeDto: { decision: 'authorize' | 'reject'; comments?: string },
+    @Body() authorizeDto: { decision: 'approve' | 'authorize' | 'reject'; comments?: string },
   ) {
     return this.purchasesService.authorizeRequisition(
       id,
