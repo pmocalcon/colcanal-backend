@@ -1,13 +1,30 @@
-import { Controller, Get, UseGuards, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  UseGuards,
+  Query,
+  Body,
+  Param,
+  ParseIntPipe,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiParam,
 } from '@nestjs/swagger';
+import { CreateMaterialGroupDto } from './dto/create-material-group.dto';
+import { CreateMaterialDto } from './dto/create-material.dto';
+import { UpdateMaterialDto } from './dto/update-material.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, ILike } from 'typeorm';
 import { Company } from '../../database/entities/company.entity';
 import { Project } from '../../database/entities/project.entity';
 import { Material } from '../../database/entities/material.entity';
@@ -22,7 +39,11 @@ import { ProjectCode } from '../../database/entities/project-code.entity';
 @UseGuards(JwtAuthGuard)
 @Controller('purchases/master-data')
 export class MasterDataController {
+  // Umbral de similitud (0.3 = 30% similar)
+  private readonly SIMILARITY_THRESHOLD = 0.3;
+
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
     @InjectRepository(Project)
@@ -563,6 +584,468 @@ export class MasterDataController {
     return {
       data: statuses,
       total: statuses.length,
+    };
+  }
+
+  // ============================================
+  // CRUD GRUPOS DE MATERIALES
+  // ============================================
+
+  @Post('material-groups')
+  @ApiOperation({
+    summary: 'Crear un nuevo grupo de materiales',
+    description: 'Crea un nuevo grupo de materiales en la base de datos',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Grupo creado exitosamente',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Ya existe un grupo con ese nombre',
+  })
+  async createMaterialGroup(@Body() createDto: CreateMaterialGroupDto) {
+    // Verificar coincidencia exacta (case insensitive)
+    const exactMatch = await this.materialGroupRepository.findOne({
+      where: { name: ILike(createDto.name) },
+    });
+
+    if (exactMatch) {
+      throw new ConflictException(
+        `Ya existe un grupo con el nombre "${exactMatch.name}"`,
+      );
+    }
+
+    // Buscar grupos similares usando fuzzy matching
+    const similarGroups = await this.dataSource.query(
+      `SELECT group_id, name, similarity(LOWER(name), LOWER($1)) as sim
+       FROM material_groups
+       WHERE similarity(LOWER(name), LOWER($1)) > $2
+       ORDER BY sim DESC
+       LIMIT 5`,
+      [createDto.name, this.SIMILARITY_THRESHOLD],
+    );
+
+    if (similarGroups.length > 0) {
+      const suggestions = similarGroups.map(
+        (g: { name: string; sim: number }) =>
+          `"${g.name}" (${Math.round(g.sim * 100)}% similar)`,
+      );
+      throw new ConflictException({
+        message: `Se encontraron grupos similares. ¿Quisiste decir alguno de estos?`,
+        suggestions: similarGroups.map((g: { group_id: number; name: string }) => ({
+          groupId: g.group_id,
+          name: g.name,
+        })),
+        hint: suggestions.join(', '),
+      });
+    }
+
+    const group = this.materialGroupRepository.create({
+      name: createDto.name.toUpperCase(), // Normalizar a mayúsculas
+      categoryId: createDto.categoryId || 1,
+    });
+
+    const saved = await this.materialGroupRepository.save(group);
+
+    return {
+      message: 'Grupo creado exitosamente',
+      data: saved,
+    };
+  }
+
+  @Patch('material-groups/:id')
+  @ApiOperation({
+    summary: 'Actualizar un grupo de materiales',
+    description: 'Actualiza el nombre o categoría de un grupo existente',
+  })
+  @ApiParam({ name: 'id', description: 'ID del grupo' })
+  @ApiResponse({
+    status: 200,
+    description: 'Grupo actualizado exitosamente',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Grupo no encontrado',
+  })
+  async updateMaterialGroup(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: CreateMaterialGroupDto,
+  ) {
+    const group = await this.materialGroupRepository.findOne({
+      where: { groupId: id },
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Grupo con ID ${id} no encontrado`);
+    }
+
+    // Verificar nombre duplicado si se está cambiando
+    if (updateDto.name && updateDto.name !== group.name) {
+      const existing = await this.materialGroupRepository.findOne({
+        where: { name: updateDto.name },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Ya existe un grupo con el nombre "${updateDto.name}"`,
+        );
+      }
+    }
+
+    Object.assign(group, updateDto);
+    const saved = await this.materialGroupRepository.save(group);
+
+    return {
+      message: 'Grupo actualizado exitosamente',
+      data: saved,
+    };
+  }
+
+  @Delete('material-groups/:id')
+  @ApiOperation({
+    summary: 'Eliminar un grupo de materiales',
+    description:
+      'Elimina un grupo. Falla si tiene materiales asociados.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del grupo' })
+  @ApiResponse({
+    status: 200,
+    description: 'Grupo eliminado exitosamente',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Grupo no encontrado',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'No se puede eliminar, tiene materiales asociados',
+  })
+  async deleteMaterialGroup(@Param('id', ParseIntPipe) id: number) {
+    const group = await this.materialGroupRepository.findOne({
+      where: { groupId: id },
+      relations: ['materials'],
+    });
+
+    if (!group) {
+      throw new NotFoundException(`Grupo con ID ${id} no encontrado`);
+    }
+
+    if (group.materials && group.materials.length > 0) {
+      throw new ConflictException(
+        `No se puede eliminar el grupo "${group.name}" porque tiene ${group.materials.length} materiales asociados`,
+      );
+    }
+
+    await this.materialGroupRepository.remove(group);
+
+    return {
+      message: `Grupo "${group.name}" eliminado exitosamente`,
+    };
+  }
+
+  // ============================================
+  // CRUD MATERIALES
+  // ============================================
+
+  @Post('materials')
+  @ApiOperation({
+    summary: 'Crear un nuevo material',
+    description: 'Crea un nuevo material en la base de datos. El grupo es obligatorio.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Material creado exitosamente',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Ya existe un material con ese código',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Grupo no encontrado',
+  })
+  async createMaterial(@Body() createDto: CreateMaterialDto) {
+    // Verificar que el grupo existe
+    const group = await this.materialGroupRepository.findOne({
+      where: { groupId: createDto.groupId },
+    });
+
+    if (!group) {
+      throw new NotFoundException(
+        `Grupo con ID ${createDto.groupId} no encontrado`,
+      );
+    }
+
+    // Verificar código exacto (case insensitive)
+    const existingCode = await this.materialRepository.findOne({
+      where: { code: ILike(createDto.code) },
+    });
+
+    if (existingCode) {
+      throw new ConflictException(
+        `Ya existe un material con el código "${existingCode.code}"`,
+      );
+    }
+
+    // Buscar materiales con descripción similar
+    const similarMaterials = await this.dataSource.query(
+      `SELECT m.material_id, m.code, m.description, g.name as group_name,
+              similarity(LOWER(m.description), LOWER($1)) as sim
+       FROM materials m
+       JOIN material_groups g ON m.group_id = g.group_id
+       WHERE similarity(LOWER(m.description), LOWER($1)) > $2
+       ORDER BY sim DESC
+       LIMIT 5`,
+      [createDto.description, this.SIMILARITY_THRESHOLD],
+    );
+
+    if (similarMaterials.length > 0) {
+      const suggestions = similarMaterials.map(
+        (m: { code: string; description: string; sim: number }) =>
+          `"${m.code} - ${m.description}" (${Math.round(m.sim * 100)}% similar)`,
+      );
+      throw new ConflictException({
+        message: `Se encontraron materiales similares. ¿Quisiste decir alguno de estos?`,
+        suggestions: similarMaterials.map(
+          (m: { material_id: number; code: string; description: string; group_name: string }) => ({
+            materialId: m.material_id,
+            code: m.code,
+            description: m.description,
+            group: m.group_name,
+          }),
+        ),
+        hint: suggestions.join(', '),
+      });
+    }
+
+    const material = this.materialRepository.create({
+      code: createDto.code.toUpperCase(),
+      description: createDto.description.toUpperCase(),
+      groupId: createDto.groupId,
+    });
+
+    const saved = await this.materialRepository.save(material);
+
+    const result = await this.materialRepository.findOne({
+      where: { materialId: saved.materialId },
+      relations: ['materialGroup'],
+    });
+
+    return {
+      message: 'Material creado exitosamente',
+      data: result,
+    };
+  }
+
+  @Patch('materials/:id')
+  @ApiOperation({
+    summary: 'Actualizar un material',
+    description: 'Actualiza los datos de un material existente',
+  })
+  @ApiParam({ name: 'id', description: 'ID del material' })
+  @ApiResponse({
+    status: 200,
+    description: 'Material actualizado exitosamente',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Material o grupo no encontrado',
+  })
+  async updateMaterial(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdateMaterialDto,
+  ) {
+    const material = await this.materialRepository.findOne({
+      where: { materialId: id },
+    });
+
+    if (!material) {
+      throw new NotFoundException(`Material con ID ${id} no encontrado`);
+    }
+
+    // Verificar código duplicado si se está cambiando
+    if (updateDto.code && updateDto.code !== material.code) {
+      const existing = await this.materialRepository.findOne({
+        where: { code: updateDto.code },
+      });
+      if (existing) {
+        throw new ConflictException(
+          `Ya existe un material con el código "${updateDto.code}"`,
+        );
+      }
+    }
+
+    // Verificar que el nuevo grupo existe si se está cambiando
+    if (updateDto.groupId) {
+      const group = await this.materialGroupRepository.findOne({
+        where: { groupId: updateDto.groupId },
+      });
+      if (!group) {
+        throw new NotFoundException(
+          `Grupo con ID ${updateDto.groupId} no encontrado`,
+        );
+      }
+    }
+
+    Object.assign(material, updateDto);
+    await this.materialRepository.save(material);
+
+    // Retornar con la relación del grupo
+    const result = await this.materialRepository.findOne({
+      where: { materialId: id },
+      relations: ['materialGroup'],
+    });
+
+    return {
+      message: 'Material actualizado exitosamente',
+      data: result,
+    };
+  }
+
+  @Delete('materials/:id')
+  @ApiOperation({
+    summary: 'Eliminar un material',
+    description: 'Elimina un material de la base de datos',
+  })
+  @ApiParam({ name: 'id', description: 'ID del material' })
+  @ApiResponse({
+    status: 200,
+    description: 'Material eliminado exitosamente',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Material no encontrado',
+  })
+  async deleteMaterial(@Param('id', ParseIntPipe) id: number) {
+    const material = await this.materialRepository.findOne({
+      where: { materialId: id },
+    });
+
+    if (!material) {
+      throw new NotFoundException(`Material con ID ${id} no encontrado`);
+    }
+
+    await this.materialRepository.remove(material);
+
+    return {
+      message: `Material "${material.code} - ${material.description}" eliminado exitosamente`,
+    };
+  }
+
+  // ============================================
+  // BÚSQUEDA CON SUGERENCIAS (Fuzzy Search)
+  // ============================================
+
+  @Get('material-groups/search')
+  @ApiOperation({
+    summary: 'Buscar grupos de materiales con fuzzy matching',
+    description: `
+    Busca grupos por nombre usando similitud de texto.
+    Útil para autocompletado y detección de typos.
+
+    Ejemplo: buscar "HERRJE" encontrará "HERRAJES"
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de grupos similares',
+  })
+  async searchMaterialGroups(@Query('q') query: string) {
+    if (!query || query.length < 2) {
+      return { data: [], total: 0 };
+    }
+
+    const results = await this.dataSource.query(
+      `SELECT group_id, name, category_id,
+              similarity(LOWER(name), LOWER($1)) as similarity_score
+       FROM material_groups
+       WHERE similarity(LOWER(name), LOWER($1)) > 0.1
+          OR LOWER(name) LIKE LOWER($2)
+       ORDER BY similarity_score DESC, name ASC
+       LIMIT 10`,
+      [query, `%${query}%`],
+    );
+
+    return {
+      data: results.map((r: { group_id: number; name: string; category_id: number; similarity_score: number }) => ({
+        groupId: r.group_id,
+        name: r.name,
+        categoryId: r.category_id,
+        similarity: Math.round(r.similarity_score * 100),
+      })),
+      total: results.length,
+    };
+  }
+
+  @Get('materials/search')
+  @ApiOperation({
+    summary: 'Buscar materiales con fuzzy matching',
+    description: `
+    Busca materiales por código o descripción usando similitud de texto.
+    Útil para autocompletado y detección de typos.
+
+    Ejemplo: buscar "LUMINRIA" encontrará "LUMINARIA LED DE 28W"
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de materiales similares',
+  })
+  async searchMaterials(
+    @Query('q') query: string,
+    @Query('groupId') groupId?: string,
+  ) {
+    if (!query || query.length < 2) {
+      return { data: [], total: 0 };
+    }
+
+    let sql = `
+      SELECT m.material_id, m.code, m.description, m.group_id,
+             g.name as group_name,
+             GREATEST(
+               similarity(LOWER(m.code), LOWER($1)),
+               similarity(LOWER(m.description), LOWER($1))
+             ) as similarity_score
+      FROM materials m
+      JOIN material_groups g ON m.group_id = g.group_id
+      WHERE (
+        similarity(LOWER(m.code), LOWER($1)) > 0.1
+        OR similarity(LOWER(m.description), LOWER($1)) > 0.1
+        OR LOWER(m.code) LIKE LOWER($2)
+        OR LOWER(m.description) LIKE LOWER($2)
+      )
+    `;
+
+    const params: (string | number)[] = [query, `%${query}%`];
+
+    if (groupId) {
+      sql += ` AND m.group_id = $3`;
+      params.push(parseInt(groupId));
+    }
+
+    sql += ` ORDER BY similarity_score DESC, m.code ASC LIMIT 20`;
+
+    const results = await this.dataSource.query(sql, params);
+
+    return {
+      data: results.map(
+        (r: {
+          material_id: number;
+          code: string;
+          description: string;
+          group_id: number;
+          group_name: string;
+          similarity_score: number;
+        }) => ({
+          materialId: r.material_id,
+          code: r.code,
+          description: r.description,
+          groupId: r.group_id,
+          groupName: r.group_name,
+          similarity: Math.round(r.similarity_score * 100),
+        }),
+      ),
+      total: results.length,
     };
   }
 }
