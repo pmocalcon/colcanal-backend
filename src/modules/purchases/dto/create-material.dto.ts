@@ -1,14 +1,14 @@
-import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateMaterialDto {
-  @ApiProperty({
-    description: 'Código único del material',
+  @ApiPropertyOptional({
+    description: 'Código único del material (opcional, se genera automáticamente si no se proporciona)',
     example: '4000',
   })
   @IsString()
-  @IsNotEmpty({ message: 'El código del material es obligatorio' })
-  code: string;
+  @IsOptional()
+  code?: string;
 
   @ApiProperty({
     description: 'Descripción del material',

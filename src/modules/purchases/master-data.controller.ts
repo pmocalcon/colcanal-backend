@@ -776,9 +776,22 @@ export class MasterDataController {
       );
     }
 
+    // Generar código automáticamente si no se proporciona
+    let materialCode = createDto.code;
+    if (!materialCode) {
+      // Obtener el código máximo actual (asumiendo códigos numéricos)
+      const maxCodeResult = await this.dataSource.query(`
+        SELECT MAX(CAST(code AS INTEGER)) as max_code
+        FROM materials
+        WHERE code ~ '^[0-9]+$'
+      `);
+      const maxCode = maxCodeResult[0]?.max_code || 0;
+      materialCode = String(maxCode + 1);
+    }
+
     // Verificar código exacto (case insensitive)
     const existingCode = await this.materialRepository.findOne({
-      where: { code: ILike(createDto.code) },
+      where: { code: ILike(materialCode) },
     });
 
     if (existingCode) {
@@ -819,7 +832,7 @@ export class MasterDataController {
     }
 
     const material = this.materialRepository.create({
-      code: createDto.code.toUpperCase(),
+      code: materialCode.toUpperCase(),
       description: createDto.description.toUpperCase(),
       groupId: createDto.groupId,
     });
