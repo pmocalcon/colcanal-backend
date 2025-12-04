@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateMaterialDto {
   @ApiPropertyOptional({
@@ -8,6 +9,7 @@ export class CreateMaterialDto {
   })
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => (value === null || value === '' ? undefined : value))
   code?: string;
 
   @ApiProperty({
@@ -25,4 +27,14 @@ export class CreateMaterialDto {
   @IsNumber()
   @IsNotEmpty({ message: 'El grupo del material es obligatorio' })
   groupId: number;
+
+  @ApiPropertyOptional({
+    description: 'Forzar creación ignorando materiales similares',
+    example: false,
+    default: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  force?: boolean;
 }

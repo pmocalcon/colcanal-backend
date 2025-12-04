@@ -800,35 +800,37 @@ export class MasterDataController {
       );
     }
 
-    // Buscar materiales con descripción similar
-    const similarMaterials = await this.dataSource.query(
-      `SELECT m.material_id, m.code, m.description, g.name as group_name,
-              similarity(LOWER(m.description), LOWER($1)) as sim
-       FROM materials m
-       JOIN material_groups g ON m.group_id = g.group_id
-       WHERE similarity(LOWER(m.description), LOWER($1)) > $2
-       ORDER BY sim DESC
-       LIMIT 5`,
-      [createDto.description, this.SIMILARITY_THRESHOLD],
-    );
-
-    if (similarMaterials.length > 0) {
-      const suggestions = similarMaterials.map(
-        (m: { code: string; description: string; sim: number }) =>
-          `"${m.code} - ${m.description}" (${Math.round(m.sim * 100)}% similar)`,
+    // Buscar materiales con descripción similar (solo si no se fuerza la creación)
+    if (!createDto.force) {
+      const similarMaterials = await this.dataSource.query(
+        `SELECT m.material_id, m.code, m.description, g.name as group_name,
+                similarity(LOWER(m.description), LOWER($1)) as sim
+         FROM materials m
+         JOIN material_groups g ON m.group_id = g.group_id
+         WHERE similarity(LOWER(m.description), LOWER($1)) > $2
+         ORDER BY sim DESC
+         LIMIT 5`,
+        [createDto.description, this.SIMILARITY_THRESHOLD],
       );
-      throw new ConflictException({
-        message: `Se encontraron materiales similares. ¿Quisiste decir alguno de estos?`,
-        suggestions: similarMaterials.map(
-          (m: { material_id: number; code: string; description: string; group_name: string }) => ({
-            materialId: m.material_id,
-            code: m.code,
-            description: m.description,
-            group: m.group_name,
-          }),
-        ),
-        hint: suggestions.join(', '),
-      });
+
+      if (similarMaterials.length > 0) {
+        const suggestions = similarMaterials.map(
+          (m: { code: string; description: string; sim: number }) =>
+            `"${m.code} - ${m.description}" (${Math.round(m.sim * 100)}% similar)`,
+        );
+        throw new ConflictException({
+          message: `Se encontraron materiales similares. ¿Quisiste decir alguno de estos?`,
+          suggestions: similarMaterials.map(
+            (m: { material_id: number; code: string; description: string; group_name: string }) => ({
+              materialId: m.material_id,
+              code: m.code,
+              description: m.description,
+              group: m.group_name,
+            }),
+          ),
+          hint: suggestions.join(', '),
+        });
+      }
     }
 
     const material = this.materialRepository.create({
