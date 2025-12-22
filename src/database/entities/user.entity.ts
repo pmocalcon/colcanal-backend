@@ -28,6 +28,9 @@ export class User {
   @Column({ type: 'varchar', length: 120, unique: true })
   email: string;
 
+  @Column({ name: 'email_notificacion', type: 'varchar', length: 120, nullable: true })
+  emailNotificacion: string;
+
   @Column({ type: 'varchar', length: 255 })
   password: string;
 

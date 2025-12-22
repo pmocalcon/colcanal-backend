@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PurchasesController } from './purchases.controller';
 import { MasterDataController } from './master-data.controller';
 import { PurchasesService } from './purchases.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 // Import all required entities
 import { Requisition } from '../../database/entities/requisition.entity';
@@ -37,6 +38,7 @@ import { RolePermission } from '../../database/entities/role-permission.entity';
 
 @Module({
   imports: [
+    NotificationsModule,
     TypeOrmModule.forFeature([
       // Requisition entities
       Requisition,

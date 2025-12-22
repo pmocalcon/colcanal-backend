@@ -39,6 +39,7 @@ import { CreateMaterialReceiptDto } from './dto/create-material-receipt.dto';
 import { UpdateMaterialReceiptDto } from './dto/update-material-receipt.dto';
 import { ApprovePurchaseOrderDto } from './dto/approve-purchase-order.dto';
 import { RolePermission } from '../../database/entities/role-permission.entity';
+import { NotificationsService, RequisitionNotificationData } from '../notifications/notifications.service';
 
 // Constantes para los IDs de permisos (basado en tabla permisos)
 const PERMISO = {
@@ -101,7 +102,124 @@ export class PurchasesService {
     @InjectRepository(RolePermission)
     private rolePermissionRepository: Repository<RolePermission>,
     private dataSource: DataSource,
+    private notificationsService: NotificationsService,
   ) {}
+
+  // ============================================
+  // HELPER: Notificaciones por correo
+  // ============================================
+  private async sendRequisitionNotification(
+    type: 'new_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'ready_for_quotation',
+    requisition: Requisition,
+    options?: { approved?: boolean; comments?: string },
+  ): Promise<void> {
+    try {
+      // Preparar datos comunes de la notificación
+      const notificationData: RequisitionNotificationData = {
+        requisitionNumber: requisition.requisitionNumber,
+        creatorName: requisition.creator?.nombre || 'Usuario',
+        projectName: requisition.project?.name,
+        priority: requisition.priority || 'normal',
+        itemsCount: requisition.items?.length || 0,
+      };
+
+      switch (type) {
+        case 'new_for_review': {
+          // Buscar el revisor (autorizador del creador)
+          const authorization = await this.authorizationRepository.findOne({
+            where: { usuarioAutorizadoId: requisition.createdBy },
+            relations: ['usuarioAutorizador'],
+          });
+
+          if (authorization?.usuarioAutorizador) {
+            const reviewer = authorization.usuarioAutorizador;
+            const email = reviewer.emailNotificacion || reviewer.email;
+            await this.notificationsService.notifyNewRequisitionForReview(
+              email,
+              reviewer.nombre,
+              notificationData,
+            );
+          }
+          break;
+        }
+
+        case 'reviewed': {
+          // Notificar al creador
+          const creator = requisition.creator;
+          if (creator) {
+            const email = creator.emailNotificacion || creator.email;
+            await this.notificationsService.notifyRequisitionReviewed(
+              email,
+              creator.nombre,
+              { ...notificationData, approved: options?.approved || false, comments: options?.comments },
+            );
+          }
+          break;
+        }
+
+        case 'for_approval': {
+          // Buscar usuarios con rol Gerencia que pueden aprobar
+          const managers = await this.userRepository.find({
+            where: { estado: true },
+            relations: ['role'],
+          });
+
+          const approvers = managers.filter(u =>
+            u.role?.nombreRol?.toLowerCase().includes('gerencia') ||
+            u.role?.nombreRol?.toLowerCase().includes('director')
+          );
+
+          for (const approver of approvers) {
+            const email = approver.emailNotificacion || approver.email;
+            await this.notificationsService.notifyRequisitionForApproval(
+              email,
+              approver.nombre,
+              notificationData,
+            );
+          }
+          break;
+        }
+
+        case 'approved': {
+          // Notificar al creador que fue aprobada
+          const creator = requisition.creator;
+          if (creator) {
+            const email = creator.emailNotificacion || creator.email;
+            await this.notificationsService.notifyRequisitionApproved(
+              email,
+              creator.nombre,
+              notificationData,
+            );
+          }
+          break;
+        }
+
+        case 'ready_for_quotation': {
+          // Buscar usuarios con permiso de cotizar
+          const quoters = await this.userRepository.find({
+            where: { estado: true },
+            relations: ['role'],
+          });
+
+          for (const quoter of quoters) {
+            const hasQuotePermission = await this.hasPermission(quoter.role.rolId, PERMISO.COTIZAR);
+            if (hasQuotePermission) {
+              const email = quoter.emailNotificacion || quoter.email;
+              await this.notificationsService.notifyRequisitionReadyForQuotation(
+                email,
+                quoter.nombre,
+                notificationData,
+              );
+            }
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      // Log del error pero no fallar el flujo principal
+      console.error('Error enviando notificación:', error.message);
+    }
+  }
 
   // ============================================
   // HELPER: Validar permiso del usuario
@@ -453,8 +571,12 @@ export class PurchasesService {
 
       await queryRunner.commitTransaction();
 
-      // 10. Retornar requisición completa
-      return this.getRequisitionById(savedRequisition.requisitionId, userId);
+      // 10. Enviar notificación al revisor (sin esperar respuesta)
+      const fullRequisition = await this.getRequisitionById(savedRequisition.requisitionId, userId);
+      this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
+
+      // 11. Retornar requisición completa
+      return fullRequisition;
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
@@ -1130,7 +1252,21 @@ export class PurchasesService {
 
       await queryRunner.commitTransaction();
 
-      return this.getRequisitionById(requisitionId, userId);
+      // Enviar notificaciones según la decisión
+      const fullRequisition = await this.getRequisitionById(requisitionId, userId);
+
+      // Notificar al creador sobre la revisión
+      this.sendRequisitionNotification('reviewed', fullRequisition as Requisition, {
+        approved: dto.decision === 'approve',
+        comments: dto.comments,
+      }).catch(() => {});
+
+      // Si fue aprobada, notificar al siguiente nivel
+      if (dto.decision === 'approve' && newStatusCode === 'aprobada_revisor') {
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+      }
+
+      return fullRequisition;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -1298,7 +1434,16 @@ export class PurchasesService {
 
       await queryRunner.commitTransaction();
 
-      return this.getRequisitionById(requisitionId, userId);
+      // Enviar notificaciones
+      const fullRequisition = await this.getRequisitionById(requisitionId, userId);
+
+      // Notificar al creador que fue aprobada
+      this.sendRequisitionNotification('approved', fullRequisition as Requisition).catch(() => {});
+
+      // Notificar a los cotizadores que hay una requisición lista
+      this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch(() => {});
+
+      return fullRequisition;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;

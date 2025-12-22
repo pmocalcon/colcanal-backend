@@ -11,6 +11,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CompanyContactsModule } from './modules/company-contacts/company-contacts.module';
 import { UsersModule } from './modules/users/users.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -34,6 +35,7 @@ import configuration from './config/configuration';
     InvoicesModule,
     CompanyContactsModule,
     UsersModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

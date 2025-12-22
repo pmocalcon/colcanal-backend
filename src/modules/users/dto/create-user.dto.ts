@@ -11,7 +11,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateUserDto {
   @ApiProperty({
-    description: 'Correo electrónico corporativo del usuario',
+    description: 'Correo electrónico corporativo del usuario (para login)',
     example: 'nuevo.usuario@canalcongroup.com',
   })
   @IsEmail({}, { message: 'El correo electrónico no es válido' })
@@ -19,6 +19,14 @@ export class CreateUserDto {
     message: 'El correo debe ser del dominio corporativo (@canalcongroup.com, @canalco.com, @alumbrado.com)',
   })
   email: string;
+
+  @ApiPropertyOptional({
+    description: 'Correo electrónico para recibir notificaciones (dominio @alumbrados.co)',
+    example: 'usuario@alumbrados.co',
+  })
+  @IsOptional()
+  @IsEmail({}, { message: 'El correo de notificación no es válido' })
+  emailNotificacion?: string;
 
   @ApiProperty({
     description: 'Contraseña del usuario (mínimo 8 caracteres)',
