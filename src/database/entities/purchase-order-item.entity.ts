@@ -24,8 +24,8 @@ export class PurchaseOrderItem {
   @Column({ name: 'requisition_item_id' })
   requisitionItemId: number;
 
-  @Column({ name: 'quotation_id' })
-  quotationId: number;
+  @Column({ name: 'quotation_id', nullable: true })
+  quotationId: number | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   quantity: number;
@@ -60,9 +60,9 @@ export class PurchaseOrderItem {
   @JoinColumn({ name: 'requisition_item_id' })
   requisitionItem: RequisitionItem;
 
-  @ManyToOne(() => RequisitionItemQuotation)
+  @ManyToOne(() => RequisitionItemQuotation, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'quotation_id' })
-  quotation: RequisitionItemQuotation;
+  quotation: RequisitionItemQuotation | null;
 
   @OneToMany(() => MaterialReceipt, (receipt) => receipt.purchaseOrderItem)
   receipts: MaterialReceipt[];

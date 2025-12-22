@@ -10,6 +10,7 @@ import {
 import { Requisition } from './requisition.entity';
 import { RequisitionItem } from './requisition-item.entity';
 import { User } from './user.entity';
+import { Material } from './material.entity';
 
 /**
  * Tracks item-level approvals for requisitions
@@ -78,4 +79,8 @@ export class RequisitionItemApproval {
   @ManyToOne(() => User)
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @ManyToOne(() => Material)
+  @JoinColumn({ name: 'material_id' })
+  material: Material;
 }

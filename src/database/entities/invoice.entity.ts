@@ -56,7 +56,7 @@ export class Invoice {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => PurchaseOrder, (po) => po.invoices)
+  @ManyToOne(() => PurchaseOrder, (po) => po.invoices, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'purchase_order_id' })
   purchaseOrder: PurchaseOrder;
 

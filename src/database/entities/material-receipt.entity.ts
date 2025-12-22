@@ -43,7 +43,7 @@ export class MaterialReceipt {
   // RELACIONES
   // ============================================
 
-  @ManyToOne(() => PurchaseOrderItem, (poItem) => poItem.receipts)
+  @ManyToOne(() => PurchaseOrderItem, (poItem) => poItem.receipts, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'po_item_id' })
   purchaseOrderItem: PurchaseOrderItem;
 
