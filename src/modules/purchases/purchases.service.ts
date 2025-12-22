@@ -616,7 +616,7 @@ export class PurchasesService {
       .leftJoinAndSelect('logs.user', 'logUser')
       .leftJoinAndSelect('logUser.role', 'logUserRole')
       .where('requisition.createdBy = :userId', { userId })
-      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
       .addOrderBy('logs.createdAt', 'DESC');
 
@@ -992,7 +992,7 @@ export class PurchasesService {
 
     // Ordenar por prioridad (alta primero) y luego por fecha de creación
     queryBuilder
-      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC');
 
     const [allRequisitions, total] = await queryBuilder.getManyAndCount();
@@ -1722,7 +1722,7 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['aprobada_gerencia', 'en_cotizacion']
       })
-      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC');
 
     const [pendingRequisitions, pendingTotal] = await pendingQueryBuilder.getManyAndCount();
@@ -1732,7 +1732,7 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['cotizada', 'en_orden_compra', 'pendiente_recepcion', 'en_recepcion', 'recepcion_completa']
       })
-      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
       .take(20); // Limitar a 20 procesadas
 
@@ -2546,7 +2546,7 @@ export class PurchasesService {
       .andWhere('status.code IN (:...statuses)', {
         statuses: ['pendiente_recepcion', 'en_recepcion', 'recepcion_completa'],
       })
-      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'ASC')
       .skip(skip)
       .take(limit);
