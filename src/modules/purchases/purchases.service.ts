@@ -1084,8 +1084,8 @@ export class PurchasesService {
         }
       }
 
-      // Calcular SLA
-      const slaBusinessDays = getSLAForStatus(req.status.code);
+      // Calcular SLA (urgentes tienen SLA = 0 días)
+      const slaBusinessDays = getSLAForStatus(req.status.code, req.priority);
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
@@ -1753,9 +1753,9 @@ export class PurchasesService {
     const requisitions = [...pendingRequisitions, ...processedRequisitions];
     const total = pendingTotal + processedTotal;
 
-    // Calcular SLA para cada requisición
+    // Calcular SLA para cada requisición (urgentes tienen SLA = 0 días)
     const requisitionsWithSLA = requisitions.map(req => {
-      const slaBusinessDays = getSLAForStatus(req.status.code);
+      const slaBusinessDays = getSLAForStatus(req.status.code, req.priority);
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;

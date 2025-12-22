@@ -165,7 +165,7 @@ export function calculateSLA(startDate: Date, businessDays: number): {
 }
 
 /**
- * Configuración de SLA por estado de requisición
+ * Configuración de SLA por estado de requisición (en días hábiles)
  */
 export const SLA_CONFIG: Record<string, number> = {
   // Revisión: 1 día hábil
@@ -177,8 +177,8 @@ export const SLA_CONFIG: Record<string, number> = {
   // Cotización: 1 día hábil
   'aprobada_gerencia': 1,
 
-  // Orden de Compra: 3 días hábiles
-  'cotizada': 3,
+  // Orden de Compra: 2 días hábiles
+  'cotizada': 2,
 
   // Estados sin SLA (ya procesados o en otros flujos)
   'en_cotizacion': 0,
@@ -192,7 +192,14 @@ export const SLA_CONFIG: Record<string, number> = {
 
 /**
  * Obtiene el SLA para un estado de requisición
+ * @param statusCode - Código del estado
+ * @param priority - Prioridad de la requisición ('alta' = urgente, 'normal' = estándar)
+ * @returns Número de días hábiles para el SLA (0 si es urgente)
  */
-export function getSLAForStatus(statusCode: string): number {
+export function getSLAForStatus(statusCode: string, priority?: 'alta' | 'normal'): number {
+  // Si es urgente (prioridad alta), el SLA es 0 días (mismo día)
+  if (priority === 'alta') {
+    return 0;
+  }
   return SLA_CONFIG[statusCode] || 0;
 }
