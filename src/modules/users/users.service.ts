@@ -13,9 +13,19 @@ import { Role } from '../../database/entities/role.entity';
 import { Authorization } from '../../database/entities/authorization.entity';
 import { Permission } from '../../database/entities/permission.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
+import { RoleGestion } from '../../database/entities/role-gestion.entity';
 import { Gestion } from '../../database/entities/gestion.entity';
 
-import { CreateUserDto, UpdateUserDto, CreateAuthorizationDto, BulkAuthorizationDto } from './dto';
+import {
+  CreateUserDto,
+  UpdateUserDto,
+  CreateAuthorizationDto,
+  BulkAuthorizationDto,
+  CreateRoleDto,
+  UpdateRoleDto,
+  AssignPermissionsDto,
+  AssignGestionesDto,
+} from './dto';
 
 @Injectable()
 export class UsersService {
@@ -30,6 +40,8 @@ export class UsersService {
     private permissionRepository: Repository<Permission>,
     @InjectRepository(RolePermission)
     private rolePermissionRepository: Repository<RolePermission>,
+    @InjectRepository(RoleGestion)
+    private roleGestionRepository: Repository<RoleGestion>,
     @InjectRepository(Gestion)
     private gestionRepository: Repository<Gestion>,
   ) {}
@@ -218,6 +230,230 @@ export class UsersService {
         permisoId: rp.permission.permisoId,
         nombrePermiso: rp.permission.nombrePermiso,
         descripcion: rp.permission.descripcion,
+      })),
+    };
+  }
+
+  // ============================================
+  // CRUD DE ROLES
+  // ============================================
+
+  async findOneRole(rolId: number) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+      relations: [
+        'rolePermissions',
+        'rolePermissions.permission',
+        'roleGestiones',
+        'roleGestiones.gestion',
+      ],
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    return {
+      rolId: role.rolId,
+      nombreRol: role.nombreRol,
+      descripcion: role.descripcion,
+      category: role.category,
+      defaultModule: role.defaultModule,
+      permisos: role.rolePermissions.map(rp => ({
+        permisoId: rp.permission.permisoId,
+        nombrePermiso: rp.permission.nombrePermiso,
+        descripcion: rp.permission.descripcion,
+      })),
+      gestiones: role.roleGestiones.map(rg => ({
+        gestionId: rg.gestion.gestionId,
+        nombre: rg.gestion.nombre,
+        slug: rg.gestion.slug,
+        icono: rg.gestion.icono,
+      })),
+    };
+  }
+
+  async createRole(createRoleDto: CreateRoleDto) {
+    // Verificar si el nombre ya existe
+    const existingRole = await this.roleRepository.findOne({
+      where: { nombreRol: createRoleDto.nombreRol },
+    });
+
+    if (existingRole) {
+      throw new ConflictException(`Ya existe un rol con el nombre "${createRoleDto.nombreRol}"`);
+    }
+
+    // Crear el rol
+    const role = this.roleRepository.create({
+      nombreRol: createRoleDto.nombreRol,
+      descripcion: createRoleDto.descripcion,
+      category: createRoleDto.category,
+      defaultModule: createRoleDto.defaultModule,
+    });
+
+    const savedRole = await this.roleRepository.save(role);
+
+    // Asignar permisos si se especificaron
+    if (createRoleDto.permisoIds && createRoleDto.permisoIds.length > 0) {
+      await this.assignPermissionsToRole(savedRole.rolId, { permisoIds: createRoleDto.permisoIds });
+    }
+
+    // Asignar gestiones si se especificaron
+    if (createRoleDto.gestionIds && createRoleDto.gestionIds.length > 0) {
+      await this.assignGestionesToRole(savedRole.rolId, { gestionIds: createRoleDto.gestionIds });
+    }
+
+    return this.findOneRole(savedRole.rolId);
+  }
+
+  async updateRole(rolId: number, updateRoleDto: UpdateRoleDto) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    // Si se actualiza el nombre, verificar que no exista
+    if (updateRoleDto.nombreRol && updateRoleDto.nombreRol !== role.nombreRol) {
+      const existingRole = await this.roleRepository.findOne({
+        where: { nombreRol: updateRoleDto.nombreRol },
+      });
+
+      if (existingRole) {
+        throw new ConflictException(`Ya existe un rol con el nombre "${updateRoleDto.nombreRol}"`);
+      }
+    }
+
+    // Actualizar campos
+    await this.roleRepository.update(rolId, updateRoleDto);
+
+    return this.findOneRole(rolId);
+  }
+
+  async deleteRole(rolId: number) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+      relations: ['users'],
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    // Verificar que no tenga usuarios asignados
+    if (role.users && role.users.length > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar el rol "${role.nombreRol}" porque tiene ${role.users.length} usuario(s) asignado(s). ` +
+        `Reasigne los usuarios a otro rol antes de eliminar.`
+      );
+    }
+
+    // Eliminar permisos asociados
+    await this.rolePermissionRepository.delete({ rolId });
+
+    // Eliminar gestiones asociadas
+    await this.roleGestionRepository.delete({ rolId });
+
+    // Eliminar el rol
+    await this.roleRepository.delete(rolId);
+
+    return { message: `Rol "${role.nombreRol}" eliminado correctamente` };
+  }
+
+  async assignPermissionsToRole(rolId: number, dto: AssignPermissionsDto) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    // Verificar que todos los permisos existen
+    if (dto.permisoIds.length > 0) {
+      const permissions = await this.permissionRepository.find({
+        where: { permisoId: In(dto.permisoIds) },
+      });
+
+      if (permissions.length !== dto.permisoIds.length) {
+        const foundIds = permissions.map(p => p.permisoId);
+        const notFoundIds = dto.permisoIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(`Permisos no encontrados: ${notFoundIds.join(', ')}`);
+      }
+    }
+
+    // Eliminar permisos actuales
+    await this.rolePermissionRepository.delete({ rolId });
+
+    // Crear nuevos permisos
+    if (dto.permisoIds.length > 0) {
+      const rolePermissions = dto.permisoIds.map(permisoId =>
+        this.rolePermissionRepository.create({ rolId, permisoId })
+      );
+      await this.rolePermissionRepository.save(rolePermissions);
+    }
+
+    return this.findOneRole(rolId);
+  }
+
+  async assignGestionesToRole(rolId: number, dto: AssignGestionesDto) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    // Verificar que todas las gestiones existen
+    if (dto.gestionIds.length > 0) {
+      const gestiones = await this.gestionRepository.find({
+        where: { gestionId: In(dto.gestionIds) },
+      });
+
+      if (gestiones.length !== dto.gestionIds.length) {
+        const foundIds = gestiones.map(g => g.gestionId);
+        const notFoundIds = dto.gestionIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(`Gestiones no encontradas: ${notFoundIds.join(', ')}`);
+      }
+    }
+
+    // Eliminar gestiones actuales
+    await this.roleGestionRepository.delete({ rolId });
+
+    // Crear nuevas gestiones
+    if (dto.gestionIds.length > 0) {
+      const roleGestiones = dto.gestionIds.map(gestionId =>
+        this.roleGestionRepository.create({ rolId, gestionId })
+      );
+      await this.roleGestionRepository.save(roleGestiones);
+    }
+
+    return this.findOneRole(rolId);
+  }
+
+  async getRoleGestiones(rolId: number) {
+    const role = await this.roleRepository.findOne({
+      where: { rolId },
+      relations: ['roleGestiones', 'roleGestiones.gestion'],
+    });
+
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    return {
+      role: {
+        rolId: role.rolId,
+        nombreRol: role.nombreRol,
+      },
+      gestiones: role.roleGestiones.map(rg => ({
+        gestionId: rg.gestion.gestionId,
+        nombre: rg.gestion.nombre,
+        slug: rg.gestion.slug,
+        icono: rg.gestion.icono,
       })),
     };
   }

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Body,
@@ -23,7 +24,16 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, CreateAuthorizationDto, BulkAuthorizationDto } from './dto';
+import {
+  CreateUserDto,
+  UpdateUserDto,
+  CreateAuthorizationDto,
+  BulkAuthorizationDto,
+  CreateRoleDto,
+  UpdateRoleDto,
+  AssignPermissionsDto,
+  AssignGestionesDto,
+} from './dto';
 
 // Roles permitidos para acceder al módulo de administración de usuarios
 // Se normalizan para comparación flexible (sin espacios extra, case insensitive)
@@ -111,6 +121,103 @@ export class UsersController {
   async findAllGestiones(@Request() req) {
     this.checkAccess(req);
     return this.usersService.getAllGestiones();
+  }
+
+  // ============================================
+  // CRUD DE ROLES
+  // ============================================
+
+  @Post('roles')
+  @ApiOperation({ summary: 'Crear un nuevo rol' })
+  @ApiResponse({ status: 201, description: 'Rol creado exitosamente' })
+  @ApiResponse({ status: 409, description: 'Ya existe un rol con ese nombre' })
+  async createRole(
+    @Request() req,
+    @Body() createRoleDto: CreateRoleDto,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.createRole(createRoleDto);
+  }
+
+  @Get('roles/:rolId')
+  @ApiOperation({ summary: 'Obtener un rol por ID con sus permisos y gestiones' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Rol encontrado' })
+  @ApiResponse({ status: 404, description: 'Rol no encontrado' })
+  async findOneRole(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.findOneRole(rolId);
+  }
+
+  @Patch('roles/:rolId')
+  @ApiOperation({ summary: 'Actualizar un rol' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Rol actualizado' })
+  @ApiResponse({ status: 404, description: 'Rol no encontrado' })
+  async updateRole(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+    @Body() updateRoleDto: UpdateRoleDto,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.updateRole(rolId, updateRoleDto);
+  }
+
+  @Delete('roles/:rolId')
+  @ApiOperation({ summary: 'Eliminar un rol (solo si no tiene usuarios asignados)' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Rol eliminado' })
+  @ApiResponse({ status: 400, description: 'El rol tiene usuarios asignados' })
+  @ApiResponse({ status: 404, description: 'Rol no encontrado' })
+  async deleteRole(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.deleteRole(rolId);
+  }
+
+  @Put('roles/:rolId/permissions')
+  @ApiOperation({ summary: 'Asignar permisos a un rol (reemplaza los existentes)' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Permisos asignados' })
+  @ApiResponse({ status: 404, description: 'Rol o permisos no encontrados' })
+  async assignPermissions(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+    @Body() assignPermissionsDto: AssignPermissionsDto,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.assignPermissionsToRole(rolId, assignPermissionsDto);
+  }
+
+  @Put('roles/:rolId/gestiones')
+  @ApiOperation({ summary: 'Asignar gestiones/módulos a un rol (reemplaza los existentes)' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Gestiones asignadas' })
+  @ApiResponse({ status: 404, description: 'Rol o gestiones no encontradas' })
+  async assignGestiones(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+    @Body() assignGestionesDto: AssignGestionesDto,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.assignGestionesToRole(rolId, assignGestionesDto);
+  }
+
+  @Get('roles/:rolId/gestiones')
+  @ApiOperation({ summary: 'Obtener gestiones/módulos de un rol específico' })
+  @ApiParam({ name: 'rolId', description: 'ID del rol' })
+  @ApiResponse({ status: 200, description: 'Gestiones del rol' })
+  async getRoleGestiones(
+    @Request() req,
+    @Param('rolId', ParseIntPipe) rolId: number,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.getRoleGestiones(rolId);
   }
 
   @Get('hierarchy')
