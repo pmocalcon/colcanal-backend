@@ -421,6 +421,7 @@ export class PurchasesService {
         statusId: pendingStatusId,
         obra: dto.obra,
         codigoObra: dto.codigoObra,
+        priority: dto.priority || 'normal',
       });
 
       const savedRequisition = await queryRunner.manager.save(requisition);
@@ -493,7 +494,8 @@ export class PurchasesService {
       .leftJoinAndSelect('logs.user', 'logUser')
       .leftJoinAndSelect('logUser.role', 'logUserRole')
       .where('requisition.createdBy = :userId', { userId })
-      .orderBy('requisition.createdAt', 'DESC')
+      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC')
       .addOrderBy('logs.createdAt', 'DESC');
 
     // Filtros opcionales
@@ -627,6 +629,10 @@ export class PurchasesService {
 
       if (dto.projectId !== undefined) {
         requisition.projectId = dto.projectId;
+      }
+
+      if (dto.priority) {
+        requisition.priority = dto.priority;
       }
 
       // Si estaba rechazada, volver al estado apropiado según quién rechazó
@@ -862,8 +868,10 @@ export class PurchasesService {
       });
     }
 
-    // Ordenar por fecha de creación
-    queryBuilder.orderBy('requisition.createdAt', 'DESC');
+    // Ordenar por prioridad (alta primero) y luego por fecha de creación
+    queryBuilder
+      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC');
 
     const [allRequisitions, total] = await queryBuilder.getManyAndCount();
 
@@ -1564,11 +1572,13 @@ export class PurchasesService {
       .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus');
 
     // Query 1: Obtener TODAS las requisiciones pendientes de cotización (sin límite)
+    // Ordenar por prioridad (alta primero) y luego por fecha
     const pendingQueryBuilder = queryBuilder.clone()
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['aprobada_gerencia', 'en_cotizacion']
       })
-      .orderBy('requisition.createdAt', 'DESC');
+      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC');
 
     const [pendingRequisitions, pendingTotal] = await pendingQueryBuilder.getManyAndCount();
 
@@ -1577,7 +1587,8 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['cotizada', 'en_orden_compra', 'pendiente_recepcion', 'en_recepcion', 'recepcion_completa']
       })
-      .orderBy('requisition.createdAt', 'DESC')
+      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC')
       .take(20); // Limitar a 20 procesadas
 
     const [processedRequisitions, processedTotal] = await processedQueryBuilder.getManyAndCount();
@@ -2390,7 +2401,8 @@ export class PurchasesService {
       .andWhere('status.code IN (:...statuses)', {
         statuses: ['pendiente_recepcion', 'en_recepcion', 'recepcion_completa'],
       })
-      .orderBy('requisition.createdAt', 'ASC')
+      .orderBy("CASE WHEN requisition.priority = 'alta' THEN 0 ELSE 1 END", 'ASC')
+      .addOrderBy('requisition.createdAt', 'ASC')
       .skip(skip)
       .take(limit);
 

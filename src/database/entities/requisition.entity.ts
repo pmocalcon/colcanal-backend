@@ -45,6 +45,9 @@ export class Requisition {
   @Column({ name: 'status_id', default: 1 })
   statusId: number;
 
+  @Column({ name: 'priority', type: 'varchar', length: 10, default: 'normal' })
+  priority: 'alta' | 'normal';
+
   @Column({ name: 'reviewed_by', nullable: true })
   reviewedBy: number;
 

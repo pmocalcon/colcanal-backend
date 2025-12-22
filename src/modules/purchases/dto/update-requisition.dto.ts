@@ -4,6 +4,8 @@ import {
   IsArray,
   ValidateNested,
   ArrayMinSize,
+  IsIn,
+  IsString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -29,6 +31,17 @@ export class UpdateRequisitionDto {
   @IsNumber()
   @Type(() => Number)
   projectId?: number;
+
+  @ApiProperty({
+    description:
+      'Prioridad de la requisición. Las requisiciones con prioridad "alta" aparecerán primero en todas las listas.',
+    example: 'normal',
+    enum: ['alta', 'normal'],
+    required: false,
+  })
+  @IsOptional()
+  @IsIn(['alta', 'normal'], { message: 'La prioridad debe ser "alta" o "normal"' })
+  priority?: 'alta' | 'normal';
 
   @ApiProperty({
     description: 'Ítems de la requisición',

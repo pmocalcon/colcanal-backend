@@ -5,6 +5,7 @@ import {
   IsString,
   ValidateNested,
   ArrayMinSize,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -62,6 +63,18 @@ export class CreateRequisitionDto {
   @IsOptional()
   @IsString({ message: 'El código de obra debe ser una cadena de texto' })
   codigoObra?: string;
+
+  @ApiProperty({
+    description:
+      'Prioridad de la requisición. Las requisiciones con prioridad "alta" aparecerán primero en todas las listas (revisión, aprobación, cotización, órdenes de compra).',
+    example: 'normal',
+    enum: ['alta', 'normal'],
+    default: 'normal',
+    required: false,
+  })
+  @IsOptional()
+  @IsIn(['alta', 'normal'], { message: 'La prioridad debe ser "alta" o "normal"' })
+  priority?: 'alta' | 'normal';
 
   @ApiProperty({
     description:
