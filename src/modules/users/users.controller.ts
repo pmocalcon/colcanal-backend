@@ -26,12 +26,13 @@ import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, CreateAuthorizationDto, BulkAuthorizationDto } from './dto';
 
 // Roles permitidos para acceder al módulo de administración de usuarios
+// Se normalizan para comparación flexible (sin espacios extra, case insensitive)
 const ALLOWED_ROLES = [
-  'Director Tics',
-  'Analista Tics',
-  'Director PMO',
-  'Analista PMO',
-  'Gerencia', // Gerencia siempre tiene acceso
+  'director tics',
+  'analista tics',
+  'director pmo',
+  'analista pmo',
+  'gerencia',
 ];
 
 @ApiTags('Users - Administración de Usuarios')
@@ -52,14 +53,22 @@ export class UsersController {
       throw new ForbiddenException('No se pudo determinar el rol del usuario');
     }
 
-    const hasAccess = ALLOWED_ROLES.some(
-      role => userRole.toLowerCase().includes(role.toLowerCase()) ||
-              role.toLowerCase().includes(userRole.toLowerCase())
-    );
+    // Normalizar el rol del usuario: minúsculas y sin espacios extras
+    const normalizedUserRole = userRole.toLowerCase().trim().replace(/\s+/g, ' ');
+
+    // Verificar si el rol del usuario está en la lista de permitidos
+    const hasAccess = ALLOWED_ROLES.some(allowedRole => {
+      // Comparación exacta normalizada
+      if (normalizedUserRole === allowedRole) return true;
+      // O si uno contiene al otro (para casos como "Analista de PMO")
+      if (normalizedUserRole.includes(allowedRole) || allowedRole.includes(normalizedUserRole)) return true;
+      return false;
+    });
 
     if (!hasAccess) {
+      console.log(`[Users] Acceso denegado para rol: "${userRole}" (normalizado: "${normalizedUserRole}")`);
       throw new ForbiddenException(
-        `Acceso denegado. Solo los roles ${ALLOWED_ROLES.join(', ')} pueden acceder a este módulo.`
+        `Acceso denegado. Tu rol "${userRole}" no tiene permisos para este módulo.`
       );
     }
   }
