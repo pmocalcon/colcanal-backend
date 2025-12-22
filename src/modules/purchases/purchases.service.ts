@@ -1089,6 +1089,7 @@ export class PurchasesService {
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
+      let daysRemaining = 0;
 
       if (slaBusinessDays > 0) {
         // La fecha de inicio para el SLA es cuando la requisición entró al estado actual
@@ -1103,6 +1104,15 @@ export class PurchasesService {
         slaDeadline = slaResult.deadline;
         isOverdue = slaResult.isOverdue;
         daysOverdue = slaResult.daysOverdue;
+
+        // Calcular días hábiles restantes si no está vencida
+        if (!isOverdue && slaDeadline) {
+          daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
+          // Si el deadline es hoy, mostrar al menos 1 día
+          if (daysRemaining === 0 && new Date() < slaDeadline) {
+            daysRemaining = 1;
+          }
+        }
       }
 
       // Agregar metadata al objeto
@@ -1114,6 +1124,7 @@ export class PurchasesService {
         slaDeadline,
         isOverdue,
         daysOverdue,
+        daysRemaining,
       };
 
       if (isPending) {
@@ -1748,6 +1759,7 @@ export class PurchasesService {
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
+      let daysRemaining = 0;
 
       if (slaBusinessDays > 0) {
         // La fecha de inicio para el SLA es cuando la requisición entró al estado actual
@@ -1762,6 +1774,15 @@ export class PurchasesService {
         slaDeadline = slaResult.deadline;
         isOverdue = slaResult.isOverdue;
         daysOverdue = slaResult.daysOverdue;
+
+        // Calcular días hábiles restantes si no está vencida
+        if (!isOverdue && slaDeadline) {
+          daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
+          // Si el deadline es hoy, mostrar al menos 1 día
+          if (daysRemaining === 0 && new Date() < slaDeadline) {
+            daysRemaining = 1;
+          }
+        }
       }
 
       return {
@@ -1769,6 +1790,7 @@ export class PurchasesService {
         slaDeadline,
         isOverdue,
         daysOverdue,
+        daysRemaining,
       };
     });
 
