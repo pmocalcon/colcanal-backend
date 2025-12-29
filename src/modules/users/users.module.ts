@@ -10,7 +10,6 @@ import { Authorization } from '../../database/entities/authorization.entity';
 import { Permission } from '../../database/entities/permission.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
-import { UserGestion } from '../../database/entities/user-gestion.entity';
 import { Gestion } from '../../database/entities/gestion.entity';
 
 @Module({
@@ -22,7 +21,6 @@ import { Gestion } from '../../database/entities/gestion.entity';
       Permission,
       RolePermission,
       RoleGestion,
-      UserGestion,
       Gestion,
     ]),
   ],

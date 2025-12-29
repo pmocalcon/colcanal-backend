@@ -14,7 +14,6 @@ import { Authorization } from '../../database/entities/authorization.entity';
 import { Permission } from '../../database/entities/permission.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
-import { UserGestion } from '../../database/entities/user-gestion.entity';
 import { Gestion } from '../../database/entities/gestion.entity';
 
 import {
@@ -26,7 +25,6 @@ import {
   UpdateRoleDto,
   AssignPermissionsDto,
   AssignGestionesDto,
-  AssignUserGestionesDto,
 } from './dto';
 
 @Injectable()
@@ -44,8 +42,6 @@ export class UsersService {
     private rolePermissionRepository: Repository<RolePermission>,
     @InjectRepository(RoleGestion)
     private roleGestionRepository: Repository<RoleGestion>,
-    @InjectRepository(UserGestion)
-    private userGestionRepository: Repository<UserGestion>,
     @InjectRepository(Gestion)
     private gestionRepository: Repository<Gestion>,
   ) {}
@@ -203,12 +199,7 @@ export class UsersService {
 
   async findAllRoles() {
     return this.roleRepository.find({
-      relations: [
-        'rolePermissions',
-        'rolePermissions.permission',
-        'roleGestiones',
-        'roleGestiones.gestion',
-      ],
+      relations: ['rolePermissions', 'rolePermissions.permission'],
       order: { rolId: 'ASC' },
     });
   }
@@ -766,68 +757,5 @@ export class UsersService {
     return this.gestionRepository.find({
       order: { gestionId: 'ASC' },
     });
-  }
-
-  // ============================================
-  // GESTIÓN DE MÓDULOS POR USUARIO
-  // ============================================
-
-  async getUserGestiones(userId: number) {
-    const user = await this.userRepository.findOne({
-      where: { userId },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
-    }
-
-    // Obtener gestiones asignadas al usuario
-    const userGestiones = await this.userGestionRepository.find({
-      where: { userId },
-      relations: ['gestion'],
-    });
-
-    return userGestiones.map((ug) => ({
-      gestionId: ug.gestion.gestionId,
-      nombre: ug.gestion.nombre,
-      slug: ug.gestion.slug,
-      icono: ug.gestion.icono,
-    }));
-  }
-
-  async assignGestionesToUser(userId: number, dto: AssignUserGestionesDto) {
-    const user = await this.userRepository.findOne({
-      where: { userId },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
-    }
-
-    // Verificar que todas las gestiones existen
-    if (dto.gestionIds.length > 0) {
-      const gestiones = await this.gestionRepository.find({
-        where: { gestionId: In(dto.gestionIds) },
-      });
-
-      if (gestiones.length !== dto.gestionIds.length) {
-        const foundIds = gestiones.map((g) => g.gestionId);
-        const notFoundIds = dto.gestionIds.filter((id) => !foundIds.includes(id));
-        throw new NotFoundException(`Gestiones no encontradas: ${notFoundIds.join(', ')}`);
-      }
-    }
-
-    // Eliminar gestiones actuales del usuario
-    await this.userGestionRepository.delete({ userId });
-
-    // Crear nuevas gestiones
-    if (dto.gestionIds.length > 0) {
-      const userGestiones = dto.gestionIds.map((gestionId) =>
-        this.userGestionRepository.create({ userId, gestionId }),
-      );
-      await this.userGestionRepository.save(userGestiones);
-    }
-
-    return { message: `Módulos actualizados para el usuario ${user.nombre}` };
   }
 }

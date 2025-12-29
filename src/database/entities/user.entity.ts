@@ -19,7 +19,6 @@ import { PurchaseOrderApproval } from './purchase-order-approval.entity';
 import { Invoice } from './invoice.entity';
 import { MaterialReceipt } from './material-receipt.entity';
 import { MaterialPriceHistory } from './material-price-history.entity';
-import { UserGestion } from './user-gestion.entity';
 
 @Entity('users')
 export class User {
@@ -127,8 +126,4 @@ export class User {
   // Historial de precios creado por este usuario
   @OneToMany(() => MaterialPriceHistory, (price) => price.creator)
   createdPriceHistory: MaterialPriceHistory[];
-
-  // Gestiones/módulos asignados directamente a este usuario
-  @OneToMany(() => UserGestion, (userGestion) => userGestion.user)
-  userGestiones: UserGestion[];
 }

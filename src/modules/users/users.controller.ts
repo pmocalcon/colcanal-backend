@@ -33,7 +33,6 @@ import {
   UpdateRoleDto,
   AssignPermissionsDto,
   AssignGestionesDto,
-  AssignUserGestionesDto,
 } from './dto';
 
 // Roles permitidos para acceder al módulo de administración de usuarios
@@ -366,36 +365,5 @@ export class UsersController {
   ) {
     this.checkAccess(req);
     return this.usersService.removeAuthorization(authId);
-  }
-
-  // ============================================
-  // GESTIONES POR USUARIO
-  // ============================================
-
-  @Get(':id/gestiones')
-  @ApiOperation({ summary: 'Obtener módulos asignados a un usuario' })
-  @ApiParam({ name: 'id', description: 'ID del usuario' })
-  @ApiResponse({ status: 200, description: 'Lista de módulos del usuario' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
-  async getUserGestiones(
-    @Request() req,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    this.checkAccess(req);
-    return this.usersService.getUserGestiones(id);
-  }
-
-  @Put(':id/gestiones')
-  @ApiOperation({ summary: 'Asignar módulos a un usuario (reemplaza los existentes)' })
-  @ApiParam({ name: 'id', description: 'ID del usuario' })
-  @ApiResponse({ status: 200, description: 'Módulos asignados exitosamente' })
-  @ApiResponse({ status: 404, description: 'Usuario o módulos no encontrados' })
-  async assignUserGestiones(
-    @Request() req,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() assignUserGestionesDto: AssignUserGestionesDto,
-  ) {
-    this.checkAccess(req);
-    return this.usersService.assignGestionesToUser(id, assignUserGestionesDto);
   }
 }
