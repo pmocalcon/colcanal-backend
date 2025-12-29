@@ -199,7 +199,12 @@ export class UsersService {
 
   async findAllRoles() {
     return this.roleRepository.find({
-      relations: ['rolePermissions', 'rolePermissions.permission'],
+      relations: [
+        'rolePermissions',
+        'rolePermissions.permission',
+        'roleGestiones',
+        'roleGestiones.gestion',
+      ],
       order: { rolId: 'ASC' },
     });
   }
