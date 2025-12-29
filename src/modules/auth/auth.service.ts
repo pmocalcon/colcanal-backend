@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from '../../database/entities/user.entity';
 import { Gestion } from '../../database/entities/gestion.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
+import { UserGestion } from '../../database/entities/user-gestion.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { LoginDto } from './dto/login.dto';
 
@@ -34,6 +35,8 @@ export class AuthService {
     private gestionRepository: Repository<Gestion>,
     @InjectRepository(RoleGestion)
     private roleGestionRepository: Repository<RoleGestion>,
+    @InjectRepository(UserGestion)
+    private userGestionRepository: Repository<UserGestion>,
     @InjectRepository(RolePermission)
     private rolePermissionRepository: Repository<RolePermission>,
     private jwtService: JwtService,
@@ -164,20 +167,28 @@ export class AuthService {
       order: { gestionId: 'ASC' },
     });
 
-    // Get role gestiones for this user's role
-    const roleGestiones = await this.roleGestionRepository.find({
-      where: { rolId: user.rolId },
+    // PRIORIDAD 1: Buscar gestiones asignadas directamente al usuario
+    const userGestiones = await this.userGestionRepository.find({
+      where: { userId },
     });
+
+    let allowedGestionIds: Set<number>;
+
+    if (userGestiones.length > 0) {
+      // Si el usuario tiene gestiones asignadas directamente, usar esas
+      allowedGestionIds = new Set(userGestiones.map((ug) => ug.gestionId));
+    } else {
+      // PRIORIDAD 2: Fallback a gestiones del rol
+      const roleGestiones = await this.roleGestionRepository.find({
+        where: { rolId: user.rolId },
+      });
+      allowedGestionIds = new Set(roleGestiones.map((rg) => rg.gestionId));
+    }
 
     // Get role permissions for this user's role
     const rolePermisos = await this.rolePermissionRepository.find({
       where: { rolId: user.rolId },
     });
-
-    // Create a set of gestionIds that the role has access to
-    const allowedGestionIds = new Set(
-      roleGestiones.map((rg) => rg.gestionId),
-    );
 
     // Create a set of permisoIds that the role has
     const allowedPermisoIds = new Set(

@@ -1,5 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
 import { RoleGestion } from './role-gestion.entity';
+import { UserGestion } from './user-gestion.entity';
 import { Authorization } from './authorization.entity';
 
 @Entity('gestiones')
@@ -21,4 +22,7 @@ export class Gestion {
 
   @OneToMany(() => Authorization, (authorization) => authorization.gestion)
   authorizations: Authorization[];
+
+  @OneToMany(() => UserGestion, (userGestion) => userGestion.gestion)
+  userGestiones: UserGestion[];
 }
