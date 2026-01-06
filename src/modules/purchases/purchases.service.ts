@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, IsNull, In } from 'typeorm';
@@ -42,21 +43,17 @@ import { RolePermission } from '../../database/entities/role-permission.entity';
 import { Role } from '../../database/entities/role.entity';
 import { NotificationsService, RequisitionNotificationData } from '../notifications/notifications.service';
 import { ValidateRequisitionDto } from './dto/validate-requisition.dto';
-
-// Constantes para los IDs de permisos (basado en tabla permisos)
-const PERMISO = {
-  VER: 1,
-  CREAR: 2,
-  REVISAR: 3,
-  APROBAR: 4,
-  AUTORIZAR: 5,
-  COTIZAR: 6,
-  EXPORTAR: 7,
-  VALIDAR: 8,
-} as const;
+import {
+  PERMISSION_IDS,
+  REQUISITION_STATUS,
+  EDITABLE_STATUSES,
+  APPROVABLE_BY_MANAGEMENT_STATUSES,
+} from '../../common/constants';
 
 @Injectable()
 export class PurchasesService {
+  private readonly logger = new Logger(PurchasesService.name);
+
   constructor(
     @InjectRepository(Requisition)
     private requisitionRepository: Repository<Requisition>,
@@ -205,7 +202,7 @@ export class PurchasesService {
           });
 
           for (const quoter of quoters) {
-            const hasQuotePermission = await this.hasPermission(quoter.role.rolId, PERMISO.COTIZAR);
+            const hasQuotePermission = await this.hasPermission(quoter.role.rolId, PERMISSION_IDS.COTIZAR);
             if (hasQuotePermission) {
               const email = quoter.emailNotificacion || quoter.email;
               await this.notificationsService.notifyRequisitionReadyForQuotation(
@@ -220,7 +217,7 @@ export class PurchasesService {
       }
     } catch (error) {
       // Log del error pero no fallar el flujo principal
-      console.error('Error enviando notificación:', error.message);
+      this.logger.error(`Error enviando notificación: ${error.message}`, error.stack);
     }
   }
 
@@ -1264,7 +1261,7 @@ export class PurchasesService {
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-    await this.validatePermission(user.role.rolId, PERMISO.REVISAR, 'revisar requisiciones');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.REVISAR, 'revisar requisiciones');
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -1411,7 +1408,7 @@ export class PurchasesService {
     }
 
     // 2. Validar permiso de validar
-    await this.validatePermission(user.role.rolId, PERMISO.VALIDAR, 'validar requisiciones de obra');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.VALIDAR, 'validar requisiciones de obra');
 
     // 3. Obtener la requisición
     const requisition = await this.requisitionRepository.findOne({
@@ -1553,7 +1550,7 @@ export class PurchasesService {
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-    await this.validatePermission(user.role.rolId, PERMISO.AUTORIZAR, 'autorizar requisiciones');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.AUTORIZAR, 'autorizar requisiciones');
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -1635,7 +1632,7 @@ export class PurchasesService {
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-    await this.validatePermission(user.role.rolId, PERMISO.APROBAR, 'aprobar requisiciones');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.APROBAR, 'aprobar requisiciones');
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -1854,7 +1851,7 @@ export class PurchasesService {
 
   private async validateUserCanCreate(user: User): Promise<void> {
     // Validar permiso de crear usando la tabla roles_permisos
-    await this.validatePermission(user.role.rolId, PERMISO.CREAR, 'crear requisiciones');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.CREAR, 'crear requisiciones');
   }
 
   private async isAuthorizer(
@@ -2160,7 +2157,7 @@ export class PurchasesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    await this.validatePermission(user.role.rolId, PERMISO.COTIZAR, 'gestionar cotizaciones');
+    await this.validatePermission(user.role.rolId, PERMISSION_IDS.COTIZAR, 'gestionar cotizaciones');
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -2318,22 +2315,18 @@ export class PurchasesService {
       const itemsWithAction = itemsWithActionRaw.length;
 
       // DEBUG: Log para ver qué está pasando
-      console.log('🔍 DEBUG - Verificación de estado:');
-      console.log(`  Total de ítems en requisición: ${totalItems}`);
-      console.log(`  Ítems con quotations activas: ${itemsWithAction}`);
-      console.log(`  IDs de ítems con action:`, itemsWithActionRaw);
+      this.logger.debug(`Verificación de estado - Total ítems: ${totalItems}, Con quotations: ${itemsWithAction}`);
 
       // Determinar nuevo estado
       let newStatusCode: string;
       if (itemsWithAction === totalItems) {
         // Todos los ítems tienen acción asignada
         newStatusCode = 'cotizada';
-        console.log(`  ✅ Estado cambiará a: ${newStatusCode}`);
       } else {
         // Todavía faltan ítems por asignar
         newStatusCode = 'en_cotizacion';
-        console.log(`  ⏳ Estado cambiará a: ${newStatusCode}`);
       }
+      this.logger.debug(`Estado cambiará a: ${newStatusCode}`);
 
       // Actualizar estado de la requisición
       const newStatusId = await this.getStatusIdByCode(newStatusCode);
@@ -2342,7 +2335,7 @@ export class PurchasesService {
         { requisitionId },
         { statusId: newStatusId },
       );
-      console.log(`  💾 Estado actualizado en BD: requisitionId=${requisitionId}, newStatusId=${newStatusId}`);
+      this.logger.debug(`Estado actualizado en BD: requisitionId=${requisitionId}, newStatusId=${newStatusId}`);
 
       // Registrar log
       const log = queryRunner.manager.create(RequisitionLog, {

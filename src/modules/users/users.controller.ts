@@ -12,6 +12,7 @@ import {
   UseGuards,
   ForbiddenException,
   Request,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -34,22 +35,15 @@ import {
   AssignPermissionsDto,
   AssignGestionesDto,
 } from './dto';
-
-// Roles permitidos para acceder al módulo de administración de usuarios
-// Se normalizan para comparación flexible (sin espacios extra, case insensitive)
-const ALLOWED_ROLES = [
-  'director tics',
-  'analista tics',
-  'director pmo',
-  'analista pmo',
-  'gerencia',
-];
+import { USER_ADMIN_ALLOWED_ROLES } from '../../common/constants';
 
 @ApiTags('Users - Administración de Usuarios')
 @ApiBearerAuth()
 @Controller('users')
 @UseGuards(AuthGuard('jwt'))
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(private readonly usersService: UsersService) {}
 
   // ============================================
@@ -67,7 +61,7 @@ export class UsersController {
     const normalizedUserRole = userRole.toLowerCase().trim().replace(/\s+/g, ' ');
 
     // Verificar si el rol del usuario está en la lista de permitidos
-    const hasAccess = ALLOWED_ROLES.some(allowedRole => {
+    const hasAccess = USER_ADMIN_ALLOWED_ROLES.some(allowedRole => {
       // Comparación exacta normalizada
       if (normalizedUserRole === allowedRole) return true;
       // O si uno contiene al otro (para casos como "Analista de PMO")
@@ -76,7 +70,7 @@ export class UsersController {
     });
 
     if (!hasAccess) {
-      console.log(`[Users] Acceso denegado para rol: "${userRole}" (normalizado: "${normalizedUserRole}")`);
+      this.logger.warn(`Acceso denegado para rol: "${userRole}" (normalizado: "${normalizedUserRole}")`);
       throw new ForbiddenException(
         `Acceso denegado. Tu rol "${userRole}" no tiene permisos para este módulo.`
       );
