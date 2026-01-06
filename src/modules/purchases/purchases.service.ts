@@ -52,6 +52,7 @@ const PERMISO = {
   AUTORIZAR: 5,
   COTIZAR: 6,
   EXPORTAR: 7,
+  VALIDAR: 8,
 } as const;
 
 @Injectable()
@@ -1393,12 +1394,8 @@ export class PurchasesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // 2. Validar que el usuario es un Director de Proyecto
-    if (user.role.category !== 'DIRECTOR_PROYECTO') {
-      throw new ForbiddenException(
-        'Solo los Directores de Proyecto pueden validar requisiciones con obra',
-      );
-    }
+    // 2. Validar permiso de validar
+    await this.validatePermission(user.role.rolId, PERMISO.VALIDAR, 'validar requisiciones de obra');
 
     // 3. Obtener la requisición
     const requisition = await this.requisitionRepository.findOne({

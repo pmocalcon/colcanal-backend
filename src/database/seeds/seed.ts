@@ -297,6 +297,10 @@ async function seed() {
       },
       { nombrePermiso: 'Cotizar', descripcion: 'Permiso para cotizar' },
       { nombrePermiso: 'Exportar', descripcion: 'Permiso para exportar datos' },
+      {
+        nombrePermiso: 'Validar',
+        descripcion: 'Permiso para validar requisiciones de obra',
+      },
     ];
 
     const permissions = await permissionRepository.save(permissionsData);

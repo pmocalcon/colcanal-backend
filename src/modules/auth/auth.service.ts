@@ -23,6 +23,7 @@ const PERMISO_IDS = {
   AUTORIZAR: 5,
   COTIZAR: 6,
   EXPORTAR: 7,
+  VALIDAR: 8,
 } as const;
 
 @Injectable()
@@ -193,6 +194,7 @@ export class AuthService {
       autorizar: allowedPermisoIds.has(PERMISO_IDS.AUTORIZAR),
       cotizar: allowedPermisoIds.has(PERMISO_IDS.COTIZAR),
       exportar: allowedPermisoIds.has(PERMISO_IDS.EXPORTAR),
+      validar: allowedPermisoIds.has(PERMISO_IDS.VALIDAR),
     };
 
     // Map all gestiones and mark which ones are accessible
