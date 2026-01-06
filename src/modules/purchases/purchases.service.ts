@@ -39,7 +39,9 @@ import { CreateMaterialReceiptDto } from './dto/create-material-receipt.dto';
 import { UpdateMaterialReceiptDto } from './dto/update-material-receipt.dto';
 import { ApprovePurchaseOrderDto } from './dto/approve-purchase-order.dto';
 import { RolePermission } from '../../database/entities/role-permission.entity';
+import { Role } from '../../database/entities/role.entity';
 import { NotificationsService, RequisitionNotificationData } from '../notifications/notifications.service';
+import { ValidateRequisitionDto } from './dto/validate-requisition.dto';
 
 // Constantes para los IDs de permisos (basado en tabla permisos)
 const PERMISO = {
@@ -109,7 +111,7 @@ export class PurchasesService {
   // HELPER: Notificaciones por correo
   // ============================================
   private async sendRequisitionNotification(
-    type: 'new_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'ready_for_quotation',
+    type: 'new_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'ready_for_quotation' | 'new_for_validation' | 'validated' | 'validation_rejected',
     requisition: Requisition,
     options?: { approved?: boolean; comments?: string },
   ): Promise<void> {
@@ -471,6 +473,36 @@ export class PurchasesService {
   }
 
   // ============================================
+  // HELPER: Determinar si requiere validación de Obra por Director de Proyecto
+  // ============================================
+  /**
+   * Determina si una requisición requiere pasar por validación de obra
+   * antes de la revisión normal.
+   *
+   * Aplica cuando:
+   * - El creador es un rol PQRS (category = 'PQRS')
+   * - O el creador es Coordinador Operativo (rol_id = 32)
+   * - Y la requisición tiene campo "obra" diligenciado
+   *
+   * Flujo con validación de obra:
+   * PQRS/Coord.Operativo crea (con obra) → pendiente_validacion
+   *   → Director de Proyecto VALIDA → pendiente (Director Técnico revisa)
+   *   → Director Técnico REVISA → [flujo normal continúa]
+   */
+  private requiresObraValidation(role: Role, obra?: string): boolean {
+    // Si no tiene obra diligenciada, no requiere validación
+    if (!obra || obra.trim() === '') {
+      return false;
+    }
+
+    // Verificar si es rol PQRS (por categoría) o Coordinador Operativo (por rol_id específico)
+    const isPQRS = role.category === 'PQRS';
+    const isCoordinadorOperativo = role.rolId === 32; // Coordinador Operativo
+
+    return isPQRS || isCoordinadorOperativo;
+  }
+
+  // ============================================
   // MÉTODOS CRUD BÁSICOS
   // ============================================
 
@@ -527,8 +559,19 @@ export class PurchasesService {
         queryRunner,
       );
 
-      // 7. Crear requisición
-      const pendingStatusId = await this.getStatusIdByCode('pendiente');
+      // 7. Determinar el estado inicial basado en el rol del usuario y si tiene obra
+      // Si el usuario es PQRS o Coordinador Operativo (rol_id=32) Y tiene campo obra diligenciado,
+      // la requisición debe pasar primero por validación del Director de Proyecto
+      const requiresObraValidation = this.requiresObraValidation(user.role, dto.obra);
+
+      let initialStatusCode = 'pendiente';
+      if (requiresObraValidation) {
+        initialStatusCode = 'pendiente_validacion';
+      }
+
+      const initialStatusId = await this.getStatusIdByCode(initialStatusCode);
+
+      // 8. Crear requisición
       const requisition = queryRunner.manager.create(Requisition, {
         requisitionNumber,
         companyId: dto.companyId,
@@ -536,7 +579,7 @@ export class PurchasesService {
         operationCenterId,
         projectCodeId: projectCodeId || undefined,
         createdBy: userId,
-        statusId: pendingStatusId,
+        statusId: initialStatusId,
         obra: dto.obra,
         codigoObra: dto.codigoObra,
         priority: dto.priority || 'normal',
@@ -544,7 +587,7 @@ export class PurchasesService {
 
       const savedRequisition = await queryRunner.manager.save(requisition);
 
-      // 8. Crear ítems
+      // 9. Crear ítems
       const items = dto.items.map((item, index) =>
         queryRunner.manager.create(RequisitionItem, {
           requisitionId: savedRequisition.requisitionId,
@@ -557,25 +600,37 @@ export class PurchasesService {
 
       await queryRunner.manager.save(RequisitionItem, items);
 
-      // 9. Registrar log
+      // 10. Registrar log
+      const logAction = requiresObraValidation ? 'crear_requisicion_obra' : 'crear_requisicion';
+      const logComments = requiresObraValidation
+        ? `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`
+        : `Requisición creada: ${requisitionNumber}`;
+
       const log = queryRunner.manager.create(RequisitionLog, {
         requisitionId: savedRequisition.requisitionId,
         userId,
-        action: 'crear_requisicion',
+        action: logAction,
         previousStatus: undefined,
-        newStatus: 'pendiente',
-        comments: `Requisición creada: ${requisitionNumber}`,
+        newStatus: initialStatusCode,
+        comments: logComments,
       });
 
       await queryRunner.manager.save(log);
 
       await queryRunner.commitTransaction();
 
-      // 10. Enviar notificación al revisor (sin esperar respuesta)
+      // 11. Enviar notificación según el flujo
       const fullRequisition = await this.getRequisitionById(savedRequisition.requisitionId, userId);
-      this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
 
-      // 11. Retornar requisición completa
+      if (requiresObraValidation) {
+        // Enviar notificación al Director de Proyecto para validación
+        this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
+      } else {
+        // Enviar notificación al revisor normal
+        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
+      }
+
+      // 12. Retornar requisición completa
       return fullRequisition;
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -1007,23 +1062,46 @@ export class PurchasesService {
       let lastActionLabel = 'Creada';
 
       if (roleName.includes('Director')) {
-        // Pendiente si está en estado pendiente o en_revision
-        isPending = ['pendiente', 'en_revision'].includes(req.status.code);
+        // Para Directores de Proyecto: también incluir pendiente_validacion
+        // Para otros Directores: solo pendiente y en_revision
+        const isDirectorProyecto = user.role.category === 'DIRECTOR_PROYECTO';
 
-        // Si está procesada, buscar fecha de aprobación/rechazo por revisor
+        if (isDirectorProyecto) {
+          // Director de Proyecto puede:
+          // - Validar requisiciones con obra (pendiente_validacion)
+          // - Revisar requisiciones normales (pendiente, en_revision)
+          isPending = ['pendiente_validacion', 'pendiente', 'en_revision'].includes(req.status.code);
+        } else {
+          // Otros directores solo revisan
+          isPending = ['pendiente', 'en_revision'].includes(req.status.code);
+        }
+
+        // Si está procesada, buscar fecha de aprobación/rechazo por revisor o validador
         if (!isPending) {
           const approval = req.approvals?.find(a =>
-            ['aprobada_revisor', 'rechazada_revisor'].includes(a.newStatus?.code)
+            ['aprobada_revisor', 'rechazada_revisor', 'rechazada_validador', 'pendiente'].includes(a.newStatus?.code)
           );
           if (approval) {
             lastActionDate = approval.createdAt;
-            lastActionLabel = approval.newStatus.code === 'aprobada_revisor' ? 'Aprobada' : 'Rechazada';
+            if (approval.newStatus?.code === 'aprobada_revisor') {
+              lastActionLabel = 'Aprobada';
+            } else if (approval.newStatus?.code === 'rechazada_revisor') {
+              lastActionLabel = 'Rechazada';
+            } else if (approval.newStatus?.code === 'rechazada_validador') {
+              lastActionLabel = 'Rechazada (validación)';
+            } else if (approval.newStatus?.code === 'pendiente' && approval.action === 'validated') {
+              lastActionLabel = 'Validada';
+            } else {
+              lastActionLabel = approval.action === 'approved' ? 'Procesada' : 'Rechazada';
+            }
           } else {
             // Si no hay approval pero el estado indica que fue procesada, usar el estado actual
             if (req.status.code === 'aprobada_revisor') {
               lastActionLabel = 'Aprobada por revisor';
             } else if (req.status.code === 'rechazada_revisor') {
               lastActionLabel = 'Rechazada por revisor';
+            } else if (req.status.code === 'rechazada_validador') {
+              lastActionLabel = 'Rechazada en validación';
             } else if (req.status.code === 'aprobada_gerencia') {
               lastActionLabel = 'Aprobada por gerencia';
             } else if (req.status.code === 'rechazada_gerencia') {
@@ -1275,6 +1353,166 @@ export class PurchasesService {
       // Si fue aprobada, notificar al siguiente nivel
       if (dto.decision === 'approve' && newStatusCode === 'aprobada_revisor') {
         this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+      }
+
+      return fullRequisition;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  // ============================================
+  // VALIDAR REQUISICIÓN CON OBRA (Director de Proyecto)
+  // ============================================
+  /**
+   * Permite a un Director de Proyecto validar una requisición con obra
+   * creada por PQRS o Coordinador Operativo.
+   *
+   * Flujo:
+   * - Si valida: pendiente_validacion → pendiente (para que Director Técnico revise)
+   * - Si rechaza: pendiente_validacion → rechazada_validador (vuelve al creador)
+   *
+   * Solo el Director de Proyecto que es autorizador del creador puede validar.
+   * Después de la validación, el Director Técnico (rol_id=6) revisará la requisición.
+   */
+  async validateRequisition(
+    requisitionId: number,
+    userId: number,
+    dto: ValidateRequisitionDto,
+  ) {
+    // 1. Validar que el usuario existe y obtener su rol
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // 2. Validar que el usuario es un Director de Proyecto
+    if (user.role.category !== 'DIRECTOR_PROYECTO') {
+      throw new ForbiddenException(
+        'Solo los Directores de Proyecto pueden validar requisiciones con obra',
+      );
+    }
+
+    // 3. Obtener la requisición
+    const requisition = await this.requisitionRepository.findOne({
+      where: { requisitionId },
+      relations: ['creator', 'creator.role', 'status'],
+    });
+
+    if (!requisition) {
+      throw new NotFoundException('Requisición no encontrada');
+    }
+
+    // 4. Validar que la requisición está en estado pendiente_validacion
+    if (requisition.status.code !== 'pendiente_validacion') {
+      throw new BadRequestException(
+        `Esta requisición no puede ser validada en su estado actual: ${requisition.status.code}. ` +
+        'Solo las requisiciones en estado "pendiente_validacion" pueden ser validadas.',
+      );
+    }
+
+    // 5. Validar que el usuario es autorizador del creador (Director de Proyecto asignado)
+    const isAuthorizer = await this.isAuthorizer(userId, requisition.createdBy);
+
+    if (!isAuthorizer) {
+      throw new ForbiddenException(
+        'No tiene permiso para validar esta requisición. ' +
+        'Solo el Director de Proyecto asignado al creador puede validarla.',
+      );
+    }
+
+    // 6. Proceder con la validación
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const previousStatus = requisition.status.code;
+      let newStatusCode: string;
+      let action: string;
+
+      if (dto.decision === 'validate') {
+        // Validar: pasa a pendiente para que Director Técnico revise
+        newStatusCode = 'pendiente';
+        action = 'validar_obra';
+      } else {
+        // Rechazar: vuelve al creador
+        newStatusCode = 'rechazada_validador';
+        action = 'rechazar_validacion_obra';
+      }
+
+      const newStatusId = await this.getStatusIdByCode(newStatusCode);
+
+      // Actualizar la requisición con el nuevo estado
+      // Nota: No actualizamos reviewedBy/reviewedAt porque la validación es un paso previo a la revisión
+      await queryRunner.manager.update(Requisition, requisitionId, {
+        statusId: newStatusId,
+      });
+
+      // Registrar log
+      const log = queryRunner.manager.create(RequisitionLog, {
+        requisitionId,
+        userId,
+        action,
+        previousStatus,
+        newStatus: newStatusCode,
+        comments:
+          dto.comments ||
+          (dto.decision === 'validate'
+            ? 'Requisición con obra validada por Director de Proyecto. Lista para revisión por Director Técnico.'
+            : 'Requisición con obra rechazada por Director de Proyecto.'),
+      });
+
+      await queryRunner.manager.save(log);
+
+      // Crear registro de aprobación para tracking
+      // Usamos step_order = 0 para indicar que es una validación (previo a la revisión)
+      await queryRunner.manager.query(
+        `INSERT INTO requisition_approvals
+         (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+         VALUES ($1, $2, $3, $4,
+           (SELECT status_id FROM requisition_statuses WHERE code = $5),
+           (SELECT status_id FROM requisition_statuses WHERE code = $6),
+           $7, NOW())
+         RETURNING approval_id`,
+        [
+          requisitionId,
+          userId,
+          dto.decision === 'validate' ? 'validated' : 'rejected', // action: validated o rejected
+          0, // step_order = 0 para validación de obra
+          previousStatus,
+          newStatusCode,
+          dto.comments || null,
+        ],
+      );
+
+      await queryRunner.commitTransaction();
+
+      // Enviar notificaciones
+      const fullRequisition = await this.getRequisitionById(requisitionId, userId);
+
+      if (dto.decision === 'validate') {
+        // Notificar al creador que fue validada
+        this.sendRequisitionNotification('validated', fullRequisition as Requisition, {
+          approved: true,
+          comments: dto.comments,
+        }).catch(() => {});
+
+        // Notificar al Director Técnico que tiene una nueva requisición para revisar
+        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
+      } else {
+        // Notificar al creador que fue rechazada
+        this.sendRequisitionNotification('validation_rejected', fullRequisition as Requisition, {
+          approved: false,
+          comments: dto.comments,
+        }).catch(() => {});
       }
 
       return fullRequisition;

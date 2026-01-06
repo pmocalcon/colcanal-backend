@@ -36,6 +36,7 @@ import { CreatePurchaseOrdersDto } from './dto/create-purchase-orders.dto';
 import { CreateMaterialReceiptDto } from './dto/create-material-receipt.dto';
 import { UpdateMaterialReceiptDto } from './dto/update-material-receipt.dto';
 import { ApprovePurchaseOrderDto } from './dto/approve-purchase-order.dto';
+import { ValidateRequisitionDto } from './dto/validate-requisition.dto';
 import { User } from '../../database/entities/user.entity';
 
 @ApiTags('Purchases - Requisitions')
@@ -507,6 +508,72 @@ export class PurchasesController {
     @Body() reviewDto: ReviewRequisitionDto,
   ) {
     return this.purchasesService.reviewRequisition(id, user.userId, reviewDto);
+  }
+
+  @Post(':id/validate')
+  @ApiOperation({
+    summary: 'Validar requisición con obra (Director de Proyecto)',
+    description: `
+    Permite a un Director de Proyecto validar una requisición con campo "obra" diligenciado,
+    creada por PQRS o Coordinador Operativo.
+
+    ## ¿Quién puede validar?
+
+    Solo **Directores de Proyecto** (category = 'DIRECTOR_PROYECTO') que sean autorizadores
+    del usuario que creó la requisición.
+
+    ## ¿Cuándo se requiere validación?
+
+    Cuando un usuario con rol PQRS o Coordinador Operativo crea una requisición
+    con el campo "obra" diligenciado, la requisición entra en estado "pendiente_validacion"
+    en lugar de "pendiente".
+
+    ## Flujo de validación
+
+    1. PQRS/Coord.Operativo crea requisición CON obra → **pendiente_validacion**
+    2. Director de Proyecto **valida** → **pendiente** (pasa a Director Técnico)
+    3. Director Técnico **revisa** → flujo normal continúa
+
+    ## Decisiones posibles
+
+    - **validate**: Aprobar la validación. La requisición pasa a estado "pendiente"
+      para ser revisada por el Director Técnico.
+    - **reject**: Rechazar la validación. La requisición pasa a estado "rechazada_validador"
+      y vuelve al creador para corrección.
+
+    ## Diferencia con revisión
+
+    - **Validación**: Verifica que la información de la obra es correcta (solo Director de Proyecto)
+    - **Revisión**: Verifica los materiales y cantidades (Director Técnico después de validación)
+    `,
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID de la requisición a validar',
+    type: Number,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Requisición validada exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'La requisición no está en estado "pendiente_validacion"',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'No tiene permisos para validar esta requisición (no es Director de Proyecto o no es autorizador del creador)',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Requisición no encontrada',
+  })
+  async validateRequisition(
+    @GetUser() user: User,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() validateDto: ValidateRequisitionDto,
+  ) {
+    return this.purchasesService.validateRequisition(id, user.userId, validateDto);
   }
 
   @Post(':id/approve')
