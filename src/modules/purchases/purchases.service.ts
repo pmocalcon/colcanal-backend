@@ -771,6 +771,8 @@ export class PurchasesService {
     // Validar que el estado permite edición
     const editableStatuses = [
       'pendiente',
+      'pendiente_validacion',
+      'rechazada_validador',
       'rechazada_revisor',
       'rechazada_autorizador',
       'rechazada_gerencia',
@@ -813,9 +815,23 @@ export class PurchasesService {
         requisition.priority = dto.priority;
       }
 
+      if (dto.obra !== undefined) {
+        requisition.obra = dto.obra;
+      }
+
+      if (dto.codigoObra !== undefined) {
+        requisition.codigoObra = dto.codigoObra;
+      }
+
       // Si estaba rechazada, volver al estado apropiado según quién rechazó
       let newStatusCode = previousStatus;
-      if (previousStatus === 'rechazada_revisor' || previousStatus === 'rechazada_autorizador' || previousStatus === 'rechazada_gerencia') {
+      if (previousStatus === 'rechazada_validador') {
+        // Si fue rechazada por validador, vuelve a pendiente_validacion para que el Director de Proyecto la valide nuevamente
+        const pendingValidationStatusId = await this.getStatusIdByCode('pendiente_validacion');
+        requisition.statusId = pendingValidationStatusId;
+        (requisition as any).status = undefined;
+        newStatusCode = 'pendiente_validacion';
+      } else if (previousStatus === 'rechazada_revisor' || previousStatus === 'rechazada_autorizador' || previousStatus === 'rechazada_gerencia') {
         // Si fue rechazada (por revisor, autorizador o gerencia), vuelve a pendiente para que el revisor la vea nuevamente
         const pendingStatusId = await this.getStatusIdByCode('pendiente');
         requisition.statusId = pendingStatusId;
