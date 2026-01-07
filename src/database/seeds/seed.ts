@@ -313,10 +313,10 @@ async function seed() {
     const gestionesData = [
       { nombre: 'Dashboard', slug: 'dashboard', icono: 'LayoutDashboard' },
       { nombre: 'Compras', slug: 'compras', icono: 'ShoppingCart' },
-      { nombre: 'Inventarios', slug: 'inventarios', icono: 'Package' },
-      { nombre: 'Reportes', slug: 'reportes', icono: 'BarChart3' },
+      { nombre: 'Materiales', slug: 'materiales', icono: 'Package' },
       { nombre: 'Usuarios', slug: 'usuarios', icono: 'Users' },
       { nombre: 'Proveedores', slug: 'proveedores', icono: 'Building2' },
+      { nombre: 'Levantamiento de Obras', slug: 'levantamiento-obras', icono: 'HardHat' },
       { nombre: 'Auditorías', slug: 'auditorias', icono: 'FileText' },
       {
         nombre: 'Notificaciones',
