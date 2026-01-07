@@ -25,6 +25,9 @@ export class Project {
   @Column({ type: 'text' })
   name: string;
 
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  abbreviation: string;
+
   @ManyToOne(() => Company, (company) => company.projects)
   @JoinColumn({ name: 'company_id' })
   company: Company;

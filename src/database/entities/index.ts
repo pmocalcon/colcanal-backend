@@ -39,3 +39,12 @@ export { PurchaseOrderItemApproval } from './purchase-order-item-approval.entity
 export { MaterialReceipt } from './material-receipt.entity';
 export { MaterialPriceHistory } from './material-price-history.entity';
 export { Invoice } from './invoice.entity';
+
+// Survey (Levantamiento de Obras) entities
+export { Ucap } from './ucap.entity';
+export { Work } from './work.entity';
+export { Survey } from './survey.entity';
+export { SurveyBudgetItem } from './survey-budget-item.entity';
+export { SurveyInvestmentItem } from './survey-investment-item.entity';
+export { SurveyMaterial } from './survey-material.entity';
+export { SurveyTravelExpense } from './survey-travel-expense.entity';
