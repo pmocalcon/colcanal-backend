@@ -12,6 +12,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CompanyContactsModule } from './modules/company-contacts/company-contacts.module';
 import { UsersModule } from './modules/users/users.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SurveysModule } from './modules/surveys/surveys.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -36,6 +37,7 @@ import configuration from './config/configuration';
     CompanyContactsModule,
     UsersModule,
     NotificationsModule,
+    SurveysModule,
   ],
   controllers: [AppController],
   providers: [AppService],
