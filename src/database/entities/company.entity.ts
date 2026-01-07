@@ -13,6 +13,9 @@ export class Company {
   @Column({ type: 'text', unique: true })
   name: string;
 
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  abbreviation: string;
+
   @OneToMany(() => Project, (project) => project.company)
   projects: Project[];
 
