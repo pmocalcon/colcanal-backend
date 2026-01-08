@@ -187,6 +187,8 @@ export class SurveysService {
       requiresRetieCertification: createSurveyDto.requiresRetieCertification || false,
       requiresRetilapCertification: createSurveyDto.requiresRetilapCertification || false,
       requiresCivilWork: createSurveyDto.requiresCivilWork || false,
+      sketchUrl: createSurveyDto.sketchUrl,
+      mapUrl: createSurveyDto.mapUrl,
       status: SurveyStatus.PENDING,
       createdBy: userId,
     });
@@ -239,6 +241,8 @@ export class SurveysService {
     if (updateSurveyDto.requiresRetilapCertification !== undefined) survey.requiresRetilapCertification = updateSurveyDto.requiresRetilapCertification;
     if (updateSurveyDto.requiresCivilWork !== undefined) survey.requiresCivilWork = updateSurveyDto.requiresCivilWork;
     if (updateSurveyDto.previousMonthIpp !== undefined) survey.previousMonthIpp = updateSurveyDto.previousMonthIpp;
+    if (updateSurveyDto.sketchUrl !== undefined) survey.sketchUrl = updateSurveyDto.sketchUrl;
+    if (updateSurveyDto.mapUrl !== undefined) survey.mapUrl = updateSurveyDto.mapUrl;
 
     await this.surveyRepository.save(survey);
 

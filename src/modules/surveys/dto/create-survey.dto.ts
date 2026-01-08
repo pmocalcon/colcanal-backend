@@ -218,6 +218,26 @@ export class CreateSurveyDto {
   requiresCivilWork?: boolean;
 
   @ApiProperty({
+    description: 'SharePoint URL for sketch image',
+    example: 'https://company.sharepoint.com/sites/docs/croquis/sketch-001.png',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  sketchUrl?: string;
+
+  @ApiProperty({
+    description: 'SharePoint URL for map image',
+    example: 'https://company.sharepoint.com/sites/docs/mapas/map-001.png',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  mapUrl?: string;
+
+  @ApiProperty({
     description: 'Budget items (UCAP based)',
     type: [CreateSurveyBudgetItemDto],
     required: false,

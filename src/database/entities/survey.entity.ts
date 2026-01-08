@@ -79,6 +79,12 @@ export class Survey {
   @Column({ name: 'rejection_comments', type: 'text', nullable: true })
   rejectionComments: string;
 
+  @Column({ name: 'sketch_url', type: 'varchar', length: 500, nullable: true })
+  sketchUrl: string;
+
+  @Column({ name: 'map_url', type: 'varchar', length: 500, nullable: true })
+  mapUrl: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
