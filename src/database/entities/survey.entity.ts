@@ -114,7 +114,7 @@ export class Survey {
   investmentItems: SurveyInvestmentItem[];
 
   @OneToMany(() => SurveyMaterial, (item) => item.survey, { cascade: true })
-  materials: SurveyMaterial[];
+  materialItems: SurveyMaterial[];
 
   @OneToMany(() => SurveyTravelExpense, (item) => item.survey, { cascade: true })
   travelExpenses: SurveyTravelExpense[];

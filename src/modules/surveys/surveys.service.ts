@@ -283,8 +283,8 @@ export class SurveysService {
         'budgetItems',
         'budgetItems.ucap',
         'investmentItems',
-        'materials',
-        'materials.material',
+        'materialItems',
+        'materialItems.material',
         'travelExpenses',
       ],
     });
