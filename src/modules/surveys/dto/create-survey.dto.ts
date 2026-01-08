@@ -260,7 +260,7 @@ export class CreateSurveyDto {
   investmentItems?: CreateSurveyInvestmentItemDto[];
 
   @ApiProperty({
-    description: 'Materials for this survey',
+    description: 'Material items for this survey',
     type: [CreateSurveyMaterialDto],
     required: false,
   })
@@ -268,7 +268,7 @@ export class CreateSurveyDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateSurveyMaterialDto)
-  materials?: CreateSurveyMaterialDto[];
+  materialItems?: CreateSurveyMaterialDto[];
 
   @ApiProperty({
     description: 'Travel expenses',

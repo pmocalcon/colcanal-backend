@@ -206,8 +206,8 @@ export class SurveysService {
     }
 
     // Save materials
-    if (createSurveyDto.materials?.length) {
-      await this.saveMaterials(savedSurvey.surveyId, createSurveyDto.materials);
+    if (createSurveyDto.materialItems?.length) {
+      await this.saveMaterials(savedSurvey.surveyId, createSurveyDto.materialItems);
     }
 
     // Save travel expenses
@@ -257,9 +257,9 @@ export class SurveysService {
       await this.saveInvestmentItems(surveyId, updateSurveyDto.investmentItems);
     }
 
-    if (updateSurveyDto.materials) {
+    if (updateSurveyDto.materialItems) {
       await this.materialRepository.delete({ surveyId });
-      await this.saveMaterials(surveyId, updateSurveyDto.materials);
+      await this.saveMaterials(surveyId, updateSurveyDto.materialItems);
     }
 
     if (updateSurveyDto.travelExpenses) {
