@@ -425,7 +425,50 @@ export class SurveysService {
   // UCAP METHODS
   // ============================================
 
-  async getUcaps(companyId: number, projectId?: number): Promise<Ucap[]> {
+  async getUcaps(companyId: number, projectId?: number): Promise<{
+    ippConfig: {
+      baseYear: number | null;
+      baseMonth: number | null;
+      initialValue: number | null;
+    };
+    ucaps: Ucap[];
+  }> {
+    // Get IPP config from project (if provided) or company
+    let ippConfig = {
+      baseYear: null as number | null,
+      baseMonth: null as number | null,
+      initialValue: null as number | null,
+    };
+
+    if (projectId) {
+      const project = await this.projectRepository.findOne({
+        where: { projectId },
+        relations: ['company'],
+      });
+
+      if (project) {
+        // Use project IPP if available, otherwise inherit from company
+        ippConfig = {
+          baseYear: project.ippBaseYear ?? project.company?.ippBaseYear ?? null,
+          baseMonth: project.ippBaseMonth ?? project.company?.ippBaseMonth ?? null,
+          initialValue: project.ippInitialValue ?? project.company?.ippInitialValue ?? null,
+        };
+      }
+    } else {
+      const company = await this.companyRepository.findOne({
+        where: { companyId },
+      });
+
+      if (company) {
+        ippConfig = {
+          baseYear: company.ippBaseYear ?? null,
+          baseMonth: company.ippBaseMonth ?? null,
+          initialValue: company.ippInitialValue ?? null,
+        };
+      }
+    }
+
+    // Get UCAPs
     const query = this.ucapRepository.createQueryBuilder('ucap')
       .where('ucap.companyId = :companyId', { companyId })
       .andWhere('ucap.isActive = true');
@@ -436,7 +479,9 @@ export class SurveysService {
 
     query.orderBy('ucap.code', 'ASC');
 
-    return query.getMany();
+    const ucaps = await query.getMany();
+
+    return { ippConfig, ucaps };
   }
 
   // ============================================

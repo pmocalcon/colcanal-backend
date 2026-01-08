@@ -16,6 +16,15 @@ export class Company {
   @Column({ type: 'varchar', length: 10, nullable: true })
   abbreviation: string;
 
+  @Column({ name: 'ipp_base_year', type: 'int', nullable: true })
+  ippBaseYear: number;
+
+  @Column({ name: 'ipp_base_month', type: 'int', nullable: true })
+  ippBaseMonth: number;
+
+  @Column({ name: 'ipp_initial_value', type: 'decimal', precision: 10, scale: 2, nullable: true })
+  ippInitialValue: number;
+
   @OneToMany(() => Project, (project) => project.company)
   projects: Project[];
 
