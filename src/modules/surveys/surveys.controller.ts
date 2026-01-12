@@ -151,8 +151,11 @@ export class SurveysController {
   @Get('database')
   @ApiOperation({ summary: 'Get all surveys with full data for database view' })
   @ApiResponse({ status: 200, description: 'Full survey data with all related items' })
-  async getSurveyDatabase(@Query() filters: FilterSurveysDto) {
-    return this.surveysService.getSurveyDatabase(filters);
+  async getSurveyDatabase(
+    @Query() filters: FilterSurveysDto,
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.getSurveyDatabase(filters, userId);
   }
 
   @Get(':id')

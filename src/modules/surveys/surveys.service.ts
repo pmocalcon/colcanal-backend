@@ -606,15 +606,24 @@ export class SurveysService {
   // DATABASE ENDPOINT (FULL DATA)
   // ============================================
 
-  async getSurveyDatabase(filters: FilterSurveysDto): Promise<{
+  async getSurveyDatabase(
+    filters: FilterSurveysDto,
+    userId: number,
+  ): Promise<{
     data: any[];
     total: number;
     page: number;
+    limit: number;
     totalPages: number;
   }> {
     const page = filters.page || 1;
-    const limit = filters.limit || 50;
+    const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
+
+    // Get user access
+    const userAccess = await this.getMyAccess(userId);
+    const accessibleCompanyIds = userAccess.companies.map((c) => c.companyId);
+    const accessibleProjectIds = userAccess.projects.map((p) => p.projectId);
 
     const query = this.surveyRepository.createQueryBuilder('survey')
       .leftJoinAndSelect('survey.work', 'work')
@@ -630,6 +639,25 @@ export class SurveysService {
       .leftJoinAndSelect('materialItems.material', 'material')
       .leftJoinAndSelect('survey.travelExpenses', 'travelExpenses');
 
+    // Apply user access filter (only companies/projects the user has access to)
+    if (accessibleCompanyIds.length > 0 || accessibleProjectIds.length > 0) {
+      const conditions: string[] = [];
+      if (accessibleCompanyIds.length > 0) {
+        conditions.push('work.companyId IN (:...accessibleCompanyIds)');
+      }
+      if (accessibleProjectIds.length > 0) {
+        conditions.push('work.projectId IN (:...accessibleProjectIds)');
+      }
+      query.andWhere(`(${conditions.join(' OR ')})`, {
+        accessibleCompanyIds: accessibleCompanyIds.length > 0 ? accessibleCompanyIds : [0],
+        accessibleProjectIds: accessibleProjectIds.length > 0 ? accessibleProjectIds : [0],
+      });
+    } else {
+      // User has no access, return empty result
+      return { data: [], total: 0, page, limit, totalPages: 0 };
+    }
+
+    // Apply filters
     if (filters.companyId) {
       query.andWhere('work.companyId = :companyId', { companyId: filters.companyId });
     }
@@ -652,6 +680,31 @@ export class SurveysService {
 
     if (filters.toDate) {
       query.andWhere('survey.createdAt <= :toDate', { toDate: filters.toDate });
+    }
+
+    // Search filter
+    if (filters.search) {
+      query.andWhere(
+        '(survey.projectCode ILIKE :search OR work.name ILIKE :search OR work.recordNumber ILIKE :search)',
+        { search: `%${filters.search}%` },
+      );
+    }
+
+    // Block status filters
+    if (filters.budgetStatus) {
+      query.andWhere('survey.budgetStatus = :budgetStatus', { budgetStatus: filters.budgetStatus });
+    }
+
+    if (filters.investmentStatus) {
+      query.andWhere('survey.investmentStatus = :investmentStatus', { investmentStatus: filters.investmentStatus });
+    }
+
+    if (filters.materialsStatus) {
+      query.andWhere('survey.materialsStatus = :materialsStatus', { materialsStatus: filters.materialsStatus });
+    }
+
+    if (filters.travelExpensesStatus) {
+      query.andWhere('survey.travelExpensesStatus = :travelExpensesStatus', { travelExpensesStatus: filters.travelExpensesStatus });
     }
 
     query.orderBy('survey.createdAt', 'DESC');
@@ -741,6 +794,7 @@ export class SurveysService {
       data,
       total,
       page,
+      limit,
       totalPages: Math.ceil(total / limit),
     };
   }

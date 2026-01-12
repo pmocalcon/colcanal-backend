@@ -9,6 +9,12 @@ export enum SurveyStatusFilter {
   REJECTED = 'rejected',
 }
 
+export enum BlockStatusFilter {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 export class FilterSurveysDto {
   @ApiProperty({
     description: 'Filter by company ID',
@@ -100,4 +106,48 @@ export class FilterSurveysDto {
   @IsNumber()
   @Type(() => Number)
   limit?: number;
+
+  @ApiProperty({
+    description: 'Search by project code, work name, or record number',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiProperty({
+    description: 'Filter by budget block status',
+    enum: BlockStatusFilter,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(BlockStatusFilter)
+  budgetStatus?: BlockStatusFilter;
+
+  @ApiProperty({
+    description: 'Filter by investment block status',
+    enum: BlockStatusFilter,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(BlockStatusFilter)
+  investmentStatus?: BlockStatusFilter;
+
+  @ApiProperty({
+    description: 'Filter by materials block status',
+    enum: BlockStatusFilter,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(BlockStatusFilter)
+  materialsStatus?: BlockStatusFilter;
+
+  @ApiProperty({
+    description: 'Filter by travel expenses block status',
+    enum: BlockStatusFilter,
+    required: false,
+  })
+  @IsOptional()
+  @IsEnum(BlockStatusFilter)
+  travelExpensesStatus?: BlockStatusFilter;
 }
