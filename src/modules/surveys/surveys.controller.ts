@@ -27,6 +27,7 @@ import {
   UpdateSurveyDto,
   ReviewSurveyDto,
   FilterSurveysDto,
+  ReviewBlockDto,
 } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -147,6 +148,13 @@ export class SurveysController {
     return this.surveysService.getUserAccess(userId);
   }
 
+  @Get('database')
+  @ApiOperation({ summary: 'Get all surveys with full data for database view' })
+  @ApiResponse({ status: 200, description: 'Full survey data with all related items' })
+  async getSurveyDatabase(@Query() filters: FilterSurveysDto) {
+    return this.surveysService.getSurveyDatabase(filters);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a survey by ID with all details' })
   @ApiParam({ name: 'id', type: Number })
@@ -188,6 +196,29 @@ export class SurveysController {
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.reviewSurvey(id, reviewDto, userId);
+  }
+
+  @Patch(':id/review-block')
+  @ApiOperation({ summary: 'Review a specific block of a survey' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Block reviewed successfully' })
+  async reviewBlock(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() reviewBlockDto: ReviewBlockDto,
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.reviewBlock(id, reviewBlockDto, userId);
+  }
+
+  @Patch(':id/approve-all')
+  @ApiOperation({ summary: 'Approve all blocks of a survey at once' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'All blocks approved successfully' })
+  async approveAllBlocks(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.approveAllBlocks(id, userId);
   }
 
   @Delete(':id')

@@ -22,6 +22,12 @@ export enum SurveyStatus {
   REJECTED = 'rejected',
 }
 
+export enum BlockStatus {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 @Entity('surveys')
 export class Survey {
   @PrimaryGeneratedColumn({ name: 'survey_id' })
@@ -78,6 +84,51 @@ export class Survey {
 
   @Column({ name: 'rejection_comments', type: 'text', nullable: true })
   rejectionComments: string;
+
+  // Block-level review status
+  @Column({
+    name: 'budget_status',
+    type: 'enum',
+    enum: BlockStatus,
+    default: BlockStatus.PENDING,
+  })
+  budgetStatus: BlockStatus;
+
+  @Column({ name: 'budget_comments', type: 'text', nullable: true })
+  budgetComments?: string;
+
+  @Column({
+    name: 'investment_status',
+    type: 'enum',
+    enum: BlockStatus,
+    default: BlockStatus.PENDING,
+  })
+  investmentStatus: BlockStatus;
+
+  @Column({ name: 'investment_comments', type: 'text', nullable: true })
+  investmentComments?: string;
+
+  @Column({
+    name: 'materials_status',
+    type: 'enum',
+    enum: BlockStatus,
+    default: BlockStatus.PENDING,
+  })
+  materialsStatus: BlockStatus;
+
+  @Column({ name: 'materials_comments', type: 'text', nullable: true })
+  materialsComments?: string;
+
+  @Column({
+    name: 'travel_expenses_status',
+    type: 'enum',
+    enum: BlockStatus,
+    default: BlockStatus.PENDING,
+  })
+  travelExpensesStatus: BlockStatus;
+
+  @Column({ name: 'travel_expenses_comments', type: 'text', nullable: true })
+  travelExpensesComments?: string;
 
   @Column({ name: 'sketch_url', type: 'varchar', length: 500, nullable: true })
   sketchUrl: string;

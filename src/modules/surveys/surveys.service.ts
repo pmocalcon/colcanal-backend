@@ -25,7 +25,11 @@ import {
   ReviewSurveyDto,
   ReviewAction,
   FilterSurveysDto,
+  ReviewBlockDto,
+  SurveyBlock,
+  BlockReviewStatus,
 } from './dto';
+import { BlockStatus } from '../../database/entities/survey.entity';
 
 @Injectable()
 export class SurveysService {
@@ -489,6 +493,256 @@ export class SurveysService {
     const ucaps = await query.getMany();
 
     return { ippConfig, ucaps };
+  }
+
+  // ============================================
+  // BLOCK REVIEW METHODS
+  // ============================================
+
+  async reviewBlock(
+    surveyId: number,
+    reviewBlockDto: ReviewBlockDto,
+    userId: number,
+  ): Promise<Survey> {
+    const survey = await this.surveyRepository.findOne({
+      where: { surveyId },
+    });
+
+    if (!survey) {
+      throw new NotFoundException(`Survey with ID ${surveyId} not found`);
+    }
+
+    // Map block to status
+    const newStatus: BlockStatus =
+      reviewBlockDto.status === BlockReviewStatus.APPROVED
+        ? BlockStatus.APPROVED
+        : BlockStatus.REJECTED;
+
+    switch (reviewBlockDto.block) {
+      case SurveyBlock.BUDGET:
+        survey.budgetStatus = newStatus;
+        survey.budgetComments = reviewBlockDto.comments;
+        break;
+      case SurveyBlock.INVESTMENT:
+        survey.investmentStatus = newStatus;
+        survey.investmentComments = reviewBlockDto.comments;
+        break;
+      case SurveyBlock.MATERIALS:
+        survey.materialsStatus = newStatus;
+        survey.materialsComments = reviewBlockDto.comments;
+        break;
+      case SurveyBlock.TRAVEL_EXPENSES:
+        survey.travelExpensesStatus = newStatus;
+        survey.travelExpensesComments = reviewBlockDto.comments;
+        break;
+    }
+
+    // Update reviewer info
+    survey.reviewedBy = userId;
+    survey.reviewDate = new Date();
+
+    // Check if all blocks are approved to update global status
+    this.updateGlobalStatus(survey);
+
+    await this.surveyRepository.save(survey);
+
+    return this.getSurvey(surveyId);
+  }
+
+  async approveAllBlocks(surveyId: number, userId: number): Promise<Survey> {
+    const survey = await this.surveyRepository.findOne({
+      where: { surveyId },
+    });
+
+    if (!survey) {
+      throw new NotFoundException(`Survey with ID ${surveyId} not found`);
+    }
+
+    // Approve all blocks
+    survey.budgetStatus = BlockStatus.APPROVED;
+    survey.investmentStatus = BlockStatus.APPROVED;
+    survey.materialsStatus = BlockStatus.APPROVED;
+    survey.travelExpensesStatus = BlockStatus.APPROVED;
+
+    // Clear any previous comments
+    survey.budgetComments = undefined;
+    survey.investmentComments = undefined;
+    survey.materialsComments = undefined;
+    survey.travelExpensesComments = undefined;
+
+    // Update global status
+    survey.status = SurveyStatus.APPROVED;
+    survey.reviewedBy = userId;
+    survey.reviewDate = new Date();
+
+    await this.surveyRepository.save(survey);
+
+    return this.getSurvey(surveyId);
+  }
+
+  private updateGlobalStatus(survey: Survey): void {
+    const allApproved =
+      survey.budgetStatus === BlockStatus.APPROVED &&
+      survey.investmentStatus === BlockStatus.APPROVED &&
+      survey.materialsStatus === BlockStatus.APPROVED &&
+      survey.travelExpensesStatus === BlockStatus.APPROVED;
+
+    const anyRejected =
+      survey.budgetStatus === BlockStatus.REJECTED ||
+      survey.investmentStatus === BlockStatus.REJECTED ||
+      survey.materialsStatus === BlockStatus.REJECTED ||
+      survey.travelExpensesStatus === BlockStatus.REJECTED;
+
+    if (allApproved) {
+      survey.status = SurveyStatus.APPROVED;
+    } else if (anyRejected) {
+      survey.status = SurveyStatus.REJECTED;
+    } else {
+      survey.status = SurveyStatus.IN_REVIEW;
+    }
+  }
+
+  // ============================================
+  // DATABASE ENDPOINT (FULL DATA)
+  // ============================================
+
+  async getSurveyDatabase(filters: FilterSurveysDto): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 50;
+    const skip = (page - 1) * limit;
+
+    const query = this.surveyRepository.createQueryBuilder('survey')
+      .leftJoinAndSelect('survey.work', 'work')
+      .leftJoinAndSelect('work.company', 'company')
+      .leftJoinAndSelect('work.project', 'project')
+      .leftJoinAndSelect('survey.creator', 'creator')
+      .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer')
+      .leftJoinAndSelect('survey.reviewer', 'reviewer')
+      .leftJoinAndSelect('survey.budgetItems', 'budgetItems')
+      .leftJoinAndSelect('budgetItems.ucap', 'ucap')
+      .leftJoinAndSelect('survey.investmentItems', 'investmentItems')
+      .leftJoinAndSelect('survey.materialItems', 'materialItems')
+      .leftJoinAndSelect('materialItems.material', 'material')
+      .leftJoinAndSelect('survey.travelExpenses', 'travelExpenses');
+
+    if (filters.companyId) {
+      query.andWhere('work.companyId = :companyId', { companyId: filters.companyId });
+    }
+
+    if (filters.projectId) {
+      query.andWhere('work.projectId = :projectId', { projectId: filters.projectId });
+    }
+
+    if (filters.status) {
+      query.andWhere('survey.status = :status', { status: filters.status });
+    }
+
+    if (filters.createdBy) {
+      query.andWhere('survey.createdBy = :createdBy', { createdBy: filters.createdBy });
+    }
+
+    if (filters.fromDate) {
+      query.andWhere('survey.createdAt >= :fromDate', { fromDate: filters.fromDate });
+    }
+
+    if (filters.toDate) {
+      query.andWhere('survey.createdAt <= :toDate', { toDate: filters.toDate });
+    }
+
+    query.orderBy('survey.createdAt', 'DESC');
+
+    const [surveys, total] = await query.skip(skip).take(limit).getManyAndCount();
+
+    // Transform to include calculated fields
+    const data = surveys.map((survey) => ({
+      surveyId: survey.surveyId,
+      projectCode: survey.projectCode,
+      status: survey.status,
+
+      // Work data
+      workId: survey.work?.workId,
+      workCode: survey.work?.workCode,
+      workName: survey.work?.name,
+      recordNumber: survey.work?.recordNumber,
+      sectorVillage: survey.work?.sectorVillage,
+      neighborhood: survey.work?.neighborhood,
+      address: survey.work?.address,
+      zone: survey.work?.zone,
+      areaType: survey.work?.areaType,
+      requestType: survey.work?.requestType,
+      userName: survey.work?.userName,
+      userAddress: survey.work?.userAddress,
+      requestingEntity: survey.work?.requestingEntity,
+
+      // Company/Project
+      companyId: survey.work?.company?.companyId,
+      companyName: survey.work?.company?.name,
+      projectId: survey.work?.project?.projectId,
+      projectName: survey.work?.project?.name,
+
+      // Dates
+      requestDate: survey.requestDate,
+      surveyDate: survey.surveyDate,
+      createdAt: survey.createdAt,
+      reviewDate: survey.reviewDate,
+
+      // Users
+      createdBy: survey.creator?.nombre,
+      receivedBy: survey.receivedBy,
+      assignedReviewer: survey.assignedReviewer?.nombre,
+      reviewedBy: survey.reviewer?.nombre,
+
+      // Requirements
+      requiresPhotometricStudies: survey.requiresPhotometricStudies,
+      requiresRetieCertification: survey.requiresRetieCertification,
+      requiresRetilapCertification: survey.requiresRetilapCertification,
+      requiresCivilWork: survey.requiresCivilWork,
+
+      // IPP
+      previousMonthIpp: survey.previousMonthIpp,
+
+      // Block statuses
+      budgetStatus: survey.budgetStatus,
+      budgetComments: survey.budgetComments,
+      investmentStatus: survey.investmentStatus,
+      investmentComments: survey.investmentComments,
+      materialsStatus: survey.materialsStatus,
+      materialsComments: survey.materialsComments,
+      travelExpensesStatus: survey.travelExpensesStatus,
+      travelExpensesComments: survey.travelExpensesComments,
+
+      // Budget summary
+      budgetItems: survey.budgetItems,
+      budgetTotal: survey.budgetItems?.reduce(
+        (sum, item) => sum + Number(item.budgetedValue || 0),
+        0,
+      ),
+
+      // Investment items
+      investmentItems: survey.investmentItems,
+
+      // Materials
+      materialItems: survey.materialItems,
+
+      // Travel expenses
+      travelExpenses: survey.travelExpenses,
+
+      // URLs
+      sketchUrl: survey.sketchUrl,
+      mapUrl: survey.mapUrl,
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   // ============================================

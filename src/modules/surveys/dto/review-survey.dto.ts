@@ -7,6 +7,18 @@ export enum ReviewAction {
   REJECT = 'reject',
 }
 
+export enum SurveyBlock {
+  BUDGET = 'budget',
+  INVESTMENT = 'investment',
+  MATERIALS = 'materials',
+  TRAVEL_EXPENSES = 'travelExpenses',
+}
+
+export enum BlockReviewStatus {
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 export class ReviewSurveyDto {
   @ApiProperty({
     description: 'Review action',
@@ -34,4 +46,31 @@ export class ReviewSurveyDto {
   @IsOptional()
   @IsString()
   rejectionComments?: string;
+}
+
+export class ReviewBlockDto {
+  @ApiProperty({
+    description: 'Block to review',
+    enum: SurveyBlock,
+    example: 'budget',
+  })
+  @IsEnum(SurveyBlock)
+  block: SurveyBlock;
+
+  @ApiProperty({
+    description: 'Block review status',
+    enum: BlockReviewStatus,
+    example: 'approved',
+  })
+  @IsEnum(BlockReviewStatus)
+  status: BlockReviewStatus;
+
+  @ApiProperty({
+    description: 'Comments for this block (required for rejection)',
+    example: 'UCAP quantities need to be verified',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  comments?: string;
 }
