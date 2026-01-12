@@ -487,9 +487,26 @@ export class PurchasesService {
    *   → Director de Proyecto VALIDA → pendiente (Director Técnico revisa)
    *   → Director Técnico REVISA → [flujo normal continúa]
    */
+  // Valores de obra que requieren validación por Director de Proyecto + revisión por Director Técnico
+  private readonly OBRA_VALUES_REQUIRING_VALIDATION = [
+    'Modernización',
+    'Expansión',
+    'Operación y mantenimiento',
+    'Inversión',
+    'Donación',
+  ];
+
   private requiresObraValidation(role: Role, obra?: string): boolean {
     // Si no tiene obra diligenciada, no requiere validación
     if (!obra || obra.trim() === '') {
+      return false;
+    }
+
+    // Si obra es "Otros" o "Sin especificar", no requiere validación (va directo a revisión)
+    const obraNormalized = obra.trim();
+    const requiresValidation = this.OBRA_VALUES_REQUIRING_VALIDATION.includes(obraNormalized);
+
+    if (!requiresValidation) {
       return false;
     }
 
@@ -1082,11 +1099,21 @@ export class PurchasesService {
 
         if (isDirectorProyecto) {
           // Director de Proyecto puede:
-          // - Validar requisiciones con obra (pendiente_validacion)
-          // - Revisar requisiciones normales (pendiente, en_revision)
-          isPending = ['pendiente_validacion', 'pendiente', 'en_revision'].includes(req.status.code);
+          // - Validar requisiciones con obra específica (pendiente_validacion)
+          // - Revisar requisiciones sin obra o con obra "Otros"/"Sin especificar" (pendiente, en_revision)
+          // NO debe ver como pendiente las que ya validó (tienen obra específica y están en 'pendiente')
+          const obraRequiresValidation = req.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(req.obra.trim());
+
+          if (req.status.code === 'pendiente_validacion') {
+            // Pendiente de validación - Director de Proyecto debe validar
+            isPending = true;
+          } else if (['pendiente', 'en_revision'].includes(req.status.code)) {
+            // Solo es pendiente de revisión si la obra NO requiere validación
+            // (es decir, obra vacía, "Otros" o "Sin especificar")
+            isPending = !obraRequiresValidation;
+          }
         } else {
-          // Otros directores solo revisan
+          // Otros directores (Técnico, PMO, etc.) revisan
           isPending = ['pendiente', 'en_revision'].includes(req.status.code);
         }
 
