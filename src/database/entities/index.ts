@@ -48,3 +48,4 @@ export { SurveyBudgetItem } from './survey-budget-item.entity';
 export { SurveyInvestmentItem } from './survey-investment-item.entity';
 export { SurveyMaterial } from './survey-material.entity';
 export { SurveyTravelExpense } from './survey-travel-expense.entity';
+export { SurveyReviewerAccess } from './survey-reviewer-access.entity';

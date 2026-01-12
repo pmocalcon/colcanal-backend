@@ -11,6 +11,7 @@ import { SurveyInvestmentItem } from '../../database/entities/survey-investment-
 import { SurveyMaterial } from '../../database/entities/survey-material.entity';
 import { SurveyTravelExpense } from '../../database/entities/survey-travel-expense.entity';
 import { Ucap } from '../../database/entities/ucap.entity';
+import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 
 // Related entities
 import { Company } from '../../database/entities/company.entity';
@@ -29,6 +30,7 @@ import { Material } from '../../database/entities/material.entity';
       SurveyMaterial,
       SurveyTravelExpense,
       Ucap,
+      SurveyReviewerAccess,
       // Related entities
       Company,
       Project,

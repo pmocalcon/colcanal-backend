@@ -188,4 +188,48 @@ export class SurveysController {
   ) {
     return this.surveysService.getUcaps(companyId, projectId);
   }
+
+  // ============================================
+  // REVIEWER ACCESS ENDPOINTS
+  // ============================================
+
+  @Get('my-access')
+  @ApiOperation({ summary: 'Get companies and projects the current user can review' })
+  @ApiResponse({ status: 200, description: 'User access list' })
+  async getMyAccess(@CurrentUser('userId') userId: number) {
+    return this.surveysService.getMyAccess(userId);
+  }
+
+  @Get('user-access')
+  @ApiOperation({ summary: 'Get all users with survey review access (admin)' })
+  @ApiResponse({ status: 200, description: 'List of users with their accesses' })
+  async getAllUsersWithAccess() {
+    return this.surveysService.getAllUsersWithAccess();
+  }
+
+  @Get('user-access/:userId')
+  @ApiOperation({ summary: 'Get access entries for a specific user (admin)' })
+  @ApiParam({ name: 'userId', type: Number })
+  @ApiResponse({ status: 200, description: 'User access entries' })
+  async getUserAccess(@Param('userId', ParseIntPipe) userId: number) {
+    return this.surveysService.getUserAccess(userId);
+  }
+
+  @Post('user-access')
+  @ApiOperation({ summary: 'Add access for a user to a company or project (admin)' })
+  @ApiResponse({ status: 201, description: 'Access created successfully' })
+  async addUserAccess(
+    @Body() body: { userId: number; companyId?: number; projectId?: number },
+  ) {
+    return this.surveysService.addUserAccess(body.userId, body.companyId, body.projectId);
+  }
+
+  @Delete('user-access/:accessId')
+  @ApiOperation({ summary: 'Remove access entry (admin)' })
+  @ApiParam({ name: 'accessId', type: Number })
+  @ApiResponse({ status: 200, description: 'Access removed successfully' })
+  async removeUserAccess(@Param('accessId', ParseIntPipe) accessId: number) {
+    await this.surveysService.removeUserAccess(accessId);
+    return { message: 'Access removed successfully' };
+  }
 }

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
@@ -49,6 +50,8 @@ export class SurveysService {
     private projectRepository: Repository<Project>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(SurveyReviewerAccess)
+    private surveyReviewerAccessRepository: Repository<SurveyReviewerAccess>,
   ) {}
 
   // ============================================
@@ -603,5 +606,159 @@ export class SurveysService {
     );
 
     await this.travelExpenseRepository.save(expenses);
+  }
+
+  // ============================================
+  // REVIEWER ACCESS METHODS
+  // ============================================
+
+  /**
+   * Get the companies and projects the current user has access to review
+   */
+  async getMyAccess(userId: number): Promise<{
+    companies: { companyId: number; name: string }[];
+    projects: { projectId: number; name: string; companyId: number }[];
+  }> {
+    const accesses = await this.surveyReviewerAccessRepository.find({
+      where: { userId },
+      relations: ['company', 'project', 'project.company'],
+    });
+
+    const companies: { companyId: number; name: string }[] = [];
+    const projects: { projectId: number; name: string; companyId: number }[] = [];
+
+    for (const access of accesses) {
+      if (access.companyId && access.company) {
+        companies.push({
+          companyId: access.company.companyId,
+          name: access.company.name,
+        });
+      }
+      if (access.projectId && access.project) {
+        projects.push({
+          projectId: access.project.projectId,
+          name: access.project.name,
+          companyId: access.project.companyId,
+        });
+      }
+    }
+
+    return { companies, projects };
+  }
+
+  /**
+   * Get all access entries for a specific user (admin)
+   */
+  async getUserAccess(userId: number): Promise<SurveyReviewerAccess[]> {
+    return this.surveyReviewerAccessRepository.find({
+      where: { userId },
+      relations: ['company', 'project', 'user'],
+    });
+  }
+
+  /**
+   * Add access for a user to a company or project (admin)
+   */
+  async addUserAccess(
+    userId: number,
+    companyId?: number,
+    projectId?: number,
+  ): Promise<SurveyReviewerAccess> {
+    // Validate that either companyId or projectId is provided, but not both
+    if ((!companyId && !projectId) || (companyId && projectId)) {
+      throw new BadRequestException(
+        'Must provide either companyId or projectId, but not both',
+      );
+    }
+
+    // Validate user exists
+    const user = await this.userRepository.findOne({ where: { userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    // Validate company or project exists
+    if (companyId) {
+      const company = await this.companyRepository.findOne({ where: { companyId } });
+      if (!company) {
+        throw new NotFoundException(`Company with ID ${companyId} not found`);
+      }
+    }
+
+    if (projectId) {
+      const project = await this.projectRepository.findOne({ where: { projectId } });
+      if (!project) {
+        throw new NotFoundException(`Project with ID ${projectId} not found`);
+      }
+    }
+
+    // Check for duplicate
+    const existing = await this.surveyReviewerAccessRepository.findOne({
+      where: {
+        userId,
+        companyId: companyId || undefined,
+        projectId: projectId || undefined,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException('Access already exists for this user');
+    }
+
+    const access = this.surveyReviewerAccessRepository.create({
+      userId,
+      companyId: companyId || null,
+      projectId: projectId || null,
+    });
+
+    return this.surveyReviewerAccessRepository.save(access);
+  }
+
+  /**
+   * Remove access entry (admin)
+   */
+  async removeUserAccess(accessId: number): Promise<void> {
+    const access = await this.surveyReviewerAccessRepository.findOne({
+      where: { accessId },
+    });
+
+    if (!access) {
+      throw new NotFoundException(`Access with ID ${accessId} not found`);
+    }
+
+    await this.surveyReviewerAccessRepository.remove(access);
+  }
+
+  /**
+   * Get all users with survey review access (admin)
+   */
+  async getAllUsersWithAccess(): Promise<{
+    userId: number;
+    userName: string;
+    accesses: SurveyReviewerAccess[];
+  }[]> {
+    const accesses = await this.surveyReviewerAccessRepository.find({
+      relations: ['user', 'company', 'project'],
+    });
+
+    // Group by user
+    const userMap = new Map<number, {
+      userId: number;
+      userName: string;
+      accesses: SurveyReviewerAccess[];
+    }>();
+
+    for (const access of accesses) {
+      if (!userMap.has(access.userId)) {
+        userMap.set(access.userId, {
+          userId: access.userId,
+          userName: access.user?.nombre || 'Unknown',
+          accesses: [],
+        });
+      }
+      userMap.get(access.userId)!.accesses.push(access);
+    }
+
+    return Array.from(userMap.values());
   }
 }
