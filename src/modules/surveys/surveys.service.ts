@@ -125,7 +125,7 @@ export class SurveysService {
     return work;
   }
 
-  async getWorks(companyId?: number, projectId?: number): Promise<Work[]> {
+  async getWorks(companyId?: number, projectId?: number, createdBy?: number): Promise<Work[]> {
     const query = this.workRepository.createQueryBuilder('work')
       .leftJoinAndSelect('work.company', 'company')
       .leftJoinAndSelect('work.project', 'project')
@@ -137,6 +137,10 @@ export class SurveysService {
 
     if (projectId) {
       query.andWhere('work.projectId = :projectId', { projectId });
+    }
+
+    if (createdBy) {
+      query.andWhere('work.createdBy = :createdBy', { createdBy });
     }
 
     query.orderBy('work.createdAt', 'DESC');

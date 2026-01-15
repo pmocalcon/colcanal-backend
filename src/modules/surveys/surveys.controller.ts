@@ -57,12 +57,14 @@ export class SurveysController {
   @ApiOperation({ summary: 'Get all works' })
   @ApiQuery({ name: 'companyId', required: false, type: Number })
   @ApiQuery({ name: 'projectId', required: false, type: Number })
+  @ApiQuery({ name: 'createdBy', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of works' })
   async getWorks(
     @Query('companyId') companyId?: number,
     @Query('projectId') projectId?: number,
+    @Query('createdBy') createdBy?: number,
   ) {
-    return this.surveysService.getWorks(companyId, projectId);
+    return this.surveysService.getWorks(companyId, projectId, createdBy);
   }
 
   @Get('works/:id')
