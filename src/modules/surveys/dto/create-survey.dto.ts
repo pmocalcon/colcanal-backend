@@ -182,6 +182,16 @@ export class CreateSurveyDto {
   receivedBy?: string;
 
   @ApiProperty({
+    description: 'Previous month IPP value',
+    example: 148.52,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  previousMonthIpp?: number;
+
+  @ApiProperty({
     description: 'Requires photometric studies',
     example: false,
     default: false,

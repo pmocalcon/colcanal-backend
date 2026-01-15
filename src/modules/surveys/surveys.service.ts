@@ -190,6 +190,7 @@ export class SurveysService {
       surveyDate: createSurveyDto.surveyDate ? new Date(createSurveyDto.surveyDate) : undefined,
       receivedBy: createSurveyDto.receivedBy,
       assignedReviewerId: technicalDirector?.userId,
+      previousMonthIpp: createSurveyDto.previousMonthIpp,
       requiresPhotometricStudies: createSurveyDto.requiresPhotometricStudies || false,
       requiresRetieCertification: createSurveyDto.requiresRetieCertification || false,
       requiresRetilapCertification: createSurveyDto.requiresRetilapCertification || false,
