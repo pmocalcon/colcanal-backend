@@ -224,6 +224,18 @@ export class SurveysController {
     return this.surveysService.approveAllBlocks(id, userId);
   }
 
+  @Patch(':id/reopen')
+  @ApiOperation({ summary: 'Reopen a survey for editing (reset all block statuses)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Survey reopened for editing' })
+  async reopenForEditing(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { reason?: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.reopenForEditing(id, userId, body.reason);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a survey' })
   @ApiParam({ name: 'id', type: Number })

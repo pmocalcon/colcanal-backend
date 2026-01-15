@@ -580,6 +580,48 @@ export class SurveysService {
     return this.getSurvey(surveyId);
   }
 
+  async reopenForEditing(
+    surveyId: number,
+    userId: number,
+    reason?: string,
+  ): Promise<Survey> {
+    const survey = await this.surveyRepository.findOne({
+      where: { surveyId },
+    });
+
+    if (!survey) {
+      throw new NotFoundException(`Survey with ID ${surveyId} not found`);
+    }
+
+    // Reset all block statuses to pending
+    survey.budgetStatus = BlockStatus.PENDING;
+    survey.investmentStatus = BlockStatus.PENDING;
+    survey.materialsStatus = BlockStatus.PENDING;
+    survey.travelExpensesStatus = BlockStatus.PENDING;
+
+    // Clear all block comments
+    survey.budgetComments = undefined;
+    survey.investmentComments = undefined;
+    survey.materialsComments = undefined;
+    survey.travelExpensesComments = undefined;
+
+    // Reset global status to pending
+    survey.status = SurveyStatus.PENDING;
+
+    // Store reopen reason in rejection comments (for audit trail)
+    if (reason) {
+      survey.rejectionComments = `Reabierto para edición: ${reason}`;
+    }
+
+    // Update reviewer info (who reopened it)
+    survey.reviewedBy = userId;
+    survey.reviewDate = new Date();
+
+    await this.surveyRepository.save(survey);
+
+    return this.getSurvey(surveyId);
+  }
+
   private updateGlobalStatus(survey: Survey): void {
     const allApproved =
       survey.budgetStatus === BlockStatus.APPROVED &&
