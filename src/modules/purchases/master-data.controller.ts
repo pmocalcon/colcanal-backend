@@ -39,8 +39,9 @@ import { ProjectCode } from '../../database/entities/project-code.entity';
 @UseGuards(JwtAuthGuard)
 @Controller('purchases/master-data')
 export class MasterDataController {
-  // Umbral de similitud (0.3 = 30% similar)
-  private readonly SIMILARITY_THRESHOLD = 0.3;
+  // Umbral de similitud para duplicados (0.5 = 50% similar)
+  // Aumentado de 0.3 para reducir falsos positivos
+  private readonly SIMILARITY_THRESHOLD = 0.5;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -800,17 +801,20 @@ export class MasterDataController {
       );
     }
 
-    // Buscar materiales con descripción similar (solo si no se fuerza la creación)
+    // Buscar materiales con descripción similar DENTRO DEL MISMO GRUPO (solo si no se fuerza la creación)
+    // Solo comparamos dentro del mismo grupo para evitar falsos positivos
+    // Ejemplo: "BOMBILLA 70W NA" en SODIO no debe sugerir bombillas LED de grupo BOMBILLAS
     if (!createDto.force) {
       const similarMaterials = await this.dataSource.query(
         `SELECT m.material_id, m.code, m.description, g.name as group_name,
                 similarity(LOWER(m.description), LOWER($1)) as sim
          FROM materials m
          JOIN material_groups g ON m.group_id = g.group_id
-         WHERE similarity(LOWER(m.description), LOWER($1)) > $2
+         WHERE m.group_id = $3
+           AND similarity(LOWER(m.description), LOWER($1)) > $2
          ORDER BY sim DESC
          LIMIT 5`,
-        [createDto.description, this.SIMILARITY_THRESHOLD],
+        [createDto.description, this.SIMILARITY_THRESHOLD, createDto.groupId],
       );
 
       if (similarMaterials.length > 0) {
@@ -819,7 +823,7 @@ export class MasterDataController {
             `"${m.code} - ${m.description}" (${Math.round(m.sim * 100)}% similar)`,
         );
         throw new ConflictException({
-          message: `Se encontraron materiales similares. ¿Quisiste decir alguno de estos?`,
+          message: `Se encontraron materiales similares en el mismo grupo. ¿Quisiste decir alguno de estos?`,
           suggestions: similarMaterials.map(
             (m: { material_id: number; code: string; description: string; group_name: string }) => ({
               materialId: m.material_id,
