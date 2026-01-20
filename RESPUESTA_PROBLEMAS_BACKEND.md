@@ -224,32 +224,66 @@ LEFT JOIN projects p ON p.project_id = sra.project_id;
 
 ### Información necesaria para diagnosticar
 
-No tengo acceso al sistema de permisos completo. Necesito saber:
+**ACTUALIZACIÓN:** He identificado la estructura de permisos. El sistema **NO usa módulos ni slugs**, usa nombres de permisos directos.
 
-1. **¿Cuál es el slug exacto del módulo en la BD?**
+**Estructura de base de datos:**
+- Tabla: `permisos` (permissions)
+- Tabla: `roles_permisos` (role_permissions)
+- Tabla: `roles` (roles)
+- Tabla: `users` (users)
+
+1. **¿Cuál es el nombre exacto del permiso en la BD?**
    ```sql
-   SELECT * FROM modules WHERE name LIKE '%levantamiento%' OR slug LIKE '%survey%';
+   -- Ver todos los permisos relacionados con levantamientos
+   SELECT
+     permiso_id,
+     nombre_permiso,
+     descripcion
+   FROM permisos
+   WHERE nombre_permiso ILIKE '%levantamiento%'
+      OR nombre_permiso ILIKE '%survey%'
+      OR nombre_permiso ILIKE '%obras%'
+   ORDER BY nombre_permiso;
    ```
 
 2. **¿El usuario tiene el permiso asignado?**
    ```sql
+   -- Ver los permisos del usuario específico
    SELECT
      u.user_id,
      u.nombre,
+     u.email,
      r.rol_id,
      r.nombre_rol,
-     p.permission_id,
-     m.name as module_name,
-     m.slug as module_slug,
-     p.action
+     p.permiso_id,
+     p.nombre_permiso,
+     p.descripcion
    FROM users u
    JOIN roles r ON u.rol_id = r.rol_id
-   JOIN role_permissions rp ON r.rol_id = rp.rol_id
-   JOIN permissions p ON rp.permission_id = p.permission_id
-   JOIN modules m ON p.module_id = m.module_id
-   WHERE u.user_id = 12  -- Usuario ejemplo
-     AND (m.slug LIKE '%levantamiento%' OR m.slug LIKE '%survey%' OR m.slug LIKE '%works%');
+   JOIN roles_permisos rp ON r.rol_id = rp.rol_id
+   JOIN permisos p ON rp.permiso_id = p.permiso_id
+   WHERE u.user_id = 12  -- Cambiar por el userId del usuario bloqueado
+   ORDER BY p.nombre_permiso;
    ```
+
+3. **¿El rol tiene el permiso asignado?**
+   ```sql
+   -- Ver los permisos del rol "PQRS Jericó"
+   SELECT
+     r.rol_id,
+     r.nombre_rol,
+     p.permiso_id,
+     p.nombre_permiso,
+     p.descripcion
+   FROM roles r
+   JOIN roles_permisos rp ON r.rol_id = rp.rol_id
+   JOIN permisos p ON rp.permiso_id = p.permiso_id
+   WHERE r.nombre_rol ILIKE '%jericó%'
+      OR r.nombre_rol ILIKE '%pqrs%'
+   ORDER BY r.nombre_rol, p.nombre_permiso;
+   ```
+
+**Archivo con queries completas:** [QUERIES_DEBUG_PERMISOS.sql](QUERIES_DEBUG_PERMISOS.sql)
 
 3. **¿Hay cache de permisos?**
    - ¿Los permisos se cachean en JWT token?
