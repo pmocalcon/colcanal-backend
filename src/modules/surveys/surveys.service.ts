@@ -517,6 +517,13 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
+    // Validar que el usuario es el Director Técnico asignado
+    if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
+      throw new ForbiddenException(
+        'Solo el Director Técnico asignado puede revisar este levantamiento',
+      );
+    }
+
     // Map block to status
     const newStatus: BlockStatus =
       reviewBlockDto.status === BlockReviewStatus.APPROVED
@@ -563,6 +570,13 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
+    // Validar que el usuario es el Director Técnico asignado
+    if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
+      throw new ForbiddenException(
+        'Solo el Director Técnico asignado puede aprobar este levantamiento',
+      );
+    }
+
     // Approve all blocks
     survey.budgetStatus = BlockStatus.APPROVED;
     survey.investmentStatus = BlockStatus.APPROVED;
@@ -596,6 +610,13 @@ export class SurveysService {
 
     if (!survey) {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
+    }
+
+    // Validar que el usuario es el Director Técnico asignado
+    if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
+      throw new ForbiddenException(
+        'Solo el Director Técnico asignado puede reabrir este levantamiento',
+      );
     }
 
     // Reset all block statuses to pending

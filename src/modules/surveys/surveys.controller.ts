@@ -263,13 +263,15 @@ export class SurveysController {
     return this.surveysService.getUcaps(companyId, projectId);
   }
 
-  @Post('user-access')
+  @Post('user-access/:userId')
   @ApiOperation({ summary: 'Add access for a user to a company or project (admin)' })
+  @ApiParam({ name: 'userId', type: Number, description: 'User ID to grant access to' })
   @ApiResponse({ status: 201, description: 'Access created successfully' })
   async addUserAccess(
-    @Body() body: { userId: number; companyId?: number; projectId?: number },
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() body: { companyId?: number; projectId?: number },
   ) {
-    return this.surveysService.addUserAccess(body.userId, body.companyId, body.projectId);
+    return this.surveysService.addUserAccess(userId, body.companyId, body.projectId);
   }
 
   @Delete('user-access/:accessId')
