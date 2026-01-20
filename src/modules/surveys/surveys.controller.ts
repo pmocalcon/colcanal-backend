@@ -55,16 +55,21 @@ export class SurveysController {
 
   @Get('works')
   @ApiOperation({ summary: 'Get all works' })
-  @ApiQuery({ name: 'companyId', required: false, type: Number })
+  @ApiQuery({ name: 'companyId', required: false, type: String, description: 'Company ID or comma-separated IDs (e.g., 6,7,9)' })
   @ApiQuery({ name: 'projectId', required: false, type: Number })
   @ApiQuery({ name: 'createdBy', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of works' })
   async getWorks(
-    @Query('companyId') companyId?: number,
+    @Query('companyId') companyIdParam?: string,
     @Query('projectId') projectId?: number,
     @Query('createdBy') createdBy?: number,
   ) {
-    return this.surveysService.getWorks(companyId, projectId, createdBy);
+    // Parse companyId: puede ser un solo ID o múltiples separados por coma
+    const companyIds = companyIdParam
+      ? companyIdParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+      : undefined;
+
+    return this.surveysService.getWorks(companyIds, projectId, createdBy);
   }
 
   @Get('works/:id')
