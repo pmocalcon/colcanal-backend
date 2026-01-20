@@ -76,8 +76,22 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
+      // Get user permissions (granular permissions)
+      const rolePermissions = await this.rolePermissionRepository.find({
+        where: { rolId: user.rolId },
+        relations: ['permission'],
+      });
+
+      const permissions = rolePermissions.map(rp => rp.permission.nombrePermiso);
+
       // Generate tokens
-      const payload = { sub: user.userId, email: user.email };
+      const payload = {
+        sub: user.userId,
+        email: user.email,
+        roleId: user.rolId,
+        roleName: user.role.nombreRol,
+        permissions, // Incluir permisos en el JWT
+      };
       const accessToken = this.jwtService.sign(payload, {
         secret: this.configService.get('jwt.secret') || 'change-this-secret',
         expiresIn: `${this.configService.get('jwt.expiresIn') || 3600}s`,
@@ -122,7 +136,31 @@ export class AuthService {
   }
 
   async refreshToken(user: User) {
-    const payload = { sub: user.userId, email: user.email };
+    // Get user with role
+    const userWithRole = await this.userRepository.findOne({
+      where: { userId: user.userId },
+      relations: ['role'],
+    });
+
+    if (!userWithRole) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get user permissions (granular permissions)
+    const rolePermissions = await this.rolePermissionRepository.find({
+      where: { rolId: userWithRole.rolId },
+      relations: ['permission'],
+    });
+
+    const permissions = rolePermissions.map(rp => rp.permission.nombrePermiso);
+
+    const payload = {
+      sub: userWithRole.userId,
+      email: userWithRole.email,
+      roleId: userWithRole.rolId,
+      roleName: userWithRole.role.nombreRol,
+      permissions, // Incluir permisos en el refresh token también
+    };
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('jwt.secret'),
@@ -147,6 +185,28 @@ export class AuthService {
     const { password, refreshToken, ...userWithoutSensitiveData } = user;
 
     return userWithoutSensitiveData;
+  }
+
+  async getMyPermissions(userId: number) {
+    // Get user with role
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Get role permissions (granular permissions)
+    const rolePermissions = await this.rolePermissionRepository.find({
+      where: { rolId: user.rolId },
+      relations: ['permission'],
+    });
+
+    const permissions = rolePermissions.map(rp => rp.permission.nombrePermiso);
+
+    return { permissions };
   }
 
   async getUserModules(userId: number) {

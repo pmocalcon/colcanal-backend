@@ -334,6 +334,58 @@ export class AuthController {
     return this.authService.getProfile(user.userId);
   }
 
+  @Get('my-permissions')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Obtener permisos del usuario autenticado',
+    description: `
+    Retorna los permisos granulares del usuario autenticado.
+
+    ## Permisos granulares
+
+    El sistema usa permisos con formato \`modulo:accion\`:
+    - \`levantamientos:ver\` - Ver levantamientos
+    - \`levantamientos:crear\` - Crear levantamientos
+    - \`levantamientos:editar\` - Editar levantamientos
+    - \`levantamientos:eliminar\` - Eliminar levantamientos
+    - \`levantamientos:revisar\` - Revisar bloques
+    - \`levantamientos:aprobar\` - Aprobar levantamientos
+    - \`levantamientos:reabrir\` - Reabrir levantamientos aprobados
+
+    ## Uso en el frontend
+
+    \`\`\`typescript
+    const { permissions } = await fetch('/api/auth/my-permissions').then(r => r.json());
+
+    // Verificar permiso específico
+    if (permissions.includes('levantamientos:crear')) {
+      // Mostrar botón "Crear"
+    }
+    \`\`\`
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de permisos del usuario',
+    schema: {
+      example: {
+        permissions: [
+          'levantamientos:ver',
+          'levantamientos:crear',
+          'levantamientos:editar',
+          'levantamientos:eliminar'
+        ]
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado',
+  })
+  async getMyPermissions(@CurrentUser() user: User) {
+    return this.authService.getMyPermissions(user.userId);
+  }
+
   @Get('modules')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
