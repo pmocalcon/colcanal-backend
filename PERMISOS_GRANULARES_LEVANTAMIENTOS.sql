@@ -68,13 +68,18 @@ AND p.nombre_permiso IN (
 ON CONFLICT (rol_id, permiso_id) DO NOTHING;
 
 -- 3.3 Asignar a "Director de Proyecto"
--- Director de Proyecto solo puede: ver (NO crear)
+-- Director de Proyecto puede: ver, crear, editar, eliminar (NO revisar/aprobar/reabrir)
 INSERT INTO roles_permisos (rol_id, permiso_id)
 SELECT r.rol_id, p.permiso_id
 FROM roles r
 CROSS JOIN permisos p
 WHERE r.nombre_rol = 'Director de Proyecto'
-AND p.nombre_permiso = 'levantamientos:ver'
+AND p.nombre_permiso IN (
+    'levantamientos:ver',
+    'levantamientos:crear',
+    'levantamientos:editar',
+    'levantamientos:eliminar'
+)
 ON CONFLICT (rol_id, permiso_id) DO NOTHING;
 
 -- 3.4 Asignar a "Director Técnico"
@@ -138,7 +143,7 @@ Rol                      | Ver | Crear | Editar | Eliminar | Revisar | Aprobar |
 -------------------------|-----|-------|--------|----------|---------|---------|--------
 PQRS                     | ✅  | ✅    | ✅     | ✅       | ❌      | ❌      | ❌
 Coordinador Operativo    | ✅  | ✅    | ✅     | ✅       | ❌      | ❌      | ❌
-Director de Proyecto     | ✅  | ❌    | ❌     | ❌       | ❌      | ❌      | ❌
+Director de Proyecto     | ✅  | ✅    | ✅     | ✅       | ❌      | ❌      | ❌
 Director Técnico         | ✅  | ❌    | ❌     | ❌       | ✅      | ✅      | ✅
 Super Admin              | ✅  | ✅    | ✅     | ✅       | ✅      | ✅      | ✅
 */

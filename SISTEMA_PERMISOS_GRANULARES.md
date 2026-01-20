@@ -71,7 +71,7 @@ roles_permisos (
 |-----|-----|-------|--------|----------|---------|---------|---------|
 | **PQRS** | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Coordinador Operativo** | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Director de Proyecto** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Director de Proyecto** | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Director Técnico** | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
 | **Super Admin** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
