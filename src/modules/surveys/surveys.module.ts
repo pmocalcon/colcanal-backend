@@ -18,6 +18,7 @@ import { Company } from '../../database/entities/company.entity';
 import { Project } from '../../database/entities/project.entity';
 import { User } from '../../database/entities/user.entity';
 import { Material } from '../../database/entities/material.entity';
+import { RolePermission } from '../../database/entities/role-permission.entity';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { Material } from '../../database/entities/material.entity';
       Project,
       User,
       Material,
+      RolePermission,
     ]),
   ],
   controllers: [SurveysController],
