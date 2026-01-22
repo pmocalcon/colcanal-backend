@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, IsNull, In } from 'typeorm';
+import { Repository, DataSource, Between, IsNull, In, MoreThanOrEqual } from 'typeorm';
 import { Requisition } from '../../database/entities/requisition.entity';
 import { RequisitionItem } from '../../database/entities/requisition-item.entity';
 import { RequisitionLog } from '../../database/entities/requisition-log.entity';
@@ -48,6 +48,7 @@ import {
   REQUISITION_STATUS,
   EDITABLE_STATUSES,
   APPROVABLE_BY_MANAGEMENT_STATUSES,
+  OFFICIAL_DATA_START_DATE,
 } from '../../common/constants';
 
 @Injectable()
@@ -686,6 +687,8 @@ export class PurchasesService {
       .leftJoinAndSelect('logs.user', 'logUser')
       .leftJoinAndSelect('logUser.role', 'logUserRole')
       .where('requisition.createdBy = :userId', { userId })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
       .addOrderBy('logs.createdAt', 'DESC');
@@ -768,7 +771,7 @@ export class PurchasesService {
   ) {
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
-      relations: ['items', 'status'],
+      relations: ['items', 'status', 'creator', 'creator.role'],
     });
 
     if (!requisition) {
@@ -835,6 +838,25 @@ export class PurchasesService {
 
       if (dto.codigoObra !== undefined) {
         requisition.codigoObra = dto.codigoObra;
+      }
+
+      // Si cambió el campo 'obra', recalcular si necesita validación por Director de Proyecto
+      // Esto aplica solo si el creador es PQRS o Coordinador Operativo
+      if (dto.obra !== undefined && requisition.creator?.role) {
+        const nowRequiresValidation = this.requiresObraValidation(requisition.creator.role, dto.obra);
+
+        // Si ahora requiere validación pero el estado es 'pendiente', cambiar a 'pendiente_validacion'
+        if (nowRequiresValidation && previousStatus === 'pendiente') {
+          const pendingValidationStatusId = await this.getStatusIdByCode('pendiente_validacion');
+          requisition.statusId = pendingValidationStatusId;
+          (requisition as any).status = undefined;
+        }
+        // Si ya no requiere validación pero el estado es 'pendiente_validacion', cambiar a 'pendiente'
+        else if (!nowRequiresValidation && previousStatus === 'pendiente_validacion') {
+          const pendingStatusId = await this.getStatusIdByCode('pendiente');
+          requisition.statusId = pendingStatusId;
+          (requisition as any).status = undefined;
+        }
       }
 
       // Si estaba rechazada, volver al estado apropiado según quién rechazó
@@ -1075,6 +1097,9 @@ export class PurchasesService {
         statuses: ['aprobada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion'],
       });
     }
+
+    // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+    queryBuilder.andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE });
 
     // Ordenar por prioridad (alta primero) y luego por fecha de creación
     queryBuilder
@@ -1369,6 +1394,26 @@ export class PurchasesService {
 
       await queryRunner.manager.save(log);
 
+      // Crear registro de aprobación para tracking de firmas
+      // Usamos step_order = 1 para indicar que es una revisión (después de la validación que es 0)
+      await queryRunner.manager.query(
+        `INSERT INTO requisition_approvals
+         (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+         VALUES ($1, $2, $3, $4,
+           (SELECT status_id FROM requisition_statuses WHERE code = $5),
+           (SELECT status_id FROM requisition_statuses WHERE code = $6),
+           $7, NOW())`,
+        [
+          requisitionId,
+          userId,
+          dto.decision === 'approve' ? 'reviewed' : 'rejected',
+          1, // step_order = 1 para revisión
+          previousStatus,
+          newStatusCode,
+          dto.comments || (dto.decision === 'approve' ? 'Todos los ítems aprobados' : 'Requisición rechazada por revisor'),
+        ],
+      );
+
       // Guardar aprobaciones de ítems si se proporcionaron
       if (dto.itemDecisions && dto.itemDecisions.length > 0) {
         await this.saveItemApprovals(
@@ -1635,6 +1680,26 @@ export class PurchasesService {
 
       await queryRunner.manager.save(log);
 
+      // Crear registro de aprobación para tracking de firmas
+      // Usamos step_order = 2 para indicar que es una autorización (después de revisión que es 1)
+      await queryRunner.manager.query(
+        `INSERT INTO requisition_approvals
+         (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+         VALUES ($1, $2, $3, $4,
+           (SELECT status_id FROM requisition_statuses WHERE code = $5),
+           (SELECT status_id FROM requisition_statuses WHERE code = $6),
+           $7, NOW())`,
+        [
+          requisitionId,
+          userId,
+          dto.decision === 'approve' || dto.decision === 'authorize' ? 'authorized' : 'rejected',
+          2, // step_order = 2 para autorización
+          previousStatus,
+          newStatusCode,
+          dto.comments || (dto.decision === 'approve' || dto.decision === 'authorize' ? 'Todos los ítems autorizados' : 'Requisición rechazada por autorizador'),
+        ],
+      );
+
       await queryRunner.commitTransaction();
 
       return this.getRequisitionById(requisitionId, userId);
@@ -1706,6 +1771,26 @@ export class PurchasesService {
       });
 
       await queryRunner.manager.save(log);
+
+      // Crear registro de aprobación para tracking de firmas
+      // Usamos step_order = 3 para indicar que es una aprobación final (después de autorización que es 2)
+      await queryRunner.manager.query(
+        `INSERT INTO requisition_approvals
+         (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+         VALUES ($1, $2, $3, $4,
+           (SELECT status_id FROM requisition_statuses WHERE code = $5),
+           (SELECT status_id FROM requisition_statuses WHERE code = $6),
+           $7, NOW())`,
+        [
+          requisitionId,
+          userId,
+          'approved',
+          3, // step_order = 3 para aprobación final
+          previousStatus,
+          'aprobada_gerencia',
+          dto.comments || 'Todos los ítems aprobados',
+        ],
+      );
 
       // Guardar aprobaciones de ítems si se proporcionaron
       if (dto.itemDecisions && dto.itemDecisions.length > 0) {
@@ -2008,6 +2093,8 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['aprobada_gerencia', 'en_cotizacion']
       })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC');
 
@@ -2018,6 +2105,8 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['cotizada', 'en_orden_compra', 'pendiente_recepcion', 'en_recepcion', 'recepcion_completa']
       })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
       .take(20); // Limitar a 20 procesadas
@@ -2148,8 +2237,15 @@ export class PurchasesService {
           order: { supplierOrder: 'ASC' },
         });
 
+        // Mapear explícitamente todos los campos para asegurar que observation se incluye
         return {
-          ...item,
+          itemId: item.itemId,
+          requisitionId: item.requisitionId,
+          itemNumber: item.itemNumber,
+          materialId: item.materialId,
+          quantity: item.quantity,
+          observation: item.observation, // Campo explícito para observaciones
+          material: item.material,
           quotations,
         };
       }),
@@ -2839,6 +2935,8 @@ export class PurchasesService {
       .andWhere('status.code IN (:...statuses)', {
         statuses: ['pendiente_recepcion', 'en_recepcion', 'recepcion_completa'],
       })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'ASC')
       .skip(skip)
@@ -3270,7 +3368,10 @@ export class PurchasesService {
     const skip = (page - 1) * limit;
 
     // Construir condiciones de filtro
-    const where: any = {};
+    const where: any = {
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      createdAt: MoreThanOrEqual(OFFICIAL_DATA_START_DATE),
+    };
 
     if (filters?.requisitionId) {
       where.requisitionId = filters.requisitionId;
@@ -3439,6 +3540,8 @@ export class PurchasesService {
       .where('po.approvalStatusId = :statusId', {
         statusId: pendingStatusId,
       })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('po.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('po.createdAt', 'DESC');
 
     const [pendingOrders, pendingTotal] = await pendingQueryBuilder.getManyAndCount();
@@ -3464,6 +3567,8 @@ export class PurchasesService {
       .where('po.approvalStatusId IN (:...statusIds)', {
         statusIds: [approvedStatusId, rejectedStatusId],
       })
+      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
+      .andWhere('po.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('po.createdAt', 'DESC')
       .take(20); // Limitar a 20 procesadas
 
