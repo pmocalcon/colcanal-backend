@@ -2085,7 +2085,9 @@ export class PurchasesService {
       // Join with approvals to calculate SLA deadlines
       .leftJoinAndSelect('requisition.approvals', 'approvals')
       .leftJoinAndSelect('approvals.user', 'approvalUser')
-      .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus');
+      .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus')
+      // Join with logs to get transition dates (for cotizada status)
+      .leftJoinAndSelect('requisition.logs', 'logs');
 
     // Query 1: Obtener TODAS las requisiciones pendientes de cotización (sin límite)
     // Ordenar por prioridad (alta primero) y luego por fecha
@@ -2130,16 +2132,39 @@ export class PurchasesService {
       let daysOverdue = 0;
       let daysRemaining = 0;
 
-      // La fecha de inicio para el SLA es cuando Gerencia aprobó la requisición
-      // Buscar el approval que cambió a 'aprobada_gerencia' (por newStatus o por action+stepOrder)
-      const gerenciaApproval = req.approvals?.find((a: any) =>
-        a.newStatus?.code === 'aprobada_gerencia' ||
-        (a.action === 'approved' && a.stepOrder === 3)
-      );
+      // Determinar la fecha de inicio del SLA según el estado actual:
+      // - Para 'aprobada_gerencia': desde que Gerencia aprobó
+      // - Para 'cotizada': desde que se cotizó (transición a cotizada)
+      let slaStartDate: Date | null = null;
 
-      // Determinar fecha de inicio del SLA
-      // Si la aprobación fue después de las 3:00 PM, el tiempo corre desde el siguiente día hábil
-      let slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
+      if (statusCode === 'cotizada' || statusCode === 'en_orden_compra') {
+        // Buscar cuando cambió a 'cotizada' - primero en approvals, luego en logs
+        const cotizadaApproval = req.approvals?.find((a: any) =>
+          a.newStatus?.code === 'cotizada'
+        );
+
+        if (cotizadaApproval) {
+          slaStartDate = cotizadaApproval.createdAt;
+        } else {
+          // Buscar en logs el cambio a 'cotizada'
+          const cotizadaLog = req.logs?.find((l: any) => l.newStatus === 'cotizada');
+          if (cotizadaLog) {
+            slaStartDate = cotizadaLog.createdAt;
+          }
+        }
+      }
+
+      // Si no encontró fecha para cotizada, o es otro estado, usar aprobación de Gerencia
+      if (!slaStartDate) {
+        const gerenciaApproval = req.approvals?.find((a: any) =>
+          a.newStatus?.code === 'aprobada_gerencia' ||
+          (a.action === 'approved' && a.stepOrder === 3)
+        );
+        slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
+      }
+
+      // Aplicar regla de las 3:00 PM
+      // Si la acción fue después de las 3:00 PM, el tiempo corre desde el siguiente día hábil
       if (slaStartDate) {
         const approvalDate = new Date(slaStartDate);
         const approvalHour = approvalDate.getHours();
