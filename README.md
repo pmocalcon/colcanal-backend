@@ -232,7 +232,7 @@ CREAR REQUISICIÓN
 **Regla de las 3 PM**: Si una aprobación/cotización ocurre después de las 3:00 PM, el SLA comienza el siguiente día hábil.
 
 **Días hábiles**: Lunes a Viernes, excluyendo festivos colombianos.
-**Horario laboral**: 7:00 AM - 7:00 PM.
+**Horario laboral**: 7:00 AM - 4:30 PM.
 
 ---
 

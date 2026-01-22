@@ -1,6 +1,6 @@
 /**
  * Utilidad para cálculo de días hábiles en Colombia
- * Horario laboral: 7:00 AM - 7:00 PM (12 horas por día)
+ * Horario laboral: 7:00 AM - 4:30 PM (9.5 horas por día)
  * Días hábiles: Lunes a Viernes
  * Excluye festivos colombianos
  */
@@ -27,8 +27,9 @@ const COLOMBIA_HOLIDAYS_2025 = [
 ];
 
 const BUSINESS_START_HOUR = 7; // 7 AM
-const BUSINESS_END_HOUR = 19; // 7 PM
-const BUSINESS_HOURS_PER_DAY = BUSINESS_END_HOUR - BUSINESS_START_HOUR; // 12 horas
+const BUSINESS_END_HOUR = 16; // 4 PM (4:30 PM)
+const BUSINESS_END_MINUTE = 30; // :30 minutos
+const BUSINESS_HOURS_PER_DAY = 9.5; // 9.5 horas (7:00 AM - 4:30 PM)
 
 /**
  * Verifica si una fecha es un día hábil (no sábado, domingo ni festivo)
@@ -69,8 +70,8 @@ function normalizeToBusinessHours(date: Date): Date {
   if (hour < BUSINESS_START_HOUR) {
     normalized.setHours(BUSINESS_START_HOUR, 0, 0, 0);
   }
-  // Si es después de 7pm, mover al siguiente día hábil a las 7am
-  else if (hour >= BUSINESS_END_HOUR) {
+  // Si es después de 4:30pm, mover al siguiente día hábil a las 7am
+  else if (hour > BUSINESS_END_HOUR || (hour === BUSINESS_END_HOUR && normalized.getMinutes() >= BUSINESS_END_MINUTE)) {
     normalized.setDate(normalized.getDate() + 1);
     normalized.setHours(BUSINESS_START_HOUR, 0, 0, 0);
     // Verificar recursivamente si el nuevo día es hábil
@@ -82,7 +83,7 @@ function normalizeToBusinessHours(date: Date): Date {
 
 /**
  * Agrega días hábiles completos a una fecha
- * Un día hábil completo = 12 horas (7am - 7pm)
+ * Un día hábil completo = 9.5 horas (7am - 4:30pm)
  *
  * @param startDate - Fecha de inicio
  * @param businessDays - Número de días hábiles a agregar
@@ -107,8 +108,8 @@ export function addBusinessDays(startDate: Date, businessDays: number): Date {
     }
   }
 
-  // Establecer la hora al final del día hábil (7pm)
-  current.setHours(BUSINESS_END_HOUR, 0, 0, 0);
+  // Establecer la hora al final del día hábil (4:30pm)
+  current.setHours(BUSINESS_END_HOUR, BUSINESS_END_MINUTE, 0, 0);
 
   return current;
 }
