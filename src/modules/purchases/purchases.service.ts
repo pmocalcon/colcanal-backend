@@ -2133,7 +2133,28 @@ export class PurchasesService {
         (a.action === 'approved' && a.stepOrder === 3)
       );
 
-      const slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
+      // Determinar fecha de inicio del SLA
+      // Si la aprobación fue después de las 3:00 PM, el tiempo corre desde el siguiente día hábil
+      let slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
+      if (slaStartDate) {
+        const approvalDate = new Date(slaStartDate);
+        const approvalHour = approvalDate.getHours();
+
+        // Si la aprobación fue después de las 3:00 PM (15:00), mover al siguiente día hábil
+        if (approvalHour >= 15) {
+          // Mover al siguiente día a las 7:00 AM
+          approvalDate.setDate(approvalDate.getDate() + 1);
+          approvalDate.setHours(7, 0, 0, 0);
+
+          // Si cae en fin de semana, mover al lunes
+          while (approvalDate.getDay() === 0 || approvalDate.getDay() === 6) {
+            approvalDate.setDate(approvalDate.getDate() + 1);
+          }
+
+          slaStartDate = approvalDate;
+        }
+      }
+
       const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
 
       slaDeadline = slaResult.deadline;
