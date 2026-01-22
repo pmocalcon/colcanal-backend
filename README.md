@@ -1,337 +1,253 @@
-# Canalco Backend - NestJS
+# ColCanal Backend
 
-Modern backend API for Canalco ERP System built with NestJS, TypeORM, PostgreSQL, and JWT authentication.
+Backend API para el sistema ERP ColCanal construido con NestJS, TypeORM y PostgreSQL.
 
-## Description
+## Stack Tecnológico
 
-Enterprise-grade RESTful API built with the [NestJS](https://github.com/nestjs/nest) framework, featuring comprehensive authentication, authorization, and database management.
+| Tecnología | Versión | Descripción |
+|------------|---------|-------------|
+| NestJS | 11.0.1 | Framework backend Node.js |
+| TypeScript | 5.7.3 | Lenguaje de programación |
+| PostgreSQL | 16 | Base de datos relacional |
+| TypeORM | 0.3.27 | ORM para TypeScript |
+| Passport + JWT | 0.7.0 | Autenticación |
+| class-validator | 0.14.2 | Validación de DTOs |
+| Swagger | 11.2.1 | Documentación API |
 
-## Features
+## Características
 
-- **Authentication & Authorization**
-  - JWT-based authentication with access and refresh tokens
-  - Role-based access control (RBAC)
-  - Permission-based authorization
-  - Corporate email domain validation (@canalco.com)
-  - Bcrypt password hashing
+- **Autenticación JWT** con access y refresh tokens
+- **Control de acceso basado en roles (RBAC)** y permisos granulares
+- **Módulo de Requisiciones** completo con flujo de aprobaciones
+- **Módulo de Órdenes de Compra** con cotizaciones y SLA
+- **Módulo de Levantamientos/Encuestas**
+- **Sistema de notificaciones** por email
+- **Documentación Swagger** en `/api/docs`
 
-- **Security**
-  - Helmet for HTTP security headers
-  - Rate limiting with throttler
-  - CORS configuration
-  - Input validation and sanitization
-  - SQL injection protection via TypeORM ORM
-
-- **Database**
-  - PostgreSQL 16
-  - TypeORM for ORM
-  - Database migrations
-  - Automated seeding system
-
-- **API Documentation**
-  - Swagger/OpenAPI at `/api/docs`
-  - Complete endpoint documentation with examples
-
-## Prerequisites
-
-- Node.js 18+ or 20+
-- npm
-- PostgreSQL 16 (or use Docker)
-- Docker & Docker Compose (optional)
-
-## Installation
-
-### 1. Install dependencies
+## Instalación
 
 ```bash
+# Instalar dependencias
 npm install
-```
 
-### 2. Environment Configuration
-
-Copy `.env.example` to `.env` and update with your configuration:
-
-```bash
+# Configurar variables de entorno
 cp .env.example .env
-```
 
-Key environment variables:
-- `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`
-- `JWT_SECRET`, `JWT_REFRESH_SECRET`
-- `CORPORATE_EMAIL_DOMAIN`
-
-## Running the Application
-
-### Option 1: With Docker Compose (Recommended)
-
-```bash
-docker-compose up
-```
-
-This will automatically:
-1. Start PostgreSQL 16
-2. Run database migrations
-3. Seed the database
-4. Start the API on port 3000
-
-### Option 2: Local Development
-
-Start PostgreSQL (locally or with Docker):
-
-```bash
-# Using Docker for PostgreSQL only
-docker run --name canalco-postgres \
-  -e POSTGRES_USER=canalco \
-  -e POSTGRES_PASSWORD=canalco \
-  -e POSTGRES_DB=canalco \
-  -p 5432:5432 -d postgres:16-alpine
-```
-
-Run migrations and seeds:
-
-```bash
+# Ejecutar migraciones
 npm run migration:run
+
+# Ejecutar seeds
 npm run seed:run
+
+# Iniciar en desarrollo
+npm run start:dev
 ```
 
-Start the application:
+## Variables de Entorno
 
 ```bash
-# Development mode with hot reload
-npm run start:dev
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_USERNAME=postgres
+DATABASE_PASSWORD=***
+DATABASE_NAME=colcanal
 
-# Production mode
-npm run build
-npm run start:prod
+JWT_SECRET=***
+JWT_EXPIRES_IN=1h
+JWT_REFRESH_EXPIRES_IN=7d
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=***
+SMTP_PASS=***
 ```
+
+---
+
+# Módulo de Requisiciones
+
+## Estructura de Base de Datos
+
+### Tablas Principales
+
+| Tabla | Descripción |
+|-------|-------------|
+| `requisitions` | Requisiciones de compra |
+| `requisition_items` | Ítems de cada requisición |
+| `requisition_statuses` | Catálogo de estados |
+| `requisition_approvals` | Registro de aprobaciones |
+| `requisition_logs` | Auditoría de acciones |
+| `requisition_item_quotations` | Cotizaciones de proveedores |
+
+### Estados de Requisición
+
+| Código | Nombre | Descripción |
+|--------|--------|-------------|
+| `pendiente` | Pendiente | Requisición nueva sin validación de obra |
+| `pendiente_validacion` | Pendiente de validación | Requiere validación de Director de Proyecto |
+| `aprobada_revisor` | Aprobada por revisor | Aprobada por Director Técnico |
+| `pendiente_autorizacion` | Pendiente de autorización | Requiere autorización de Gerencia de Proyectos |
+| `autorizado` | Autorizado | Autorizada por Gerencia de Proyectos |
+| `aprobada_gerencia` | Aprobada por gerencia | Aprobada, lista para cotizar |
+| `en_cotizacion` | En cotización | En proceso de cotización |
+| `cotizada` | Cotizada | Cotización completa, lista para OC |
+| `en_orden_compra` | En orden de compra | Orden de compra generada |
+| `pendiente_recepcion` | Pendiente de recepción | Esperando recepción de materiales |
+| `recepcion_completa` | Recepción completa | Proceso completado |
+
+## Flujo de Aprobaciones
+
+```
+CREAR REQUISICIÓN
+        │
+        ├── PQRS/Coord.Op + obra especial ──► pendiente_validacion
+        │                                            │
+        │                                    Dir.Proyecto VALIDA
+        │                                            │
+        ├── Dir.Proyecto/PQRS sin obra ─────────────┤
+        │                                            │
+        │                                            ▼
+        │                                    Dir.Técnico REVISA
+        │                                            │
+        │                               ┌────────────┴────────────┐
+        │                               │                         │
+        │                    ¿Requiere Autorización?              │
+        │                               │                         │
+        │                          SÍ   │   NO                    │
+        │                               ▼                         │
+        │                    Ger.Proyectos AUTORIZA               │
+        │                               │                         │
+        ├── Dir.Área ───────────────────┼─────────────────────────┘
+        │                               │
+        │                               ▼
+        │                       Gerencia APRUEBA
+        │                               │
+        │                               ▼
+        │                       COTIZACIÓN (Compras)
+        │                               │
+        │                               ▼
+        │                       ORDEN DE COMPRA
+        │                               │
+        │                               ▼
+        │                       RECEPCIÓN
+```
+
+### Condiciones Especiales
+
+**¿Cuándo se requiere VALIDACIÓN de obra?**
+- Creador tiene rol PQRS o Coordinador Operativo
+- Y la obra es: 'Modernización', 'Expansión', 'Operación y mantenimiento', 'Inversión' o 'Donación'
+
+**¿Cuándo se requiere AUTORIZACIÓN de Gerencia de Proyectos?**
+- Creador es Director de Proyecto
+- Y la empresa es Unión Temporal, o es C&C con proyecto diferente a 'Oficina Principal'
 
 ## API Endpoints
 
-### Base URL
-```
-http://localhost:3000/api
-```
+### Requisiciones
 
-### Authentication
-
-| Method | Endpoint | Description |
+| Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| POST | `/api/auth/login` | User login |
-| POST | `/api/auth/refresh` | Refresh access token |
-| GET | `/api/auth/profile` | Get current user profile |
+| POST | `/api/purchases/requisitions` | Crear requisición |
+| GET | `/api/purchases/requisitions` | Listar requisiciones |
+| GET | `/api/purchases/requisitions/:id` | Obtener detalle |
+| PATCH | `/api/purchases/requisitions/:id` | Actualizar requisición |
+| POST | `/api/purchases/requisitions/:id/validate` | Validar obra |
+| POST | `/api/purchases/requisitions/:id/review` | Revisar |
+| POST | `/api/purchases/requisitions/:id/authorize` | Autorizar |
+| POST | `/api/purchases/requisitions/:id/approve` | Aprobar |
+| GET | `/api/purchases/requisitions/pending-actions` | Pendientes por rol |
+| GET | `/api/purchases/requisitions/my-requisitions` | Mis requisiciones |
 
-### API Documentation
+### Cotizaciones
 
-Access Swagger UI at: `http://localhost:3000/api/docs`
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/purchases/quotations` | Listar requisiciones para cotizar |
+| GET | `/api/purchases/quotations/:id` | Detalle de cotización |
+| POST | `/api/purchases/quotations/:id` | Gestionar cotización |
+| POST | `/api/purchases/quotations/:id/assign-prices` | Asignar precios |
 
-## 📝 How to Test with Swagger (Step-by-Step)
+### Órdenes de Compra
 
-### Testing Protected Endpoints
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/purchases/purchase-orders` | Crear orden de compra |
+| GET | `/api/purchases/purchase-orders` | Listar órdenes |
+| GET | `/api/purchases/purchase-orders/:id` | Detalle de orden |
+| POST | `/api/purchases/purchase-orders/:id/approve` | Aprobar orden |
+| POST | `/api/purchases/purchase-orders/:id/reject` | Rechazar orden |
 
-1. **Open Swagger UI**
-   ```
-   http://localhost:3000/api/docs
-   ```
+## DTOs Principales
 
-2. **Login to Get Access Token**
-   - Find the `POST /api/auth/login` endpoint
-   - Click "Try it out"
-   - The default credentials are already filled:
-     ```json
-     {
-       "email": "admin@canalco.com",
-       "password": "admin123"
-     }
-     ```
-   - Click "Execute"
-   - Copy the `accessToken` from the response (the long string starting with `eyJ...`)
-
-3. **Authorize Swagger**
-   - Click the **"Authorize" button** at the top right of the page (🔓 icon)
-   - Paste your `accessToken` in the "Value" field
-   - **Important:** Just paste the token, don't add "Bearer" prefix
-   - Click "Authorize" then "Close"
-
-4. **Test Protected Endpoints**
-   - Now you can test any protected endpoint, like `GET /api/auth/profile`
-   - Click "Try it out" then "Execute"
-   - The token will be automatically included in the request
-
-### Example with cURL
-
-If you prefer using cURL instead of Swagger:
-
-```bash
-# 1. Login
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@canalco.com","password":"admin123"}'
-
-# 2. Copy the accessToken from the response
-
-# 3. Use it in protected endpoints
-curl -X GET http://localhost:3000/api/auth/profile \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
-```
-
-### Token Information
-
-- **Access Token:** Expires in 1 hour (3600 seconds)
-- **Refresh Token:** Expires in 7 days (604800 seconds)
-- Tokens are signed with HS256 algorithm
-
-### Health Check
-
-```
-GET http://localhost:3000/health
-```
-
-## Default Credentials
-
-After running seeds:
-
-```
-Email: admin@canalco.com
-Password: admin123
-```
-
-**⚠️ IMPORTANT:** Change this password in production!
-
-## Database Management
-
-### Migrations
-
-```bash
-# Generate migration from entities
-npm run migration:generate -- src/database/migrations/MigrationName
-
-# Create empty migration
-npm run migration:create -- src/database/migrations/MigrationName
-
-# Run migrations
-npm run migration:run
-
-# Revert last migration
-npm run migration:revert
-```
-
-### Seeding
-
-```bash
-npm run seed:run
-```
-
-Seeds create:
-- 6 roles (Administrador, Gerente, Compras, Almacen, PMO, Analista)
-- 6 permissions (Ver, Crear, Editar, Eliminar, Aprobar, Exportar)
-- 8 modules/gestiones (Dashboard, Compras, Inventarios, Reportes, Usuarios, Proveedores, Auditorías, Notificaciones)
-- 1 admin user with full access
-
-## Project Structure
-
-```
-backend-nestjs/
-├── src/
-│   ├── common/              # Shared resources
-│   │   ├── decorators/      # Custom decorators (@Public, @Roles, etc.)
-│   │   └── guards/          # Auth & authorization guards
-│   ├── config/              # Environment configuration
-│   ├── database/
-│   │   ├── entities/        # TypeORM entities
-│   │   ├── migrations/      # Database migrations
-│   │   └── seeds/           # Database seeds
-│   ├── modules/             # Feature modules
-│   │   └── auth/            # Authentication module
-│   ├── app.module.ts        # Root module
-│   └── main.ts              # Entry point
-├── .env                     # Environment variables
-├── docker-compose.yml       # Docker orchestration
-├── Dockerfile               # Docker image
-└── package.json             # Dependencies & scripts
-```
-
-## Database Schema
-
-### Auth Schema
-- `roles` - User roles
-- `permisos` - Permissions
-- `roles_permisos` - Role-permission mapping
-- `users` - User accounts
-- `autorizaciones` - Authorization hierarchy
-- `gestiones` - System modules
-- `roles_gestiones` - Role-module mapping
-
-### Business Schema
-- `companies` - Companies
-- `projects` - Projects
-- `operation_centers` - Operation centers
-- `project_codes` - Project codes
-- `requisition_prefixes` - Requisition prefixes
-- `requisition_sequences` - Requisition number sequences
-- `material_groups` - Material groups
-- `materials` - Materials catalog
-
-## Security
-
-### Guards
-
-- **JwtAuthGuard** - Protects routes requiring authentication
-- **RolesGuard** - Role-based access control
-- **PermissionsGuard** - Permission-based access control
-
-### Usage Example
-
+### CreateRequisitionDto
 ```typescript
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('Administrador', 'Gerente')
-@Get('protected')
-async protectedRoute() {
-  // Only Admin and Manager can access
-}
-
-@Public()
-@Post('login')
-async login() {
-  // Public endpoint, no auth required
+{
+  companyId: number;              // Requerido
+  projectId?: number;             // Requerido para C&C
+  obra?: string;                  // Activa validación si tiene valor especial
+  codigoObra?: string;
+  priority?: 'alta' | 'normal';   // Default: 'normal'
+  items: [{
+    materialId: number;
+    quantity: number;
+    observation?: string;
+  }]
 }
 ```
+
+### ReviewRequisitionDto
+```typescript
+{
+  decision: 'approve' | 'reject';
+  comments?: string;              // Requerido si rechaza
+  itemDecisions?: [{
+    itemId: number;
+    decision: 'approve' | 'reject';
+    comments?: string;
+  }]
+}
+```
+
+## Permisos
+
+| ID | Permiso | Descripción |
+|----|---------|-------------|
+| 1 | Ver | Ver requisiciones |
+| 2 | Crear | Crear requisiciones |
+| 3 | Revisar | Revisar (Director Técnico) |
+| 4 | Aprobar | Aprobar (Gerencia) |
+| 5 | Autorizar | Autorizar (Gerencia de Proyectos) |
+| 6 | Cotizar | Cotizar (Compras) |
+| 7 | Exportar | Exportar datos |
+| 8 | Validar | Validar obra (Director de Proyecto) |
+
+## SLA (Plazos)
+
+| Estado | Plazo | Descripción |
+|--------|-------|-------------|
+| `aprobada_gerencia` | 1 día hábil | Para realizar cotización |
+| `cotizada` | 2 días hábiles | Para generar orden de compra |
+
+**Regla de las 3 PM**: Si una aprobación/cotización ocurre después de las 3:00 PM, el SLA comienza el siguiente día hábil.
+
+**Días hábiles**: Lunes a Viernes, excluyendo festivos colombianos.
+**Horario laboral**: 7:00 AM - 7:00 PM.
+
+---
+
+## Documentación API
+
+Acceder a Swagger UI: `http://localhost:3000/api/docs`
 
 ## Testing
 
 ```bash
-# Unit tests
-npm run test
-
-# E2E tests
-npm run test:e2e
-
-# Test coverage
-npm run test:cov
+npm run test        # Unit tests
+npm run test:e2e    # E2E tests
+npm run test:cov    # Coverage
 ```
 
-## Production Deployment
+## Licencia
 
-1. Set strong JWT secrets (min 32 characters)
-2. Update `NODE_ENV=production`
-3. Change default admin password
-4. Build: `npm run build`
-5. Run migrations: `npm run migration:run`
-6. Start: `npm run start:prod`
-
-## Troubleshooting
-
-### Database connection issues
-```bash
-# Check if PostgreSQL is running
-docker ps | grep postgres
-```
-
-### Port already in use
-```bash
-# Kill process on port 3000
-lsof -ti:3000 | xargs kill -9
-```
-
-## License
-
-UNLICENSED - Private Project
+UNLICENSED - Proyecto Privado
