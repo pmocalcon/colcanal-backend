@@ -2126,13 +2126,13 @@ export class PurchasesService {
       let daysRemaining = 0;
 
       if (slaBusinessDays > 0) {
-        // La fecha de inicio para el SLA es cuando la requisición entró al estado actual
-        // Buscar el approval que cambió al estado actual
-        const statusChangeApproval = req.approvals?.find(a =>
-          a.newStatus?.code === req.status.code
+        // La fecha de inicio para el SLA es cuando Gerencia aprobó la requisición
+        // Buscar el approval que cambió a 'aprobada_gerencia'
+        const gerenciaApproval = req.approvals?.find(a =>
+          a.newStatus?.code === 'aprobada_gerencia'
         );
 
-        const slaStartDate = statusChangeApproval?.createdAt || req.createdAt;
+        const slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
         const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
 
         slaDeadline = slaResult.deadline;
@@ -3526,6 +3526,8 @@ export class PurchasesService {
       .leftJoinAndSelect('po.requisition', 'requisition')
       .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
       .leftJoinAndSelect('operationCenter.company', 'company')
+      .leftJoinAndSelect('requisition.approvals', 'reqApprovals')
+      .leftJoinAndSelect('reqApprovals.newStatus', 'reqApprovalNewStatus')
       .leftJoinAndSelect('po.supplier', 'supplier')
       .leftJoinAndSelect('po.creator', 'creator')
       .leftJoinAndSelect('po.items', 'items')
@@ -3552,6 +3554,8 @@ export class PurchasesService {
       .leftJoinAndSelect('po.requisition', 'requisition')
       .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
       .leftJoinAndSelect('operationCenter.company', 'company')
+      .leftJoinAndSelect('requisition.approvals', 'reqApprovals')
+      .leftJoinAndSelect('reqApprovals.newStatus', 'reqApprovalNewStatus')
       .leftJoinAndSelect('po.supplier', 'supplier')
       .leftJoinAndSelect('po.creator', 'creator')
       .leftJoinAndSelect('po.items', 'items')
@@ -3578,9 +3582,15 @@ export class PurchasesService {
     const purchaseOrders = [...pendingOrders, ...processedOrders];
     const total = pendingTotal + processedTotal;
 
-    // Calcular si está vencida (deadline de 1 día hábil desde creación)
-    const purchaseOrdersWithDeadline = purchaseOrders.map((po) => {
-      const deadline = addBusinessDays(po.createdAt, 1);
+    // Calcular si está vencida (deadline desde aprobación de Gerencia de la requisición)
+    const purchaseOrdersWithDeadline = purchaseOrders.map((po: any) => {
+      // Buscar cuando Gerencia aprobó la requisición
+      const gerenciaApproval = po.requisition?.approvals?.find((a: any) =>
+        a.newStatus?.code === 'aprobada_gerencia'
+      );
+      // Usar fecha de aprobación de Gerencia, o fecha de creación del PO como fallback
+      const slaStartDate = gerenciaApproval?.createdAt || po.createdAt;
+      const deadline = addBusinessDays(slaStartDate, 1);
       const isOverdue = new Date() > deadline;
       const daysOverdue = isOverdue
         ? calculateBusinessDaysBetween(deadline, new Date())
