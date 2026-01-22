@@ -2117,35 +2117,35 @@ export class PurchasesService {
     const requisitions = [...pendingRequisitions, ...processedRequisitions];
     const total = pendingTotal + processedTotal;
 
-    // Calcular SLA para cada requisición (urgentes tienen SLA = 0 días)
+    // Calcular SLA para cada requisición
     const requisitionsWithSLA = requisitions.map(req => {
-      const slaBusinessDays = getSLAForStatus(req.status.code, req.priority);
+      // Para cotizaciones, usar siempre 1 día hábil de SLA (incluso urgentes)
+      const slaBusinessDays = 1;
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
       let daysRemaining = 0;
 
-      if (slaBusinessDays > 0) {
-        // La fecha de inicio para el SLA es cuando Gerencia aprobó la requisición
-        // Buscar el approval que cambió a 'aprobada_gerencia'
-        const gerenciaApproval = req.approvals?.find(a =>
-          a.newStatus?.code === 'aprobada_gerencia'
-        );
+      // La fecha de inicio para el SLA es cuando Gerencia aprobó la requisición
+      // Buscar el approval que cambió a 'aprobada_gerencia' (por newStatus o por action+stepOrder)
+      const gerenciaApproval = req.approvals?.find((a: any) =>
+        a.newStatus?.code === 'aprobada_gerencia' ||
+        (a.action === 'approved' && a.stepOrder === 3)
+      );
 
-        const slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
-        const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
+      const slaStartDate = gerenciaApproval?.createdAt || req.createdAt;
+      const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
 
-        slaDeadline = slaResult.deadline;
-        isOverdue = slaResult.isOverdue;
-        daysOverdue = slaResult.daysOverdue;
+      slaDeadline = slaResult.deadline;
+      isOverdue = slaResult.isOverdue;
+      daysOverdue = slaResult.daysOverdue;
 
-        // Calcular días hábiles restantes si no está vencida
-        if (!isOverdue && slaDeadline) {
-          daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
-          // Si el deadline es hoy, mostrar al menos 1 día
-          if (daysRemaining === 0 && new Date() < slaDeadline) {
-            daysRemaining = 1;
-          }
+      // Calcular días hábiles restantes si no está vencida
+      if (!isOverdue && slaDeadline) {
+        daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
+        // Si el deadline es hoy, mostrar al menos 1 día
+        if (daysRemaining === 0 && new Date() < slaDeadline) {
+          daysRemaining = 1;
         }
       }
 
@@ -2155,6 +2155,7 @@ export class PurchasesService {
         isOverdue,
         daysOverdue,
         daysRemaining,
+        isUrgent: req.priority === 'alta', // Indicador para el frontend
       };
     });
 
