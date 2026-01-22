@@ -2119,8 +2119,12 @@ export class PurchasesService {
 
     // Calcular SLA para cada requisición
     const requisitionsWithSLA = requisitions.map(req => {
-      // Para cotizaciones, usar siempre 1 día hábil de SLA (incluso urgentes)
-      const slaBusinessDays = 1;
+      // Obtener SLA según el estado de la requisición
+      // aprobada_gerencia = 1 día (para cotizar)
+      // cotizada = 2 días (para crear OC)
+      // Nota: En este flujo usamos 'normal' para que incluso urgentes tengan plazo
+      const statusCode = req.status?.code || '';
+      const slaBusinessDays = getSLAForStatus(statusCode, 'normal') || 1;
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
