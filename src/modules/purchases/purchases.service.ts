@@ -2800,11 +2800,17 @@ export class PurchasesService {
         // 4.3 Crear la orden de compra
         const pendingApprovalStatusId = await this.getPurchaseOrderStatusId('pendiente_aprobacion_gerencia');
 
+        // Obtener fecha estimada de entrega del primer ítem del proveedor (todos los ítems del mismo proveedor comparten la fecha)
+        const estimatedDeliveryDate = items[0]?.item.estimatedDeliveryDate
+          ? new Date(items[0].item.estimatedDeliveryDate)
+          : null;
+
         const purchaseOrder = queryRunner.manager.create(PurchaseOrder, {
           purchaseOrderNumber,
           requisitionId,
           supplierId,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
+          estimatedDeliveryDate,
           subtotal: orderSubtotal,
           totalIva: orderTotalIva,
           totalDiscount: orderTotalDiscount,

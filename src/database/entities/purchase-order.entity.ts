@@ -44,6 +44,9 @@ export class PurchaseOrder {
   @Column({ name: 'issue_date', type: 'date' })
   issueDate: Date;
 
+  @Column({ name: 'estimated_delivery_date', type: 'date', nullable: true })
+  estimatedDeliveryDate: Date | null;
+
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   subtotal: number;
 
