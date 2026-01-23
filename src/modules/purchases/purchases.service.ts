@@ -580,15 +580,22 @@ export class PurchasesService {
       // la requisición debe pasar primero por validación del Director de Proyecto
       const requiresObraValidation = this.requiresObraValidation(user.role, dto.obra);
 
+      // Si el creador es Director Técnico, la requisición va directo a Gerencia
+      // porque el Director Técnico no puede revisarse a sí mismo
+      const isDirectorTecnico = user.role.nombreRol === 'Director Técnico' || user.role.rolId === 6;
+
       let initialStatusCode = 'pendiente';
       if (requiresObraValidation) {
         initialStatusCode = 'pendiente_validacion';
+      } else if (isDirectorTecnico) {
+        // Director Técnico salta la revisión, va directo a Gerencia
+        initialStatusCode = 'aprobada_revisor';
       }
 
       const initialStatusId = await this.getStatusIdByCode(initialStatusCode);
 
       // 8. Crear requisición
-      const requisition = queryRunner.manager.create(Requisition, {
+      const requisitionData: any = {
         requisitionNumber,
         companyId: dto.companyId,
         projectId: dto.projectId,
@@ -599,7 +606,15 @@ export class PurchasesService {
         obra: dto.obra,
         codigoObra: dto.codigoObra,
         priority: dto.priority || 'normal',
-      });
+      };
+
+      // Si es Director Técnico, registrar auto-revisión
+      if (isDirectorTecnico) {
+        requisitionData.reviewedBy = userId;
+        requisitionData.reviewedAt = new Date();
+      }
+
+      const requisition = queryRunner.manager.create(Requisition, requisitionData);
 
       const savedRequisition = await queryRunner.manager.save(requisition);
 
@@ -617,10 +632,16 @@ export class PurchasesService {
       await queryRunner.manager.save(RequisitionItem, items);
 
       // 10. Registrar log
-      const logAction = requiresObraValidation ? 'crear_requisicion_obra' : 'crear_requisicion';
-      const logComments = requiresObraValidation
-        ? `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`
-        : `Requisición creada: ${requisitionNumber}`;
+      let logAction = 'crear_requisicion';
+      let logComments = `Requisición creada: ${requisitionNumber}`;
+
+      if (requiresObraValidation) {
+        logAction = 'crear_requisicion_obra';
+        logComments = `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`;
+      } else if (isDirectorTecnico) {
+        logAction = 'crear_requisicion_director_tecnico';
+        logComments = `Requisición creada por Director Técnico: ${requisitionNumber}. Va directo a Gerencia para aprobación.`;
+      }
 
       const log = queryRunner.manager.create(RequisitionLog, {
         requisitionId: savedRequisition.requisitionId,
@@ -633,6 +654,25 @@ export class PurchasesService {
 
       await queryRunner.manager.save(log);
 
+      // Si es Director Técnico, crear registro de aprobación automática (auto-revisión)
+      if (isDirectorTecnico) {
+        await queryRunner.manager.query(
+          `INSERT INTO requisition_approvals
+           (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+           VALUES ($1, $2, $3, $4, NULL,
+             (SELECT status_id FROM requisition_statuses WHERE code = $5),
+             $6, NOW())`,
+          [
+            savedRequisition.requisitionId,
+            userId,
+            'reviewed', // Auto-revisión
+            1, // step_order = 1 para revisión
+            initialStatusCode, // aprobada_revisor
+            'Auto-revisión: Requisición creada por Director Técnico, va directo a Gerencia.',
+          ],
+        );
+      }
+
       await queryRunner.commitTransaction();
 
       // 11. Enviar notificación según el flujo
@@ -641,6 +681,9 @@ export class PurchasesService {
       if (requiresObraValidation) {
         // Enviar notificación al Director de Proyecto para validación
         this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
+      } else if (isDirectorTecnico) {
+        // Enviar notificación a Gerencia (Director Técnico salta revisión)
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
       } else {
         // Enviar notificación al revisor normal
         this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
