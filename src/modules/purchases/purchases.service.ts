@@ -581,9 +581,9 @@ export class PurchasesService {
       const requiresObraValidation = this.requiresObraValidation(user.role, dto.obra);
 
       // Roles que van directo a Gerencia (saltan revisión):
-      // 2=Gerencia de Proyectos, 4=Director PMO, 5=Director Financiero y Administrativo,
+      // 2=Gerencia de Proyectos, 3=Director de PMO, 4=Director PMO, 5=Director Financiero y Administrativo,
       // 6=Director Técnico, 7=Director de Área, 8-11=Directores de Proyecto, 30=Director Comercial
-      const ROLES_SKIP_REVIEW = [2, 4, 5, 6, 7, 8, 9, 10, 11, 30];
+      const ROLES_SKIP_REVIEW = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 30];
       const skipsReview = ROLES_SKIP_REVIEW.includes(user.role.rolId);
 
       // Verificar si tiene obra especial que requiere autorización de Gerencia de Proyectos
