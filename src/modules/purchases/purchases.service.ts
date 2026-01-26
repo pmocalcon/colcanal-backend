@@ -586,11 +586,18 @@ export class PurchasesService {
       const ROLES_SKIP_REVIEW = [2, 4, 5, 6, 7, 8, 9, 10, 11, 30];
       const skipsReview = ROLES_SKIP_REVIEW.includes(user.role.rolId);
 
+      // Verificar si tiene obra especial que requiere autorización de Gerencia de Proyectos
+      const hasSpecialObra = dto.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(dto.obra.trim());
+
       let initialStatusCode = 'pendiente';
       if (requiresObraValidation) {
+        // PQRS/Coord.Op con obra especial → validación por Director de Proyecto
         initialStatusCode = 'pendiente_validacion';
+      } else if (skipsReview && hasSpecialObra) {
+        // Roles de alto nivel CON obra especial → autorización por Gerencia de Proyectos
+        initialStatusCode = 'pendiente_autorizacion';
       } else if (skipsReview) {
-        // Estos roles saltan la revisión, van directo a Gerencia
+        // Roles de alto nivel SIN obra especial → directo a Gerencia
         initialStatusCode = 'aprobada_revisor';
       }
 
@@ -610,8 +617,9 @@ export class PurchasesService {
         priority: dto.priority || 'normal',
       };
 
-      // Si salta revisión, registrar auto-revisión
-      if (skipsReview) {
+      // Si salta revisión Y va directo a Gerencia (no a autorización), registrar auto-revisión
+      const goesDirectToGerencia = skipsReview && !hasSpecialObra;
+      if (goesDirectToGerencia) {
         requisitionData.reviewedBy = userId;
         requisitionData.reviewedAt = new Date();
       }
@@ -640,7 +648,10 @@ export class PurchasesService {
       if (requiresObraValidation) {
         logAction = 'crear_requisicion_obra';
         logComments = `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`;
-      } else if (skipsReview) {
+      } else if (skipsReview && hasSpecialObra) {
+        logAction = 'crear_requisicion_obra_autorizacion';
+        logComments = `Requisición creada por ${user.role.nombreRol} con obra "${dto.obra}": ${requisitionNumber}. Pendiente de autorización por Gerencia de Proyectos.`;
+      } else if (goesDirectToGerencia) {
         logAction = 'crear_requisicion_directo_gerencia';
         logComments = `Requisición creada por ${user.role.nombreRol}: ${requisitionNumber}. Va directo a Gerencia para aprobación.`;
       }
@@ -656,8 +667,8 @@ export class PurchasesService {
 
       await queryRunner.manager.save(log);
 
-      // Si salta revisión, crear registro de aprobación automática (auto-revisión)
-      if (skipsReview) {
+      // Si va directo a Gerencia, crear registro de aprobación automática (auto-revisión)
+      if (goesDirectToGerencia) {
         await queryRunner.manager.query(
           `INSERT INTO requisition_approvals
            (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
@@ -683,7 +694,10 @@ export class PurchasesService {
       if (requiresObraValidation) {
         // Enviar notificación al Director de Proyecto para validación
         this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
-      } else if (skipsReview) {
+      } else if (skipsReview && hasSpecialObra) {
+        // Enviar notificación a Gerencia de Proyectos para autorización
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+      } else if (goesDirectToGerencia) {
         // Enviar notificación a Gerencia (roles de alto nivel saltan revisión)
         this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
       } else {
