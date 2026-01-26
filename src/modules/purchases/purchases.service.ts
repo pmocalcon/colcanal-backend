@@ -2183,9 +2183,14 @@ export class PurchasesService {
       // Obtener SLA según el estado de la requisición
       // aprobada_gerencia = 1 día (para cotizar)
       // cotizada = 2 días (para crear OC)
-      // Nota: En este flujo usamos 'normal' para que incluso urgentes tengan plazo
+      // Estados posteriores (pendiente_recepcion, en_recepcion, etc.) = sin SLA
       const statusCode = req.status?.code || '';
-      const slaBusinessDays = getSLAForStatus(statusCode, 'normal') || 1;
+
+      // Solo calcular SLA para estados que lo requieren
+      const STATES_WITH_SLA = ['aprobada_gerencia', 'en_cotizacion', 'cotizada'];
+      const hasSLA = STATES_WITH_SLA.includes(statusCode);
+
+      const slaBusinessDays = hasSLA ? (getSLAForStatus(statusCode, 'normal') || 1) : 0;
       let slaDeadline: Date | null = null;
       let isOverdue = false;
       let daysOverdue = 0;
@@ -2243,20 +2248,24 @@ export class PurchasesService {
         }
       }
 
-      const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
+      // Solo calcular SLA si el estado lo requiere
+      if (hasSLA && slaBusinessDays > 0) {
+        const slaResult = calculateSLA(slaStartDate, slaBusinessDays);
 
-      slaDeadline = slaResult.deadline;
-      isOverdue = slaResult.isOverdue;
-      daysOverdue = slaResult.daysOverdue;
+        slaDeadline = slaResult.deadline;
+        isOverdue = slaResult.isOverdue;
+        daysOverdue = slaResult.daysOverdue;
 
-      // Calcular días hábiles restantes si no está vencida
-      if (!isOverdue && slaDeadline) {
-        daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
-        // Si el deadline es hoy, mostrar al menos 1 día
-        if (daysRemaining === 0 && new Date() < slaDeadline) {
-          daysRemaining = 1;
+        // Calcular días hábiles restantes si no está vencida
+        if (!isOverdue && slaDeadline) {
+          daysRemaining = calculateBusinessDaysBetween(new Date(), slaDeadline);
+          // Si el deadline es hoy, mostrar al menos 1 día
+          if (daysRemaining === 0 && new Date() < slaDeadline) {
+            daysRemaining = 1;
+          }
         }
       }
+      // Si no tiene SLA, no mostrar deadline ni vencimiento
 
       return {
         ...req,
