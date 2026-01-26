@@ -581,18 +581,10 @@ export class PurchasesService {
       const requiresObraValidation = this.requiresObraValidation(user.role, dto.obra);
 
       // Roles que van directo a Gerencia (saltan revisión):
-      // - Director Técnico: Es el revisor, no puede revisarse a sí mismo
-      // - Director de Área: Rol de alto nivel, va directo a Gerencia
-      // - Gerencia de Proyectos: Es el autorizador, va directo a Gerencia
-      // - Gerencia: Máximo nivel, se auto-aprueba o va directo
-      const isDirectorTecnico = user.role.nombreRol === 'Director Técnico' || user.role.rolId === 6;
-      const isDirectorArea = user.role.category === 'DIRECTOR_AREA' ||
-                             user.role.nombreRol === 'Director Financiero y Administrativo';
-      const isGerenciaProyectos = user.role.nombreRol === 'Gerencia de Proyectos';
-      const isGerencia = user.role.category === 'GERENCIA' || user.role.nombreRol === 'Gerencia';
-
-      // Cualquiera de estos roles salta la revisión
-      const skipsReview = isDirectorTecnico || isDirectorArea || isGerenciaProyectos || isGerencia;
+      // 2=Gerencia de Proyectos, 4=Director PMO, 5=Director Financiero y Administrativo,
+      // 6=Director Técnico, 7=Director de Área, 8-11=Directores de Proyecto, 30=Director Comercial
+      const ROLES_SKIP_REVIEW = [2, 4, 5, 6, 7, 8, 9, 10, 11, 30];
+      const skipsReview = ROLES_SKIP_REVIEW.includes(user.role.rolId);
 
       let initialStatusCode = 'pendiente';
       if (requiresObraValidation) {
