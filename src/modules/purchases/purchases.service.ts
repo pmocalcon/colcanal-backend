@@ -580,15 +580,25 @@ export class PurchasesService {
       // la requisición debe pasar primero por validación del Director de Proyecto
       const requiresObraValidation = this.requiresObraValidation(user.role, dto.obra);
 
-      // Si el creador es Director Técnico, la requisición va directo a Gerencia
-      // porque el Director Técnico no puede revisarse a sí mismo
+      // Roles que van directo a Gerencia (saltan revisión):
+      // - Director Técnico: Es el revisor, no puede revisarse a sí mismo
+      // - Director de Área: Rol de alto nivel, va directo a Gerencia
+      // - Gerencia de Proyectos: Es el autorizador, va directo a Gerencia
+      // - Gerencia: Máximo nivel, se auto-aprueba o va directo
       const isDirectorTecnico = user.role.nombreRol === 'Director Técnico' || user.role.rolId === 6;
+      const isDirectorArea = user.role.category === 'DIRECTOR_AREA' ||
+                             user.role.nombreRol === 'Director Financiero y Administrativo';
+      const isGerenciaProyectos = user.role.nombreRol === 'Gerencia de Proyectos';
+      const isGerencia = user.role.category === 'GERENCIA' || user.role.nombreRol === 'Gerencia';
+
+      // Cualquiera de estos roles salta la revisión
+      const skipsReview = isDirectorTecnico || isDirectorArea || isGerenciaProyectos || isGerencia;
 
       let initialStatusCode = 'pendiente';
       if (requiresObraValidation) {
         initialStatusCode = 'pendiente_validacion';
-      } else if (isDirectorTecnico) {
-        // Director Técnico salta la revisión, va directo a Gerencia
+      } else if (skipsReview) {
+        // Estos roles saltan la revisión, van directo a Gerencia
         initialStatusCode = 'aprobada_revisor';
       }
 
@@ -608,8 +618,8 @@ export class PurchasesService {
         priority: dto.priority || 'normal',
       };
 
-      // Si es Director Técnico, registrar auto-revisión
-      if (isDirectorTecnico) {
+      // Si salta revisión, registrar auto-revisión
+      if (skipsReview) {
         requisitionData.reviewedBy = userId;
         requisitionData.reviewedAt = new Date();
       }
@@ -638,9 +648,9 @@ export class PurchasesService {
       if (requiresObraValidation) {
         logAction = 'crear_requisicion_obra';
         logComments = `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`;
-      } else if (isDirectorTecnico) {
-        logAction = 'crear_requisicion_director_tecnico';
-        logComments = `Requisición creada por Director Técnico: ${requisitionNumber}. Va directo a Gerencia para aprobación.`;
+      } else if (skipsReview) {
+        logAction = 'crear_requisicion_directo_gerencia';
+        logComments = `Requisición creada por ${user.role.nombreRol}: ${requisitionNumber}. Va directo a Gerencia para aprobación.`;
       }
 
       const log = queryRunner.manager.create(RequisitionLog, {
@@ -654,8 +664,8 @@ export class PurchasesService {
 
       await queryRunner.manager.save(log);
 
-      // Si es Director Técnico, crear registro de aprobación automática (auto-revisión)
-      if (isDirectorTecnico) {
+      // Si salta revisión, crear registro de aprobación automática (auto-revisión)
+      if (skipsReview) {
         await queryRunner.manager.query(
           `INSERT INTO requisition_approvals
            (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
@@ -668,7 +678,7 @@ export class PurchasesService {
             'reviewed', // Auto-revisión
             1, // step_order = 1 para revisión
             initialStatusCode, // aprobada_revisor
-            'Auto-revisión: Requisición creada por Director Técnico, va directo a Gerencia.',
+            `Auto-revisión: Requisición creada por ${user.role.nombreRol}, va directo a Gerencia.`,
           ],
         );
       }
@@ -681,8 +691,8 @@ export class PurchasesService {
       if (requiresObraValidation) {
         // Enviar notificación al Director de Proyecto para validación
         this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
-      } else if (isDirectorTecnico) {
-        // Enviar notificación a Gerencia (Director Técnico salta revisión)
+      } else if (skipsReview) {
+        // Enviar notificación a Gerencia (roles de alto nivel saltan revisión)
         this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
       } else {
         // Enviar notificación al revisor normal
