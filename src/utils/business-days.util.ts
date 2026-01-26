@@ -29,21 +29,21 @@ const COLOMBIA_HOLIDAYS_2025 = [
 // Festivos Colombia 2026
 const COLOMBIA_HOLIDAYS_2026 = [
   new Date('2026-01-01'), // Año Nuevo
-  new Date('2026-01-12'), // Reyes Magos (lunes)
-  new Date('2026-03-23'), // San José (lunes)
+  new Date('2026-01-12'), // Reyes Magos
+  new Date('2026-03-23'), // Día de San José
   new Date('2026-04-02'), // Jueves Santo
   new Date('2026-04-03'), // Viernes Santo
   new Date('2026-05-01'), // Día del Trabajo
-  new Date('2026-05-18'), // Ascensión del Señor (lunes)
-  new Date('2026-06-08'), // Corpus Christi (lunes)
-  new Date('2026-06-15'), // Sagrado Corazón de Jesús (lunes)
+  new Date('2026-05-18'), // Ascensión de Jesús
+  new Date('2026-06-08'), // Corpus Christi
+  new Date('2026-06-15'), // Sagrado Corazón de Jesús
   new Date('2026-06-29'), // San Pedro y San Pablo
-  new Date('2026-07-20'), // Independencia
+  new Date('2026-07-20'), // Día de la Independencia
   new Date('2026-08-07'), // Batalla de Boyacá
-  new Date('2026-08-17'), // Asunción de la Virgen (lunes)
+  new Date('2026-08-17'), // Asunción de la Virgen
   new Date('2026-10-12'), // Día de la Raza
-  new Date('2026-11-02'), // Todos los Santos (lunes)
-  new Date('2026-11-16'), // Independencia de Cartagena (lunes)
+  new Date('2026-11-02'), // Todos los Santos
+  new Date('2026-11-16'), // Independencia de Cartagena
   new Date('2026-12-08'), // Inmaculada Concepción
   new Date('2026-12-25'), // Navidad
 ];
