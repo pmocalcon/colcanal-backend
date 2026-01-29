@@ -2892,8 +2892,13 @@ export class PurchasesService {
           });
         }
 
+        // Obtener otherValue y observations del primer ítem del proveedor
+        // (todos los ítems del mismo proveedor comparten estos valores)
+        const otherValue = items[0]?.item.otherValue ?? 0;
+        const observations = items[0]?.item.observations ?? null;
+
         const orderTotalAmount =
-          orderSubtotal + orderTotalIva - orderTotalDiscount;
+          orderSubtotal + orderTotalIva - orderTotalDiscount + otherValue;
 
         // 4.3 Crear la orden de compra
         const pendingApprovalStatusId = await this.getPurchaseOrderStatusId('pendiente_aprobacion_gerencia');
@@ -2912,6 +2917,8 @@ export class PurchasesService {
           subtotal: orderSubtotal,
           totalIva: orderTotalIva,
           totalDiscount: orderTotalDiscount,
+          otherValue,
+          observations,
           totalAmount: orderTotalAmount,
           approvalStatusId: pendingApprovalStatusId,
           createdBy: userId,

@@ -59,6 +59,12 @@ export class PurchaseOrder {
   @Column({ name: 'total_amount', type: 'decimal', precision: 15, scale: 2 })
   totalAmount: number;
 
+  @Column({ name: 'other_value', type: 'decimal', precision: 15, scale: 2, default: 0 })
+  otherValue: number;
+
+  @Column({ type: 'text', nullable: true })
+  observations: string | null;
+
   // Approval status FK (replaces enum)
   @Column({ name: 'approval_status_id' })
   approvalStatusId: number;
