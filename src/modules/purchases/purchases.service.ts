@@ -2867,7 +2867,8 @@ export class PurchasesService {
         for (const { item, quotation } of items) {
           const quantity = quotation.requisitionItem.quantity;
           const unitPrice = item.unitPrice;
-          const hasIva = item.hasIVA ?? true;
+          // Usar hasIva de la cotización guardada, no del request
+          const hasIva = quotation.hasIva ?? item.hasIVA ?? true;
           const discount = item.discount ?? 0;
 
           const subtotal = quantity * unitPrice;
