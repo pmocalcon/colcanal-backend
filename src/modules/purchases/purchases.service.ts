@@ -2884,8 +2884,8 @@ export class PurchasesService {
         for (const { item, quotation } of items) {
           const quantity = quotation.requisitionItem.quantity;
           const unitPrice = item.unitPrice;
-          // Usar hasIva de la cotización guardada, no del request
-          const hasIva = quotation.hasIva ?? item.hasIVA ?? true;
+          // Priorizar hasIVA del request, si no viene usar el de la cotización
+          const hasIva = item.hasIVA ?? quotation.hasIva ?? true;
           const discount = item.discount ?? 0;
 
           const subtotal = quantity * unitPrice;
