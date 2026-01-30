@@ -2513,6 +2513,11 @@ export class PurchasesService {
               );
             }
 
+            // Buscar cotización anterior del mismo proveedor para conservar datos de precio
+            const previousQuotation = currentQuotations.find(
+              (q) => q.supplierId === supplierDto.supplierId,
+            );
+
             const quotation = queryRunner.manager.create(
               RequisitionItemQuotation,
               {
@@ -2524,6 +2529,11 @@ export class PurchasesService {
                 version: newVersion,
                 isActive: true,
                 createdBy: userId,
+                // Conservar datos de precio de la versión anterior si existen
+                unitPrice: previousQuotation?.unitPrice ?? null,
+                hasIva: previousQuotation?.hasIva ?? false,
+                discount: previousQuotation?.discount ?? 0,
+                isSelected: previousQuotation?.isSelected ?? false,
               },
             );
 
