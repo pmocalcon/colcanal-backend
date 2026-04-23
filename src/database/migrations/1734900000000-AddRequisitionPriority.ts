@@ -1,7 +1,7 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddRequisitionPriority1734900000000 implements MigrationInterface {
-  name = 'AddRequisitionPriority1734900000000';
+  name = "AddRequisitionPriority1734900000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Agregar columna priority con valor por defecto 'normal'
@@ -24,8 +24,12 @@ export class AddRequisitionPriority1734900000000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_requisitions_status_priority_created`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_requisitions_status_priority_created`,
+    );
     await queryRunner.query(`DROP INDEX IF EXISTS idx_requisitions_priority`);
-    await queryRunner.query(`ALTER TABLE requisitions DROP COLUMN IF EXISTS priority`);
+    await queryRunner.query(
+      `ALTER TABLE requisitions DROP COLUMN IF EXISTS priority`,
+    );
   }
 }

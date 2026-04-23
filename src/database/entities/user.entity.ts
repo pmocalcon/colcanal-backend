@@ -6,57 +6,62 @@ import {
   JoinColumn,
   CreateDateColumn,
   OneToMany,
-} from 'typeorm';
-import { Role } from './role.entity';
-import { Authorization } from './authorization.entity';
-import { Requisition } from './requisition.entity';
-import { RequisitionLog } from './requisition-log.entity';
-import { RequisitionApproval } from './requisition-approval.entity';
-import { RequisitionItemApproval } from './requisition-item-approval.entity';
-import { RequisitionItemQuotation } from './requisition-item-quotation.entity';
-import { PurchaseOrder } from './purchase-order.entity';
-import { PurchaseOrderApproval } from './purchase-order-approval.entity';
-import { Invoice } from './invoice.entity';
-import { MaterialReceipt } from './material-receipt.entity';
-import { MaterialPriceHistory } from './material-price-history.entity';
+} from "typeorm";
+import { Role } from "./role.entity";
+import { Authorization } from "./authorization.entity";
+import { Requisition } from "./requisition.entity";
+import { RequisitionLog } from "./requisition-log.entity";
+import { RequisitionApproval } from "./requisition-approval.entity";
+import { RequisitionItemApproval } from "./requisition-item-approval.entity";
+import { RequisitionItemQuotation } from "./requisition-item-quotation.entity";
+import { PurchaseOrder } from "./purchase-order.entity";
+import { PurchaseOrderApproval } from "./purchase-order-approval.entity";
+import { Invoice } from "./invoice.entity";
+import { MaterialReceipt } from "./material-receipt.entity";
+import { MaterialPriceHistory } from "./material-price-history.entity";
 
-@Entity('users')
+@Entity("users")
 export class User {
-  @PrimaryGeneratedColumn({ name: 'user_id' })
+  @PrimaryGeneratedColumn({ name: "user_id" })
   userId: number;
 
-  @Column({ type: 'varchar', length: 120, unique: true })
+  @Column({ type: "varchar", length: 120, unique: true })
   email: string;
 
-  @Column({ name: 'email_notificacion', type: 'varchar', length: 120, nullable: true })
+  @Column({
+    name: "email_notificacion",
+    type: "varchar",
+    length: 120,
+    nullable: true,
+  })
   emailNotificacion: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: "varchar", length: 255 })
   password: string;
 
-  @Column({ type: 'varchar', length: 120 })
+  @Column({ type: "varchar", length: 120 })
   nombre: string;
 
-  @Column({ type: 'varchar', length: 120 })
+  @Column({ type: "varchar", length: 120 })
   cargo: string;
 
-  @Column({ name: 'rol_id' })
+  @Column({ name: "rol_id" })
   rolId: number;
 
-  @Column({ type: 'boolean', default: true, nullable: true })
+  @Column({ type: "boolean", default: true, nullable: true })
   estado: boolean;
 
   @CreateDateColumn({
-    name: 'creado_en',
-    type: 'timestamptz',
+    name: "creado_en",
+    type: "timestamptz",
   })
   creadoEn: Date;
 
-  @Column({ name: 'refresh_token', type: 'text', nullable: true })
+  @Column({ name: "refresh_token", type: "text", nullable: true })
   refreshToken: string;
 
   @ManyToOne(() => Role, (role) => role.users)
-  @JoinColumn({ name: 'rol_id' })
+  @JoinColumn({ name: "rol_id" })
   role: Role;
 
   @OneToMany(

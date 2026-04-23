@@ -1,9 +1,9 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class UpdateRequisitionsAndAddApprovals1762390207487
   implements MigrationInterface
 {
-  name = 'UpdateRequisitionsAndAddApprovals1762390207487';
+  name = "UpdateRequisitionsAndAddApprovals1762390207487";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ============================================

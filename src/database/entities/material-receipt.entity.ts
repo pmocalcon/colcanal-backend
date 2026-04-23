@@ -6,48 +6,55 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
-} from 'typeorm';
-import { PurchaseOrderItem } from './purchase-order-item.entity';
-import { User } from './user.entity';
+} from "typeorm";
+import { PurchaseOrderItem } from "./purchase-order-item.entity";
+import { User } from "./user.entity";
 
-@Entity('material_receipts')
+@Entity("material_receipts")
 export class MaterialReceipt {
-  @PrimaryGeneratedColumn({ name: 'receipt_id' })
+  @PrimaryGeneratedColumn({ name: "receipt_id" })
   receiptId: number;
 
-  @Column({ name: 'po_item_id', type: 'int' })
+  @Column({ name: "po_item_id", type: "int" })
   poItemId: number;
 
-  @Column({ name: 'quantity_received', type: 'decimal', precision: 10, scale: 2 })
+  @Column({
+    name: "quantity_received",
+    type: "decimal",
+    precision: 10,
+    scale: 2,
+  })
   quantityReceived: number;
 
-  @Column({ name: 'received_date', type: 'date' })
+  @Column({ name: "received_date", type: "date" })
   receivedDate: Date;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: "text", nullable: true })
   observations: string;
 
-  @Column({ name: 'overdelivery_justification', type: 'text', nullable: true })
+  @Column({ name: "overdelivery_justification", type: "text", nullable: true })
   overdeliveryJustification: string;
 
-  @Column({ name: 'created_by', type: 'int' })
+  @Column({ name: "created_by", type: "int" })
   createdBy: number;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
   updatedAt: Date;
 
   // ============================================
   // RELACIONES
   // ============================================
 
-  @ManyToOne(() => PurchaseOrderItem, (poItem) => poItem.receipts, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'po_item_id' })
+  @ManyToOne(() => PurchaseOrderItem, (poItem) => poItem.receipts, {
+    onDelete: "CASCADE",
+  })
+  @JoinColumn({ name: "po_item_id" })
   purchaseOrderItem: PurchaseOrderItem;
 
   @ManyToOne(() => User)
-  @JoinColumn({ name: 'created_by' })
+  @JoinColumn({ name: "created_by" })
   creator: User;
 }

@@ -1,10 +1,10 @@
-import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsOptional, IsNumber, IsEnum } from "class-validator";
+import { Type } from "class-transformer";
+import { ApiProperty } from "@nestjs/swagger";
 
 export enum ReviewAction {
-  APPROVE = 'approve',
-  REJECT = 'reject',
+  APPROVE = "approve",
+  REJECT = "reject",
 }
 
 export enum SurveyBlock {
@@ -21,15 +21,15 @@ export enum BlockReviewStatus {
 
 export class ReviewSurveyDto {
   @ApiProperty({
-    description: 'Review action',
+    description: "Review action",
     enum: ReviewAction,
-    example: 'approve',
+    example: "approve",
   })
   @IsEnum(ReviewAction)
   action: ReviewAction;
 
   @ApiProperty({
-    description: 'Previous month IPP value (required for approval)',
+    description: "Previous month IPP value (required for approval)",
     example: 185.51,
     required: false,
   })
@@ -39,8 +39,8 @@ export class ReviewSurveyDto {
   previousMonthIpp?: number;
 
   @ApiProperty({
-    description: 'Rejection comments (required for rejection)',
-    example: 'Missing GPS coordinates for points P3 and P4',
+    description: "Rejection comments (required for rejection)",
+    example: "Missing GPS coordinates for points P3 and P4",
     required: false,
   })
   @IsOptional()

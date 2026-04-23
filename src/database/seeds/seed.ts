@@ -1,32 +1,32 @@
-import { config } from 'dotenv';
-import * as bcrypt from 'bcrypt';
-import dataSource from '../data-source';
-import { Role } from '../entities/role.entity';
-import { Permission } from '../entities/permission.entity';
-import { RolePermission } from '../entities/role-permission.entity';
-import { Gestion } from '../entities/gestion.entity';
-import { RoleGestion } from '../entities/role-gestion.entity';
-import { User } from '../entities/user.entity';
-import { Company } from '../entities/company.entity';
-import { Project } from '../entities/project.entity';
-import { OperationCenter } from '../entities/operation-center.entity';
-import { ProjectCode } from '../entities/project-code.entity';
-import { RequisitionPrefix } from '../entities/requisition-prefix.entity';
-import { RequisitionSequence } from '../entities/requisition-sequence.entity';
-import { RequisitionStatus } from '../entities/requisition-status.entity';
-import { MaterialCategory } from '../entities/material-category.entity';
-import { MaterialGroup } from '../entities/material-group.entity';
-import { Material } from '../entities/material.entity';
-import { Authorization } from '../entities/authorization.entity';
-import { Supplier } from '../entities/supplier.entity';
-import { RequisitionItemQuotation } from '../entities/requisition-item-quotation.entity';
+import { config } from "dotenv";
+import * as bcrypt from "bcrypt";
+import dataSource from "../data-source";
+import { Role } from "../entities/role.entity";
+import { Permission } from "../entities/permission.entity";
+import { RolePermission } from "../entities/role-permission.entity";
+import { Gestion } from "../entities/gestion.entity";
+import { RoleGestion } from "../entities/role-gestion.entity";
+import { User } from "../entities/user.entity";
+import { Company } from "../entities/company.entity";
+import { Project } from "../entities/project.entity";
+import { OperationCenter } from "../entities/operation-center.entity";
+import { ProjectCode } from "../entities/project-code.entity";
+import { RequisitionPrefix } from "../entities/requisition-prefix.entity";
+import { RequisitionSequence } from "../entities/requisition-sequence.entity";
+import { RequisitionStatus } from "../entities/requisition-status.entity";
+import { MaterialCategory } from "../entities/material-category.entity";
+import { MaterialGroup } from "../entities/material-group.entity";
+import { Material } from "../entities/material.entity";
+import { Authorization } from "../entities/authorization.entity";
+import { Supplier } from "../entities/supplier.entity";
+import { RequisitionItemQuotation } from "../entities/requisition-item-quotation.entity";
 
 config();
 
 async function seed() {
   try {
     await dataSource.initialize();
-    console.log('Data Source has been initialized!');
+    console.log("Data Source has been initialized!");
 
     const roleRepository = dataSource.getRepository(Role);
     const permissionRepository = dataSource.getRepository(Permission);
@@ -44,13 +44,14 @@ async function seed() {
       dataSource.getRepository(RequisitionSequence);
     const requisitionStatusRepository =
       dataSource.getRepository(RequisitionStatus);
-    const materialCategoryRepository = dataSource.getRepository(MaterialCategory);
+    const materialCategoryRepository =
+      dataSource.getRepository(MaterialCategory);
     const materialGroupRepository = dataSource.getRepository(MaterialGroup);
     const materialRepository = dataSource.getRepository(Material);
     const authorizationRepository = dataSource.getRepository(Authorization);
 
     // Clear existing data (in reverse order of dependencies)
-    console.log('Clearing existing data...');
+    console.log("Clearing existing data...");
     await dataSource.query(
       'TRUNCATE TABLE "autorizaciones" RESTART IDENTITY CASCADE',
     );
@@ -117,159 +118,160 @@ async function seed() {
     // ============================================
     // 1. SEED ROLES - Según organigrama completo
     // ============================================
-    console.log('Seeding roles...');
+    console.log("Seeding roles...");
     const rolesData = [
       {
-        nombreRol: 'Gerencia',
-        descripcion: 'Aprueba requisiciones revisadas por el nivel anterior',
-        category: 'GERENCIA',
+        nombreRol: "Gerencia",
+        descripcion: "Aprueba requisiciones revisadas por el nivel anterior",
+        category: "GERENCIA",
       },
       {
-        nombreRol: 'Gerencia de Proyectos',
-        descripcion: 'Autoriza requisiciones creadas por Directores de Proyecto',
-        category: 'GERENCIA',
-      },
-      {
-        nombreRol: 'Director PMO',
-        descripcion: 'Dirige área de PMO y revisa requisiciones de analistas',
-        category: 'DIRECTOR_AREA',
-      },
-      {
-        nombreRol: 'Director Comercial',
+        nombreRol: "Gerencia de Proyectos",
         descripcion:
-          'Dirige área comercial y revisa requisiciones de analistas',
-        category: 'DIRECTOR_AREA',
+          "Autoriza requisiciones creadas por Directores de Proyecto",
+        category: "GERENCIA",
       },
       {
-        nombreRol: 'Director Jurídico',
-        descripcion: 'Dirige área jurídica y revisa requisiciones de analistas',
-        category: 'DIRECTOR_AREA',
+        nombreRol: "Director PMO",
+        descripcion: "Dirige área de PMO y revisa requisiciones de analistas",
+        category: "DIRECTOR_AREA",
       },
       {
-        nombreRol: 'Director Técnico',
+        nombreRol: "Director Comercial",
         descripcion:
-          'Revisa requisiciones de Dirección Operativa y crea las propias',
-        category: 'DIRECTOR_AREA',
+          "Dirige área comercial y revisa requisiciones de analistas",
+        category: "DIRECTOR_AREA",
       },
       {
-        nombreRol: 'Director Financiero y Administrativo',
+        nombreRol: "Director Jurídico",
+        descripcion: "Dirige área jurídica y revisa requisiciones de analistas",
+        category: "DIRECTOR_AREA",
+      },
+      {
+        nombreRol: "Director Técnico",
         descripcion:
-          'Dirige área financiera y administrativa, revisa requisiciones',
-        category: 'DIRECTOR_AREA',
+          "Revisa requisiciones de Dirección Operativa y crea las propias",
+        category: "DIRECTOR_AREA",
       },
       {
-        nombreRol: 'Director de Proyecto Antioquia',
-        descripcion: 'Supervisa PQRS de Antioquia y crea requisiciones propias',
-        category: 'DIRECTOR_PROYECTO',
-      },
-      {
-        nombreRol: 'Director de Proyecto Quindío',
-        descripcion: 'Supervisa PQRS de Quindío y crea requisiciones propias',
-        category: 'DIRECTOR_PROYECTO',
-      },
-      {
-        nombreRol: 'Director de Proyecto Valle',
-        descripcion: 'Supervisa PQRS de Valle y crea requisiciones propias',
-        category: 'DIRECTOR_PROYECTO',
-      },
-      {
-        nombreRol: 'Director de Proyecto Putumayo',
-        descripcion: 'Supervisa PQRS de Putumayo y crea requisiciones propias',
-        category: 'DIRECTOR_PROYECTO',
-      },
-      {
-        nombreRol: 'Analista PMO',
-        descripcion: 'Crea requisiciones, reporta a Director PMO',
-        category: 'ANALISTA',
-      },
-      {
-        nombreRol: 'Analista Comercial',
-        descripcion: 'Crea requisiciones, reporta a Director Comercial',
-        category: 'ANALISTA',
-      },
-      {
-        nombreRol: 'Analista Jurídico',
-        descripcion: 'Crea requisiciones, reporta a Director Jurídico',
-        category: 'ANALISTA',
-      },
-      {
-        nombreRol: 'Analista Administrativo',
+        nombreRol: "Director Financiero y Administrativo",
         descripcion:
-          'Crea requisiciones, reporta a Director Financiero y Administrativo',
-        category: 'ANALISTA',
+          "Dirige área financiera y administrativa, revisa requisiciones",
+        category: "DIRECTOR_AREA",
       },
       {
-        nombreRol: 'Coordinador Financiero',
+        nombreRol: "Director de Proyecto Antioquia",
+        descripcion: "Supervisa PQRS de Antioquia y crea requisiciones propias",
+        category: "DIRECTOR_PROYECTO",
+      },
+      {
+        nombreRol: "Director de Proyecto Quindío",
+        descripcion: "Supervisa PQRS de Quindío y crea requisiciones propias",
+        category: "DIRECTOR_PROYECTO",
+      },
+      {
+        nombreRol: "Director de Proyecto Valle",
+        descripcion: "Supervisa PQRS de Valle y crea requisiciones propias",
+        category: "DIRECTOR_PROYECTO",
+      },
+      {
+        nombreRol: "Director de Proyecto Putumayo",
+        descripcion: "Supervisa PQRS de Putumayo y crea requisiciones propias",
+        category: "DIRECTOR_PROYECTO",
+      },
+      {
+        nombreRol: "Analista PMO",
+        descripcion: "Crea requisiciones, reporta a Director PMO",
+        category: "ANALISTA",
+      },
+      {
+        nombreRol: "Analista Comercial",
+        descripcion: "Crea requisiciones, reporta a Director Comercial",
+        category: "ANALISTA",
+      },
+      {
+        nombreRol: "Analista Jurídico",
+        descripcion: "Crea requisiciones, reporta a Director Jurídico",
+        category: "ANALISTA",
+      },
+      {
+        nombreRol: "Analista Administrativo",
         descripcion:
-          'Crea requisiciones, reporta a Director Financiero y Administrativo',
-        category: 'COORDINADOR',
+          "Crea requisiciones, reporta a Director Financiero y Administrativo",
+        category: "ANALISTA",
       },
       {
-        nombreRol: 'Coordinador Jurídico',
-        descripcion: 'Crea requisiciones, reporta a Director Jurídico',
-        category: 'COORDINADOR',
-      },
-      {
-        nombreRol: 'PQRS El Cerrito',
-        descripcion: 'Crea requisiciones locales de El Cerrito',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Guacarí',
-        descripcion: 'Crea requisiciones locales de Guacarí',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Circasia',
-        descripcion: 'Crea requisiciones locales de Circasia',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Quimbaya',
-        descripcion: 'Crea requisiciones locales de Quimbaya',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Jericó',
-        descripcion: 'Crea requisiciones locales de Jericó',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Ciudad Bolívar',
-        descripcion: 'Crea requisiciones locales de Ciudad Bolívar',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Tarso',
-        descripcion: 'Crea requisiciones locales de Tarso',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Pueblo Rico',
-        descripcion: 'Crea requisiciones locales de Pueblo Rico',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Santa Bárbara',
-        descripcion: 'Crea requisiciones locales de Santa Bárbara',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'PQRS Puerto Asís',
-        descripcion: 'Crea requisiciones locales de Puerto Asís',
-        category: 'PQRS',
-      },
-      {
-        nombreRol: 'Compras',
+        nombreRol: "Coordinador Financiero",
         descripcion:
-          'Cotiza y gestiona órdenes de compra, no crea requisiciones',
-        category: 'COMPRAS',
+          "Crea requisiciones, reporta a Director Financiero y Administrativo",
+        category: "COORDINADOR",
       },
       {
-        nombreRol: 'Contabilidad',
+        nombreRol: "Coordinador Jurídico",
+        descripcion: "Crea requisiciones, reporta a Director Jurídico",
+        category: "COORDINADOR",
+      },
+      {
+        nombreRol: "PQRS El Cerrito",
+        descripcion: "Crea requisiciones locales de El Cerrito",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Guacarí",
+        descripcion: "Crea requisiciones locales de Guacarí",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Circasia",
+        descripcion: "Crea requisiciones locales de Circasia",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Quimbaya",
+        descripcion: "Crea requisiciones locales de Quimbaya",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Jericó",
+        descripcion: "Crea requisiciones locales de Jericó",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Ciudad Bolívar",
+        descripcion: "Crea requisiciones locales de Ciudad Bolívar",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Tarso",
+        descripcion: "Crea requisiciones locales de Tarso",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Pueblo Rico",
+        descripcion: "Crea requisiciones locales de Pueblo Rico",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Santa Bárbara",
+        descripcion: "Crea requisiciones locales de Santa Bárbara",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "PQRS Puerto Asís",
+        descripcion: "Crea requisiciones locales de Puerto Asís",
+        category: "PQRS",
+      },
+      {
+        nombreRol: "Compras",
         descripcion:
-          'Gestiona facturación y recepción de facturas, puede crear requisiciones',
-        category: 'CONTABILIDAD',
+          "Cotiza y gestiona órdenes de compra, no crea requisiciones",
+        category: "COMPRAS",
+      },
+      {
+        nombreRol: "Contabilidad",
+        descripcion:
+          "Gestiona facturación y recepción de facturas, puede crear requisiciones",
+        category: "CONTABILIDAD",
       },
     ];
 
@@ -279,27 +281,28 @@ async function seed() {
     // ============================================
     // 2. SEED PERMISSIONS
     // ============================================
-    console.log('Seeding permissions...');
+    console.log("Seeding permissions...");
     const permissionsData = [
-      { nombrePermiso: 'Ver', descripcion: 'Permiso para ver recursos' },
-      { nombrePermiso: 'Crear', descripcion: 'Permiso para crear recursos' },
+      { nombrePermiso: "Ver", descripcion: "Permiso para ver recursos" },
+      { nombrePermiso: "Crear", descripcion: "Permiso para crear recursos" },
       {
-        nombrePermiso: 'Revisar',
-        descripcion: 'Permiso para revisar/editar recursos',
+        nombrePermiso: "Revisar",
+        descripcion: "Permiso para revisar/editar recursos",
       },
       {
-        nombrePermiso: 'Aprobar',
-        descripcion: 'Permiso para aprobar requisiciones',
+        nombrePermiso: "Aprobar",
+        descripcion: "Permiso para aprobar requisiciones",
       },
       {
-        nombrePermiso: 'Autorizar',
-        descripcion: 'Permiso para autorizar requisiciones de Directores de Proyecto',
+        nombrePermiso: "Autorizar",
+        descripcion:
+          "Permiso para autorizar requisiciones de Directores de Proyecto",
       },
-      { nombrePermiso: 'Cotizar', descripcion: 'Permiso para cotizar' },
-      { nombrePermiso: 'Exportar', descripcion: 'Permiso para exportar datos' },
+      { nombrePermiso: "Cotizar", descripcion: "Permiso para cotizar" },
+      { nombrePermiso: "Exportar", descripcion: "Permiso para exportar datos" },
       {
-        nombrePermiso: 'Validar',
-        descripcion: 'Permiso para validar requisiciones de obra',
+        nombrePermiso: "Validar",
+        descripcion: "Permiso para validar requisiciones de obra",
       },
     ];
 
@@ -309,19 +312,23 @@ async function seed() {
     // ============================================
     // 3. SEED GESTIONES (Modules)
     // ============================================
-    console.log('Seeding gestiones...');
+    console.log("Seeding gestiones...");
     const gestionesData = [
-      { nombre: 'Dashboard', slug: 'dashboard', icono: 'LayoutDashboard' },
-      { nombre: 'Compras', slug: 'compras', icono: 'ShoppingCart' },
-      { nombre: 'Materiales', slug: 'materiales', icono: 'Package' },
-      { nombre: 'Usuarios', slug: 'usuarios', icono: 'Users' },
-      { nombre: 'Proveedores', slug: 'proveedores', icono: 'Building2' },
-      { nombre: 'Levantamiento de Obras', slug: 'levantamiento-obras', icono: 'HardHat' },
-      { nombre: 'Auditorías', slug: 'auditorias', icono: 'FileText' },
+      { nombre: "Dashboard", slug: "dashboard", icono: "LayoutDashboard" },
+      { nombre: "Compras", slug: "compras", icono: "ShoppingCart" },
+      { nombre: "Materiales", slug: "materiales", icono: "Package" },
+      { nombre: "Usuarios", slug: "usuarios", icono: "Users" },
+      { nombre: "Proveedores", slug: "proveedores", icono: "Building2" },
       {
-        nombre: 'Notificaciones',
-        slug: 'notificaciones',
-        icono: 'Bell',
+        nombre: "Levantamiento de Obras",
+        slug: "levantamiento-obras",
+        icono: "HardHat",
+      },
+      { nombre: "Auditorías", slug: "auditorias", icono: "FileText" },
+      {
+        nombre: "Notificaciones",
+        slug: "notificaciones",
+        icono: "Bell",
       },
     ];
 
@@ -331,8 +338,8 @@ async function seed() {
     // ============================================
     // 4. ASSIGN GESTIONES TO ROLES (todos tienen acceso a Compras)
     // ============================================
-    console.log('Assigning gestiones to roles...');
-    const comprasGestion = gestiones.find((g) => g.slug === 'compras');
+    console.log("Assigning gestiones to roles...");
+    const comprasGestion = gestiones.find((g) => g.slug === "compras");
     if (comprasGestion) {
       const allRoleGestiones = roles.map((role) => ({
         rolId: role.rolId,
@@ -342,14 +349,33 @@ async function seed() {
       console.log(`✅ Assigned Compras gestion to all ${roles.length} roles`);
     }
 
-    // Asignar Auditorías solo a Gerencia, Director PMO y Analista PMO
-    const auditoriasGestion = gestiones.find((g) => g.slug === 'auditorias');
-    if (auditoriasGestion) {
-      const gerenciaRole = roles.find((r) => r.nombreRol === 'Gerencia');
-      const directorPMORole = roles.find((r) => r.nombreRol === 'Director PMO');
-      const analistaPMORole = roles.find((r) => r.nombreRol === 'Analista PMO');
+    // Asignar Levantamiento de Obras a todos los roles en entorno Docker/dev
+    // para que el módulo quede visible después de sembrar la base local.
+    const levantamientoObrasGestion = gestiones.find(
+      (g) => g.slug === "levantamiento-obras",
+    );
+    if (levantamientoObrasGestion) {
+      const allWorkRoleGestiones = roles.map((role) => ({
+        rolId: role.rolId,
+        gestionId: levantamientoObrasGestion.gestionId,
+      }));
+      await roleGestionRepository.save(allWorkRoleGestiones);
+      console.log(
+        `✅ Assigned Levantamiento de Obras gestion to all ${roles.length} roles`,
+      );
+    }
 
-      const auditoriasRoleGestiones: Array<{ rolId: number; gestionId: number }> = [];
+    // Asignar Auditorías solo a Gerencia, Director PMO y Analista PMO
+    const auditoriasGestion = gestiones.find((g) => g.slug === "auditorias");
+    if (auditoriasGestion) {
+      const gerenciaRole = roles.find((r) => r.nombreRol === "Gerencia");
+      const directorPMORole = roles.find((r) => r.nombreRol === "Director PMO");
+      const analistaPMORole = roles.find((r) => r.nombreRol === "Analista PMO");
+
+      const auditoriasRoleGestiones: Array<{
+        rolId: number;
+        gestionId: number;
+      }> = [];
       if (gerenciaRole) {
         auditoriasRoleGestiones.push({
           rolId: gerenciaRole.rolId,
@@ -378,10 +404,10 @@ async function seed() {
     }
 
     // Asignar Inventarios a Gerencia de Proyectos (para recepción de materiales)
-    const inventariosGestion = gestiones.find((g) => g.slug === 'inventarios');
+    const inventariosGestion = gestiones.find((g) => g.slug === "inventarios");
     if (inventariosGestion) {
       const gerenciaProyectosRole = roles.find(
-        (r) => r.nombreRol === 'Gerencia de Proyectos',
+        (r) => r.nombreRol === "Gerencia de Proyectos",
       );
 
       if (gerenciaProyectosRole) {
@@ -389,27 +415,25 @@ async function seed() {
           rolId: gerenciaProyectosRole.rolId,
           gestionId: inventariosGestion.gestionId,
         });
-        console.log(
-          `✅ Assigned Inventarios gestion to Gerencia de Proyectos`,
-        );
+        console.log(`✅ Assigned Inventarios gestion to Gerencia de Proyectos`);
       }
     }
 
     // ============================================
     // 5. SEED COMPANIES
     // ============================================
-    console.log('Seeding companies...');
+    console.log("Seeding companies...");
     const companiesData = [
-      { name: 'Canales & Contactos' },
-      { name: 'Unión Temporal Alumbrado Público El Cerrito' },
-      { name: 'Unión Temporal Alumbrado Público Circasia' },
-      { name: 'Unión Temporal Alumbrado Público Guacarí' },
-      { name: 'Unión Temporal Alumbrado Público Jamundí' },
-      { name: 'Unión Temporal Alumbrado Público Puerto Asís' },
-      { name: 'Unión Temporal Alumbrado Público Quimbaya' },
-      { name: 'Unión Temporal Alumbrado Público Santa Bárbara' },
-      { name: 'Uniones y Alianzas' },
-      { name: 'Inversiones Garcés Escalante' },
+      { name: "Canales & Contactos" },
+      { name: "Unión Temporal Alumbrado Público El Cerrito" },
+      { name: "Unión Temporal Alumbrado Público Circasia" },
+      { name: "Unión Temporal Alumbrado Público Guacarí" },
+      { name: "Unión Temporal Alumbrado Público Jamundí" },
+      { name: "Unión Temporal Alumbrado Público Puerto Asís" },
+      { name: "Unión Temporal Alumbrado Público Quimbaya" },
+      { name: "Unión Temporal Alumbrado Público Santa Bárbara" },
+      { name: "Uniones y Alianzas" },
+      { name: "Inversiones Garcés Escalante" },
     ];
 
     const companies = await companyRepository.save(companiesData);
@@ -418,16 +442,16 @@ async function seed() {
     // ============================================
     // 6. SEED PROJECTS (solo para Canales & Contactos)
     // ============================================
-    console.log('Seeding projects...');
+    console.log("Seeding projects...");
     const canalesCompany = companies.find((c) =>
-      c.name.includes('Canales & Contactos'),
+      c.name.includes("Canales & Contactos"),
     )!;
     const projectsData = [
-      { companyId: canalesCompany.companyId, name: 'Oficina Principal' },
-      { companyId: canalesCompany.companyId, name: 'Ciudad Bolívar' },
-      { companyId: canalesCompany.companyId, name: 'Jericó' },
-      { companyId: canalesCompany.companyId, name: 'Pueblo Rico' },
-      { companyId: canalesCompany.companyId, name: 'Tarso' },
+      { companyId: canalesCompany.companyId, name: "Oficina Principal" },
+      { companyId: canalesCompany.companyId, name: "Ciudad Bolívar" },
+      { companyId: canalesCompany.companyId, name: "Jericó" },
+      { companyId: canalesCompany.companyId, name: "Pueblo Rico" },
+      { companyId: canalesCompany.companyId, name: "Tarso" },
     ];
 
     const projects = await projectRepository.save(projectsData);
@@ -436,88 +460,90 @@ async function seed() {
     // ============================================
     // 7. SEED OPERATION CENTERS
     // ============================================
-    console.log('Seeding operation centers...');
+    console.log("Seeding operation centers...");
     const operationCentersData = [
       // Canales & Contactos projects
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Oficina Principal')!.projectId,
-        code: '008',
+        projectId: projects.find((p) => p.name === "Oficina Principal")!
+          .projectId,
+        code: "008",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Ciudad Bolívar')!.projectId,
-        code: '961',
+        projectId: projects.find((p) => p.name === "Ciudad Bolívar")!.projectId,
+        code: "961",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Jericó')!.projectId,
-        code: '960',
+        projectId: projects.find((p) => p.name === "Jericó")!.projectId,
+        code: "960",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Pueblo Rico')!.projectId,
-        code: '962',
+        projectId: projects.find((p) => p.name === "Pueblo Rico")!.projectId,
+        code: "962",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Tarso')!.projectId,
-        code: '963',
+        projectId: projects.find((p) => p.name === "Tarso")!.projectId,
+        code: "963",
       },
       // Uniones Temporales (sin projectId)
       {
-        companyId: companies.find((c) => c.name.includes('El Cerrito'))!
+        companyId: companies.find((c) => c.name.includes("El Cerrito"))!
           .companyId,
         projectId: undefined,
-        code: '002',
+        code: "002",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Circasia'))!
+        companyId: companies.find((c) => c.name.includes("Circasia"))!
           .companyId,
         projectId: undefined,
-        code: '001',
+        code: "001",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Guacarí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Guacarí"))!.companyId,
         projectId: undefined,
-        code: '003',
+        code: "003",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Jamundí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Jamundí"))!.companyId,
         projectId: undefined,
-        code: '004',
+        code: "004",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Puerto Asís'))!
+        companyId: companies.find((c) => c.name.includes("Puerto Asís"))!
           .companyId,
         projectId: undefined,
-        code: '005',
+        code: "005",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Quimbaya'))!
+        companyId: companies.find((c) => c.name.includes("Quimbaya"))!
           .companyId,
         projectId: undefined,
-        code: '006',
+        code: "006",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Santa Bárbara'))!
+        companyId: companies.find((c) => c.name.includes("Santa Bárbara"))!
           .companyId,
         projectId: undefined,
-        code: '007',
+        code: "007",
       },
       // Uniones y Alianzas
       {
-        companyId: companies.find((c) => c.name.includes('Uniones y Alianzas'))!
+        companyId: companies.find((c) => c.name.includes("Uniones y Alianzas"))!
           .companyId,
         projectId: undefined,
-        code: '009',
+        code: "009",
       },
       // Inversiones Garcés Escalante
       {
-        companyId: companies.find((c) => c.name.includes('Inversiones Garcés Escalante'))!
-          .companyId,
+        companyId: companies.find((c) =>
+          c.name.includes("Inversiones Garcés Escalante"),
+        )!.companyId,
         projectId: undefined,
-        code: '010',
+        code: "010",
       },
     ];
 
@@ -528,67 +554,67 @@ async function seed() {
     // ============================================
     // 8. SEED PROJECT CODES
     // ============================================
-    console.log('Seeding project codes...');
+    console.log("Seeding project codes...");
     const projectCodesData = [
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Ciudad Bolívar')!.projectId,
-        code: '08. C&C - Ciudad Bolívar - 2022',
+        projectId: projects.find((p) => p.name === "Ciudad Bolívar")!.projectId,
+        code: "08. C&C - Ciudad Bolívar - 2022",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Jericó')!.projectId,
-        code: '07. C&C - Jericó - 2021',
+        projectId: projects.find((p) => p.name === "Jericó")!.projectId,
+        code: "07. C&C - Jericó - 2021",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Pueblo Rico')!.projectId,
-        code: '09. C&C - Pueblorico - 2022',
+        projectId: projects.find((p) => p.name === "Pueblo Rico")!.projectId,
+        code: "09. C&C - Pueblorico - 2022",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Tarso')!.projectId,
-        code: '10. C&C - Tarso - 2022',
+        projectId: projects.find((p) => p.name === "Tarso")!.projectId,
+        code: "10. C&C - Tarso - 2022",
       },
       {
-        companyId: companies.find((c) => c.name.includes('El Cerrito'))!
+        companyId: companies.find((c) => c.name.includes("El Cerrito"))!
           .companyId,
         projectId: undefined,
-        code: '03. UT - El Cerrito - 2015',
+        code: "03. UT - El Cerrito - 2015",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Circasia'))!
+        companyId: companies.find((c) => c.name.includes("Circasia"))!
           .companyId,
         projectId: undefined,
-        code: '05. UT - Circasia - 2015',
+        code: "05. UT - Circasia - 2015",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Guacarí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Guacarí"))!.companyId,
         projectId: undefined,
-        code: '01. UT - Guacarí - 2014',
+        code: "01. UT - Guacarí - 2014",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Jamundí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Jamundí"))!.companyId,
         projectId: undefined,
-        code: '02. UT - Jamundi - 2014',
+        code: "02. UT - Jamundi - 2014",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Puerto Asís'))!
+        companyId: companies.find((c) => c.name.includes("Puerto Asís"))!
           .companyId,
         projectId: undefined,
-        code: '06. UT - Puerto Asís - 2015',
+        code: "06. UT - Puerto Asís - 2015",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Quimbaya'))!
+        companyId: companies.find((c) => c.name.includes("Quimbaya"))!
           .companyId,
         projectId: undefined,
-        code: '04. UT - Quimbaya - 2015',
+        code: "04. UT - Quimbaya - 2015",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Santa Bárbara'))!
+        companyId: companies.find((c) => c.name.includes("Santa Bárbara"))!
           .companyId,
         projectId: undefined,
-        code: '11. UT - Santa Bárbara - 2022',
+        code: "11. UT - Santa Bárbara - 2022",
       },
     ];
 
@@ -598,91 +624,93 @@ async function seed() {
     // ============================================
     // 9. SEED REQUISITION PREFIXES
     // ============================================
-    console.log('Seeding requisition prefixes...');
+    console.log("Seeding requisition prefixes...");
     const requisitionPrefixesData = [
       {
         companyId: canalesCompany.companyId,
         projectId: undefined,
-        prefix: 'C&C',
+        prefix: "C&C",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Oficina Principal')!.projectId,
-        prefix: 'C&C',
+        projectId: projects.find((p) => p.name === "Oficina Principal")!
+          .projectId,
+        prefix: "C&C",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Ciudad Bolívar')!.projectId,
-        prefix: 'CB',
+        projectId: projects.find((p) => p.name === "Ciudad Bolívar")!.projectId,
+        prefix: "CB",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Jericó')!.projectId,
-        prefix: 'JE',
+        projectId: projects.find((p) => p.name === "Jericó")!.projectId,
+        prefix: "JE",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Pueblo Rico')!.projectId,
-        prefix: 'PR',
+        projectId: projects.find((p) => p.name === "Pueblo Rico")!.projectId,
+        prefix: "PR",
       },
       {
         companyId: canalesCompany.companyId,
-        projectId: projects.find((p) => p.name === 'Tarso')!.projectId,
-        prefix: 'TA',
+        projectId: projects.find((p) => p.name === "Tarso")!.projectId,
+        prefix: "TA",
       },
       {
-        companyId: companies.find((c) => c.name.includes('El Cerrito'))!
+        companyId: companies.find((c) => c.name.includes("El Cerrito"))!
           .companyId,
         projectId: undefined,
-        prefix: 'CE',
+        prefix: "CE",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Circasia'))!
+        companyId: companies.find((c) => c.name.includes("Circasia"))!
           .companyId,
         projectId: undefined,
-        prefix: 'CI',
+        prefix: "CI",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Guacarí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Guacarí"))!.companyId,
         projectId: undefined,
-        prefix: 'GU',
+        prefix: "GU",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Jamundí'))!.companyId,
+        companyId: companies.find((c) => c.name.includes("Jamundí"))!.companyId,
         projectId: undefined,
-        prefix: 'JA',
+        prefix: "JA",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Puerto Asís'))!
+        companyId: companies.find((c) => c.name.includes("Puerto Asís"))!
           .companyId,
         projectId: undefined,
-        prefix: 'PA',
+        prefix: "PA",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Quimbaya'))!
+        companyId: companies.find((c) => c.name.includes("Quimbaya"))!
           .companyId,
         projectId: undefined,
-        prefix: 'QY',
+        prefix: "QY",
       },
       {
-        companyId: companies.find((c) => c.name.includes('Santa Bárbara'))!
+        companyId: companies.find((c) => c.name.includes("Santa Bárbara"))!
           .companyId,
         projectId: undefined,
-        prefix: 'SB',
+        prefix: "SB",
       },
       // Uniones y Alianzas
       {
-        companyId: companies.find((c) => c.name.includes('Uniones y Alianzas'))!
+        companyId: companies.find((c) => c.name.includes("Uniones y Alianzas"))!
           .companyId,
         projectId: undefined,
-        prefix: 'U&A',
+        prefix: "U&A",
       },
       // Inversiones Garcés Escalante
       {
-        companyId: companies.find((c) => c.name.includes('Inversiones Garcés Escalante'))!
-          .companyId,
+        companyId: companies.find((c) =>
+          c.name.includes("Inversiones Garcés Escalante"),
+        )!.companyId,
         projectId: undefined,
-        prefix: 'IGE',
+        prefix: "IGE",
       },
     ];
 
@@ -696,7 +724,7 @@ async function seed() {
     // ============================================
     // 10. SEED REQUISITION SEQUENCES (iniciar en 0)
     // ============================================
-    console.log('Seeding requisition sequences...');
+    console.log("Seeding requisition sequences...");
     const requisitionSequencesData = requisitionPrefixes.map((prefix) => ({
       prefixId: prefix.prefixId,
       lastNumber: 0,
@@ -712,125 +740,128 @@ async function seed() {
     // ============================================
     // 11. SEED REQUISITION STATUSES
     // ============================================
-    console.log('Seeding requisition statuses...');
+    console.log("Seeding requisition statuses...");
     const requisitionStatusesData = [
       {
-        code: 'pendiente_validacion',
-        name: 'Pendiente de validación',
-        description: 'Requisición con obra pendiente de validación por Director de Proyecto',
-        color: 'indigo',
+        code: "pendiente_validacion",
+        name: "Pendiente de validación",
+        description:
+          "Requisición con obra pendiente de validación por Director de Proyecto",
+        color: "indigo",
         order: 1,
       },
       {
-        code: 'pendiente',
-        name: 'Pendiente',
-        description: 'Requisición recién creada, sin revisar',
-        color: 'gray',
+        code: "pendiente",
+        name: "Pendiente",
+        description: "Requisición recién creada, sin revisar",
+        color: "gray",
         order: 2,
       },
       {
-        code: 'en_revision',
-        name: 'En revisión',
-        description: 'En proceso de revisión por Director de área',
-        color: 'blue',
+        code: "en_revision",
+        name: "En revisión",
+        description: "En proceso de revisión por Director de área",
+        color: "blue",
         order: 3,
       },
       {
-        code: 'aprobada_revisor',
-        name: 'Aprobada por revisor',
-        description: 'Pendiente de autorización de Gerencia de Proyectos',
-        color: 'green',
+        code: "aprobada_revisor",
+        name: "Aprobada por revisor",
+        description: "Pendiente de autorización de Gerencia de Proyectos",
+        color: "green",
         order: 4,
       },
       {
-        code: 'pendiente_autorizacion',
-        name: 'Pendiente de autorización',
-        description: 'Esperando autorización de Gerencia de Proyectos',
-        color: 'amber',
+        code: "pendiente_autorizacion",
+        name: "Pendiente de autorización",
+        description: "Esperando autorización de Gerencia de Proyectos",
+        color: "amber",
         order: 5,
       },
       {
-        code: 'autorizado',
-        name: 'Autorizado',
-        description: 'Autorizado por Gerencia de Proyectos, listo para Gerencia',
-        color: 'lime',
+        code: "autorizado",
+        name: "Autorizado",
+        description:
+          "Autorizado por Gerencia de Proyectos, listo para Gerencia",
+        color: "lime",
         order: 6,
       },
       {
-        code: 'aprobada_gerencia',
-        name: 'Aprobada por gerencia',
-        description: 'Lista para cotización por Compras',
-        color: 'emerald',
+        code: "aprobada_gerencia",
+        name: "Aprobada por gerencia",
+        description: "Lista para cotización por Compras",
+        color: "emerald",
         order: 7,
       },
       {
-        code: 'en_cotizacion',
-        name: 'En cotización',
-        description: 'En proceso de cotización por Compras',
-        color: 'cyan',
+        code: "en_cotizacion",
+        name: "En cotización",
+        description: "En proceso de cotización por Compras",
+        color: "cyan",
         order: 8,
       },
       {
-        code: 'rechazada_validador',
-        name: 'Rechazada por validador',
-        description: 'Devuelta al solicitante por Director de Proyecto en validación de obra',
-        color: 'pink',
+        code: "rechazada_validador",
+        name: "Rechazada por validador",
+        description:
+          "Devuelta al solicitante por Director de Proyecto en validación de obra",
+        color: "pink",
         order: 9,
       },
       {
-        code: 'rechazada_revisor',
-        name: 'Rechazada por revisor',
-        description: 'Devuelta al solicitante',
-        color: 'orange',
+        code: "rechazada_revisor",
+        name: "Rechazada por revisor",
+        description: "Devuelta al solicitante",
+        color: "orange",
         order: 10,
       },
       {
-        code: 'rechazada_autorizador',
-        name: 'Rechazada por autorizador',
-        description: 'Devuelta al solicitante por Gerencia de Proyectos',
-        color: 'amber',
+        code: "rechazada_autorizador",
+        name: "Rechazada por autorizador",
+        description: "Devuelta al solicitante por Gerencia de Proyectos",
+        color: "amber",
         order: 11,
       },
       {
-        code: 'rechazada_gerencia',
-        name: 'Rechazada por gerencia',
-        description: 'Devuelta al solicitante por Gerencia',
-        color: 'red',
+        code: "rechazada_gerencia",
+        name: "Rechazada por gerencia",
+        description: "Devuelta al solicitante por Gerencia",
+        color: "red",
         order: 12,
       },
       {
-        code: 'cotizada',
-        name: 'Cotizada',
-        description: 'Cotizaciones registradas',
-        color: 'yellow',
+        code: "cotizada",
+        name: "Cotizada",
+        description: "Cotizaciones registradas",
+        color: "yellow",
         order: 13,
       },
       {
-        code: 'en_orden_compra',
-        name: 'En orden de compra',
-        description: 'Orden generada y en trámite',
-        color: 'indigo',
+        code: "en_orden_compra",
+        name: "En orden de compra",
+        description: "Orden generada y en trámite",
+        color: "indigo",
         order: 14,
       },
       {
-        code: 'pendiente_recepcion',
-        name: 'Pendiente de recepción',
-        description: 'Orden emitida, en espera de materiales',
-        color: 'purple',
+        code: "pendiente_recepcion",
+        name: "Pendiente de recepción",
+        description: "Orden emitida, en espera de materiales",
+        color: "purple",
         order: 15,
       },
       {
-        code: 'en_recepcion',
-        name: 'En recepción',
-        description: 'Recepción parcial de materiales en proceso',
-        color: 'violet',
+        code: "en_recepcion",
+        name: "En recepción",
+        description: "Recepción parcial de materiales en proceso",
+        color: "violet",
         order: 16,
       },
       {
-        code: 'recepcion_completa',
-        name: 'Recepción completa',
-        description: 'Todos los materiales recibidos',
-        color: 'teal',
+        code: "recepcion_completa",
+        name: "Recepción completa",
+        description: "Todos los materiales recibidos",
+        color: "teal",
         order: 17,
       },
     ];
@@ -845,48 +876,48 @@ async function seed() {
     // ============================================
     // 12. SEED PURCHASE ORDER STATUSES
     // ============================================
-    console.log('Seeding purchase order statuses...');
+    console.log("Seeding purchase order statuses...");
     const purchaseOrderStatusesData = [
       {
-        code: 'borrador',
-        name: 'Borrador',
-        description: 'Orden de compra en borrador',
-        color: 'gray',
+        code: "borrador",
+        name: "Borrador",
+        description: "Orden de compra en borrador",
+        color: "gray",
         order: 1,
       },
       {
-        code: 'pendiente_aprobacion_gerencia',
-        name: 'Pendiente de aprobación',
-        description: 'En espera de aprobación de gerencia',
-        color: 'yellow',
+        code: "pendiente_aprobacion_gerencia",
+        name: "Pendiente de aprobación",
+        description: "En espera de aprobación de gerencia",
+        color: "yellow",
         order: 2,
       },
       {
-        code: 'aprobada_gerencia',
-        name: 'Aprobada',
-        description: 'Aprobada por gerencia',
-        color: 'green',
+        code: "aprobada_gerencia",
+        name: "Aprobada",
+        description: "Aprobada por gerencia",
+        color: "green",
         order: 3,
       },
       {
-        code: 'rechazada_gerencia',
-        name: 'Rechazada',
-        description: 'Rechazada por gerencia',
-        color: 'red',
+        code: "rechazada_gerencia",
+        name: "Rechazada",
+        description: "Rechazada por gerencia",
+        color: "red",
         order: 4,
       },
       {
-        code: 'en_recepcion',
-        name: 'En recepción',
-        description: 'Materiales en proceso de recepción',
-        color: 'blue',
+        code: "en_recepcion",
+        name: "En recepción",
+        description: "Materiales en proceso de recepción",
+        color: "blue",
         order: 5,
       },
       {
-        code: 'completada',
-        name: 'Completada',
-        description: 'Orden de compra completada',
-        color: 'teal',
+        code: "completada",
+        name: "Completada",
+        description: "Orden de compra completada",
+        color: "teal",
         order: 6,
       },
     ];
@@ -901,7 +932,13 @@ async function seed() {
            description = EXCLUDED.description,
            color = EXCLUDED.color,
            "order" = EXCLUDED."order"`,
-        [status.code, status.name, status.description, status.color, status.order],
+        [
+          status.code,
+          status.name,
+          status.description,
+          status.color,
+          status.order,
+        ],
       );
     }
     console.log(
@@ -911,261 +948,265 @@ async function seed() {
     // ============================================
     // 13. SEED MATERIAL CATEGORIES
     // ============================================
-    console.log('Seeding material categories...');
+    console.log("Seeding material categories...");
     const pendingCategory = await materialCategoryRepository.save({
-      name: 'Pendiente',
-      description: 'Categoría temporal para materiales sin categorizar',
+      name: "Pendiente",
+      description: "Categoría temporal para materiales sin categorizar",
     });
     console.log(`✅ Created category: ${pendingCategory.name}`);
 
     // ============================================
     // 14. SEED MATERIAL GROUPS
     // ============================================
-    console.log('Seeding material groups...');
+    console.log("Seeding material groups...");
     const materialGroupsData = [
-      { name: 'Luminarias y Reflectores', categoryId: pendingCategory.categoryId },
-      { name: 'Herrajes', categoryId: pendingCategory.categoryId },
-      { name: 'Conectores', categoryId: pendingCategory.categoryId },
-      { name: 'Protectores', categoryId: pendingCategory.categoryId },
-      { name: 'Electrónico', categoryId: pendingCategory.categoryId },
-      { name: 'Suministros de Oficina', categoryId: pendingCategory.categoryId },
+      {
+        name: "Luminarias y Reflectores",
+        categoryId: pendingCategory.categoryId,
+      },
+      { name: "Herrajes", categoryId: pendingCategory.categoryId },
+      { name: "Conectores", categoryId: pendingCategory.categoryId },
+      { name: "Protectores", categoryId: pendingCategory.categoryId },
+      { name: "Electrónico", categoryId: pendingCategory.categoryId },
+      {
+        name: "Suministros de Oficina",
+        categoryId: pendingCategory.categoryId,
+      },
     ];
 
-    const materialGroups = await materialGroupRepository.save(materialGroupsData);
+    const materialGroups =
+      await materialGroupRepository.save(materialGroupsData);
     console.log(`✅ Created ${materialGroups.length} material groups`);
 
     // ============================================
     // 15. SEED MATERIALS (catálogo básico)
     // ============================================
-    console.log('Seeding materials...');
+    console.log("Seeding materials...");
 
     // 🔍 Encuentra cada grupo recién creado
     const luminariasGroup = materialGroups.find(
-      (g) => g.name === 'Luminarias y Reflectores',
+      (g) => g.name === "Luminarias y Reflectores",
     )!;
-    const herrajesGroup = materialGroups.find(
-      (g) => g.name === 'Herrajes',
-    )!;
+    const herrajesGroup = materialGroups.find((g) => g.name === "Herrajes")!;
     const conectoresGroup = materialGroups.find(
-      (g) => g.name === 'Conectores',
+      (g) => g.name === "Conectores",
     )!;
     const protectoresGroup = materialGroups.find(
-      (g) => g.name === 'Protectores',
+      (g) => g.name === "Protectores",
     )!;
     const electronicoGroup = materialGroups.find(
-      (g) => g.name === 'Electrónico',
+      (g) => g.name === "Electrónico",
     )!;
     const oficinaGroup = materialGroups.find(
-      (g) => g.name === 'Suministros de Oficina',
+      (g) => g.name === "Suministros de Oficina",
     )!;
 
-
-    console.log('Seeding materials...');
+    console.log("Seeding materials...");
 
     const materialsData = [
       // =============================
       // LUMINARIAS Y REFLECTORES (3000–3053)
       // =============================
       {
-        code: '3047',
-        description: 'Proyector LED de 205W',
+        code: "3047",
+        description: "Proyector LED de 205W",
         groupId: luminariasGroup.groupId,
       },
       {
-        code: '3048',
-        description: 'Luminaria decorativa LED de 26W',
+        code: "3048",
+        description: "Luminaria decorativa LED de 26W",
         groupId: luminariasGroup.groupId,
       },
       {
-        code: '3050',
-        description: 'Luminaria decorativa LED de 40W',
+        code: "3050",
+        description: "Luminaria decorativa LED de 40W",
         groupId: luminariasGroup.groupId,
       },
       {
-        code: '3053',
-        description: 'Luminaria solar LED de 60W',
+        code: "3053",
+        description: "Luminaria solar LED de 60W",
         groupId: luminariasGroup.groupId,
       },
-    
+
       // =============================
       // HERRAJES (3200–3260)
       // =============================
       {
-        code: '3200',
+        code: "3200",
         description: 'Collarín grillete 3-4" T3/8 U1 1/2',
         groupId: herrajesGroup.groupId,
       },
       {
-        code: '3231',
+        code: "3231",
         description: 'Brazo doble galvanizado 0.35m alt. 0.4m D1 1/4"',
         groupId: herrajesGroup.groupId,
       },
       {
-        code: '3244',
+        code: "3244",
         description: 'Cruceta metálica galvanizada 1/4" x 3" x 2m',
         groupId: herrajesGroup.groupId,
       },
       {
-        code: '3248',
+        code: "3248",
         description: 'Varilla roscada galvanizada 3/8" x 3m',
         groupId: herrajesGroup.groupId,
       },
-    
+
       // =============================
       // CONECTORES (3300–3311)
       // =============================
       {
-        code: '3300',
-        description: 'Conector 2 polos WAGO',
+        code: "3300",
+        description: "Conector 2 polos WAGO",
         groupId: conectoresGroup.groupId,
       },
       {
-        code: '3302',
-        description: 'Conector 4 polos WAGO',
+        code: "3302",
+        description: "Conector 4 polos WAGO",
         groupId: conectoresGroup.groupId,
       },
       {
-        code: '3307',
+        code: "3307",
         description: 'Conector prensa estopa de 3/4"',
         groupId: conectoresGroup.groupId,
       },
       {
-        code: '3309',
-        description: 'Empalme en gel 6-2 AWG 14-8AWG',
+        code: "3309",
+        description: "Empalme en gel 6-2 AWG 14-8AWG",
         groupId: conectoresGroup.groupId,
       },
-    
+
       // =============================
       // PROTECTORES (3400–3415)
       // =============================
       {
-        code: '3400',
-        description: 'Breaker 1x60A',
+        code: "3400",
+        description: "Breaker 1x60A",
         groupId: protectoresGroup.groupId,
       },
       {
-        code: '3402',
-        description: 'DPS 10kV',
+        code: "3402",
+        description: "DPS 10kV",
         groupId: protectoresGroup.groupId,
       },
       {
-        code: '3410',
-        description: 'Pararrayo 15kV',
+        code: "3410",
+        description: "Pararrayo 15kV",
         groupId: protectoresGroup.groupId,
       },
       {
-        code: '3408',
-        description: 'Kit puesta a tierra',
+        code: "3408",
+        description: "Kit puesta a tierra",
         groupId: protectoresGroup.groupId,
       },
-    
+
       // =============================
       // ELECTRÓNICO (3500–3539)
       // =============================
       {
-        code: '3500',
-        description: 'Driver de 28W',
+        code: "3500",
+        description: "Driver de 28W",
         groupId: electronicoGroup.groupId,
       },
       {
-        code: '3511',
-        description: 'Driver de 50W',
+        code: "3511",
+        description: "Driver de 50W",
         groupId: electronicoGroup.groupId,
       },
       {
-        code: '3534',
-        description: 'Driver de 205W',
+        code: "3534",
+        description: "Driver de 205W",
         groupId: electronicoGroup.groupId,
       },
       {
-        code: '3537',
-        description: 'Fotocelda IP65',
+        code: "3537",
+        description: "Fotocelda IP65",
         groupId: electronicoGroup.groupId,
       },
-    
+
       // =============================
       // SUMINISTROS DE OFICINA
       // =============================
       {
-        code: '4000',
-        description: 'Resma de papel tamaño carta',
+        code: "4000",
+        description: "Resma de papel tamaño carta",
         groupId: oficinaGroup.groupId,
       },
       {
-        code: '4001',
-        description: 'Carpeta de archivo tipo AZ',
+        code: "4001",
+        description: "Carpeta de archivo tipo AZ",
         groupId: oficinaGroup.groupId,
       },
     ];
-    
+
     const materials = await materialRepository.save(materialsData);
     console.log(`✅ Created ${materials.length} materials`);
 
     // ============================================
     // 14. SEED SUPPLIERS (proveedores de prueba)
     // ============================================
-    console.log('Seeding suppliers...');
+    console.log("Seeding suppliers...");
     const supplierRepository = dataSource.getRepository(Supplier);
 
     const suppliersData = [
       {
-        nitCc: '900123456-1',
-        name: 'Distribuidora Eléctrica del Valle S.A.S',
-        contactPerson: 'Carlos Rodríguez',
-        phone: '3101234567',
-        email: 'ventas@distrivalle.com',
-        address: 'Calle 10 #15-20',
-        city: 'Cali',
+        nitCc: "900123456-1",
+        name: "Distribuidora Eléctrica del Valle S.A.S",
+        contactPerson: "Carlos Rodríguez",
+        phone: "3101234567",
+        email: "ventas@distrivalle.com",
+        address: "Calle 10 #15-20",
+        city: "Cali",
         isActive: true,
       },
       {
-        nitCc: '800987654-3',
-        name: 'Suministros Industriales Colombia Ltda',
-        contactPerson: 'María Fernanda López',
-        phone: '3209876543',
-        email: 'compras@suministroscol.com',
-        address: 'Carrera 25 #45-30',
-        city: 'Bogotá',
+        nitCc: "800987654-3",
+        name: "Suministros Industriales Colombia Ltda",
+        contactPerson: "María Fernanda López",
+        phone: "3209876543",
+        email: "compras@suministroscol.com",
+        address: "Carrera 25 #45-30",
+        city: "Bogotá",
         isActive: true,
       },
       {
-        nitCc: '700555888-9',
-        name: 'Materiales Eléctricos Express S.A',
-        contactPerson: 'Jorge Alberto Díaz',
-        phone: '3156789012',
-        email: 'contacto@matelectricos.com',
-        address: 'Avenida 6N #28-15',
-        city: 'Cali',
+        nitCc: "700555888-9",
+        name: "Materiales Eléctricos Express S.A",
+        contactPerson: "Jorge Alberto Díaz",
+        phone: "3156789012",
+        email: "contacto@matelectricos.com",
+        address: "Avenida 6N #28-15",
+        city: "Cali",
         isActive: true,
       },
       {
-        nitCc: '900333222-5',
-        name: 'Ferretería y Construcciones Los Andes S.A.S',
-        contactPerson: 'Andrea Morales Vélez',
-        phone: '3187654321',
-        email: 'ventas@ferreterialosandes.com',
-        address: 'Carrera 15 #30-45',
-        city: 'Medellín',
+        nitCc: "900333222-5",
+        name: "Ferretería y Construcciones Los Andes S.A.S",
+        contactPerson: "Andrea Morales Vélez",
+        phone: "3187654321",
+        email: "ventas@ferreterialosandes.com",
+        address: "Carrera 15 #30-45",
+        city: "Medellín",
         isActive: true,
       },
       {
-        nitCc: '800444555-7',
-        name: 'Equipos y Herramientas Industriales Ltda',
-        contactPerson: 'Roberto Castro Jiménez',
-        phone: '3165432109',
-        email: 'info@equiposind.com',
-        address: 'Calle 50 #20-10',
-        city: 'Bogotá',
+        nitCc: "800444555-7",
+        name: "Equipos y Herramientas Industriales Ltda",
+        contactPerson: "Roberto Castro Jiménez",
+        phone: "3165432109",
+        email: "info@equiposind.com",
+        address: "Calle 50 #20-10",
+        city: "Bogotá",
         isActive: true,
       },
       {
-        nitCc: '900777888-2',
-        name: 'Comercializadora Eléctrica del Pacífico S.A',
-        contactPerson: 'Luisa Fernanda Gómez',
-        phone: '3198765432',
-        email: 'comercial@electricapacifico.com',
-        address: 'Avenida 3 Norte #12-25',
-        city: 'Cali',
+        nitCc: "900777888-2",
+        name: "Comercializadora Eléctrica del Pacífico S.A",
+        contactPerson: "Luisa Fernanda Gómez",
+        phone: "3198765432",
+        email: "comercial@electricapacifico.com",
+        address: "Avenida 3 Norte #12-25",
+        city: "Cali",
         isActive: true,
       },
     ];
@@ -1176,134 +1217,330 @@ async function seed() {
     // ============================================
     // 15. SEED TEST USERS (27 usuarios - uno por cada rol)
     // ============================================
-    console.log('Seeding test users...');
-    const hashedPassword = await bcrypt.hash('Canalco2025!', 10);
+    console.log("Seeding test users...");
+    const hashedPassword = await bcrypt.hash("Canalco2025!", 10);
 
     // Obtener roles
-    const gerenciaRole = roles.find((r) => r.nombreRol === 'Gerencia')!;
-    const dirPMORole = roles.find((r) => r.nombreRol === 'Director PMO')!;
+    const gerenciaRole = roles.find((r) => r.nombreRol === "Gerencia")!;
+    const dirPMORole = roles.find((r) => r.nombreRol === "Director PMO")!;
     const dirComercialRole = roles.find(
-      (r) => r.nombreRol === 'Director Comercial',
+      (r) => r.nombreRol === "Director Comercial",
     )!;
     const dirJuridicoRole = roles.find(
-      (r) => r.nombreRol === 'Director Jurídico',
+      (r) => r.nombreRol === "Director Jurídico",
     )!;
     const dirTecnicoRole = roles.find(
-      (r) => r.nombreRol === 'Director Técnico',
+      (r) => r.nombreRol === "Director Técnico",
     )!;
     const dirFinancieroRole = roles.find(
-      (r) => r.nombreRol === 'Director Financiero y Administrativo',
+      (r) => r.nombreRol === "Director Financiero y Administrativo",
     )!;
     const dirProyAntioquiaRole = roles.find(
-      (r) => r.nombreRol === 'Director de Proyecto Antioquia',
+      (r) => r.nombreRol === "Director de Proyecto Antioquia",
     )!;
     const dirProyQuindioRole = roles.find(
-      (r) => r.nombreRol === 'Director de Proyecto Quindío',
+      (r) => r.nombreRol === "Director de Proyecto Quindío",
     )!;
     const dirProyValleRole = roles.find(
-      (r) => r.nombreRol === 'Director de Proyecto Valle',
+      (r) => r.nombreRol === "Director de Proyecto Valle",
     )!;
     const dirProyPutumayoRole = roles.find(
-      (r) => r.nombreRol === 'Director de Proyecto Putumayo',
+      (r) => r.nombreRol === "Director de Proyecto Putumayo",
     )!;
-    const analistaPMORole = roles.find((r) => r.nombreRol === 'Analista PMO')!;
+    const analistaPMORole = roles.find((r) => r.nombreRol === "Analista PMO")!;
     const analistaComercialRole = roles.find(
-      (r) => r.nombreRol === 'Analista Comercial',
+      (r) => r.nombreRol === "Analista Comercial",
     )!;
     const analistaJuridicoRole = roles.find(
-      (r) => r.nombreRol === 'Analista Jurídico',
+      (r) => r.nombreRol === "Analista Jurídico",
     )!;
     const analistaAdminRole = roles.find(
-      (r) => r.nombreRol === 'Analista Administrativo',
+      (r) => r.nombreRol === "Analista Administrativo",
     )!;
     const coordFinancieroRole = roles.find(
-      (r) => r.nombreRol === 'Coordinador Financiero',
+      (r) => r.nombreRol === "Coordinador Financiero",
     )!;
     const coordJuridicoRole = roles.find(
-      (r) => r.nombreRol === 'Coordinador Jurídico',
+      (r) => r.nombreRol === "Coordinador Jurídico",
     )!;
     const pqrsElCerritoRole = roles.find(
-      (r) => r.nombreRol === 'PQRS El Cerrito',
+      (r) => r.nombreRol === "PQRS El Cerrito",
     )!;
-    const pqrsGuacariRole = roles.find((r) => r.nombreRol === 'PQRS Guacarí')!;
+    const pqrsGuacariRole = roles.find((r) => r.nombreRol === "PQRS Guacarí")!;
     const pqrsCircasiaRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Circasia',
+      (r) => r.nombreRol === "PQRS Circasia",
     )!;
     const pqrsQuimbayaRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Quimbaya',
+      (r) => r.nombreRol === "PQRS Quimbaya",
     )!;
-    const pqrsJericoRole = roles.find((r) => r.nombreRol === 'PQRS Jericó')!;
+    const pqrsJericoRole = roles.find((r) => r.nombreRol === "PQRS Jericó")!;
     const pqrsCiudadBolivarRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Ciudad Bolívar',
+      (r) => r.nombreRol === "PQRS Ciudad Bolívar",
     )!;
-    const pqrsTarsoRole = roles.find((r) => r.nombreRol === 'PQRS Tarso')!;
+    const pqrsTarsoRole = roles.find((r) => r.nombreRol === "PQRS Tarso")!;
     const pqrsPuebloRicoRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Pueblo Rico',
+      (r) => r.nombreRol === "PQRS Pueblo Rico",
     )!;
     const pqrsSantaBarbaraRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Santa Bárbara',
+      (r) => r.nombreRol === "PQRS Santa Bárbara",
     )!;
     const pqrsPuertoAsisRole = roles.find(
-      (r) => r.nombreRol === 'PQRS Puerto Asís',
+      (r) => r.nombreRol === "PQRS Puerto Asís",
     )!;
-    const comprasRole = roles.find((r) => r.nombreRol === 'Compras')!;
+    const comprasRole = roles.find((r) => r.nombreRol === "Compras")!;
     const gerenciaProyectosRole = roles.find(
-      (r) => r.nombreRol === 'Gerencia de Proyectos',
+      (r) => r.nombreRol === "Gerencia de Proyectos",
     )!;
 
     // ============================================
     // 14. SEED USERS - ENFOQUE DATA-DRIVEN
     // ============================================
-    console.log('Seeding users...');
+    console.log("Seeding users...");
 
     // 📊 ESTRUCTURA DE DATOS: Define aquí todos los usuarios a crear
     // Cada fila representa un usuario con su contraseña individual
     const usersDataSource = [
       // GERENCIA
-      { email: 'gerencia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Laura Pérez', cargo: 'Gerente General', rol: 'Gerencia', estado: true },
-      { email: 'gerencia.proyectos@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carlos Ramírez', cargo: 'Gerente de Proyectos', rol: 'Gerencia de Proyectos', estado: true },
+      {
+        email: "gerencia@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Laura Pérez",
+        cargo: "Gerente General",
+        rol: "Gerencia",
+        estado: true,
+      },
+      {
+        email: "gerencia.proyectos@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Carlos Ramírez",
+        cargo: "Gerente de Proyectos",
+        rol: "Gerencia de Proyectos",
+        estado: true,
+      },
 
       // DIRECTORES DE ÁREA
-      { email: 'director.pmo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Roberto Mendoza', cargo: 'Director PMO', rol: 'Director PMO', estado: true },
-      { email: 'director.comercial@canalcongroup.com', password: 'Canalco2025!', nombre: 'Patricia Vargas', cargo: 'Directora Comercial', rol: 'Director Comercial', estado: true },
-      { email: 'director.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Andrés Morales', cargo: 'Director Jurídico', rol: 'Director Jurídico', estado: true },
-      { email: 'director.tecnico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carlos Rivas', cargo: 'Director Técnico', rol: 'Director Técnico', estado: true },
-      { email: 'director.financiero@canalcongroup.com', password: 'Canalco2025!', nombre: 'Diana Torres', cargo: 'Directora Financiera y Administrativa', rol: 'Director Financiero y Administrativo', estado: true },
+      {
+        email: "director.pmo@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Roberto Mendoza",
+        cargo: "Director PMO",
+        rol: "Director PMO",
+        estado: true,
+      },
+      {
+        email: "director.comercial@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Patricia Vargas",
+        cargo: "Directora Comercial",
+        rol: "Director Comercial",
+        estado: true,
+      },
+      {
+        email: "director.juridico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Andrés Morales",
+        cargo: "Director Jurídico",
+        rol: "Director Jurídico",
+        estado: true,
+      },
+      {
+        email: "director.tecnico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Carlos Rivas",
+        cargo: "Director Técnico",
+        rol: "Director Técnico",
+        estado: true,
+      },
+      {
+        email: "director.financiero@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Diana Torres",
+        cargo: "Directora Financiera y Administrativa",
+        rol: "Director Financiero y Administrativo",
+        estado: true,
+      },
 
       // DIRECTORES DE PROYECTO
-      { email: 'director.antioquia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Ana Restrepo', cargo: 'Directora de Proyecto Antioquia', rol: 'Director de Proyecto Antioquia', estado: true },
-      { email: 'director.quindio@canalcongroup.com', password: 'Canalco2025!', nombre: 'Jorge Cardona', cargo: 'Director de Proyecto Quindío', rol: 'Director de Proyecto Quindío', estado: true },
-      { email: 'director.valle@canalcongroup.com', password: 'Canalco2025!', nombre: 'Claudia Ramírez', cargo: 'Directora de Proyecto Valle', rol: 'Director de Proyecto Valle', estado: true },
-      { email: 'director.putumayo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Miguel Ángel Castro', cargo: 'Director de Proyecto Putumayo', rol: 'Director de Proyecto Putumayo', estado: true },
+      {
+        email: "director.antioquia@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Ana Restrepo",
+        cargo: "Directora de Proyecto Antioquia",
+        rol: "Director de Proyecto Antioquia",
+        estado: true,
+      },
+      {
+        email: "director.quindio@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Jorge Cardona",
+        cargo: "Director de Proyecto Quindío",
+        rol: "Director de Proyecto Quindío",
+        estado: true,
+      },
+      {
+        email: "director.valle@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Claudia Ramírez",
+        cargo: "Directora de Proyecto Valle",
+        rol: "Director de Proyecto Valle",
+        estado: true,
+      },
+      {
+        email: "director.putumayo@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Miguel Ángel Castro",
+        cargo: "Director de Proyecto Putumayo",
+        rol: "Director de Proyecto Putumayo",
+        estado: true,
+      },
 
       // ANALISTAS
-      { email: 'analista.pmo@canalcongroup.com', password: 'Canalco2025!', nombre: 'Sandra Jiménez', cargo: 'Analista PMO', rol: 'Analista PMO', estado: true },
-      { email: 'analista.comercial@canalcongroup.com', password: 'Canalco2025!', nombre: 'Luis Fernando López', cargo: 'Analista Comercial', rol: 'Analista Comercial', estado: true },
-      { email: 'analista.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Carolina Herrera', cargo: 'Analista Jurídica', rol: 'Analista Jurídico', estado: true },
-      { email: 'analista.admin@canalcongroup.com', password: 'Canalco2025!', nombre: 'Javier Sánchez', cargo: 'Analista Administrativo', rol: 'Analista Administrativo', estado: true },
+      {
+        email: "analista.pmo@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Sandra Jiménez",
+        cargo: "Analista PMO",
+        rol: "Analista PMO",
+        estado: true,
+      },
+      {
+        email: "analista.comercial@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Luis Fernando López",
+        cargo: "Analista Comercial",
+        rol: "Analista Comercial",
+        estado: true,
+      },
+      {
+        email: "analista.juridico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Carolina Herrera",
+        cargo: "Analista Jurídica",
+        rol: "Analista Jurídico",
+        estado: true,
+      },
+      {
+        email: "analista.admin@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Javier Sánchez",
+        cargo: "Analista Administrativo",
+        rol: "Analista Administrativo",
+        estado: true,
+      },
 
       // COORDINADORES
-      { email: 'coordinadora.financiera1@canalcongroup.com', password: 'Canalco2025!', nombre: 'Marcela Rojas', cargo: 'Coordinadora Financiera', rol: 'Coordinador Financiero', estado: true },
-      { email: 'coordinador.juridico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Ricardo Bermúdez', cargo: 'Coordinador Jurídico', rol: 'Coordinador Jurídico', estado: true },
+      {
+        email: "coordinadora.financiera1@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Marcela Rojas",
+        cargo: "Coordinadora Financiera",
+        rol: "Coordinador Financiero",
+        estado: true,
+      },
+      {
+        email: "coordinador.juridico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Ricardo Bermúdez",
+        cargo: "Coordinador Jurídico",
+        rol: "Coordinador Jurídico",
+        estado: true,
+      },
 
       // PQRS
-      { email: 'pqrs.elcerrito@canalcongroup.com', password: 'Canalco2025!', nombre: 'Gloria Estrada', cargo: 'Responsable PQRS El Cerrito', rol: 'PQRS El Cerrito', estado: true },
-      { email: 'pqrs.guacari@canalcongroup.com', password: 'Canalco2025!', nombre: 'Fernando Córdoba', cargo: 'Responsable PQRS Guacarí', rol: 'PQRS Guacarí', estado: true },
-      { email: 'pqrs.circasia@canalcongroup.com', password: 'Canalco2025!', nombre: 'Liliana Gómez', cargo: 'Responsable PQRS Circasia', rol: 'PQRS Circasia', estado: true },
-      { email: 'pqrs.quimbaya@canalcongroup.com', password: 'Canalco2025!', nombre: 'Diego Murillo', cargo: 'Responsable PQRS Quimbaya', rol: 'PQRS Quimbaya', estado: true },
-      { email: 'pqrs.jerico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Beatriz Salazar', cargo: 'Responsable PQRS Jericó', rol: 'PQRS Jericó', estado: true },
-      { email: 'pqrs.ciudadbolivar@canalcongroup.com', password: 'Canalco2025!', nombre: 'Alberto Henao', cargo: 'Responsable PQRS Ciudad Bolívar', rol: 'PQRS Ciudad Bolívar', estado: true },
-      { email: 'pqrs.tarso@canalcongroup.com', password: 'Canalco2025!', nombre: 'María Eugenia Ríos', cargo: 'Responsable PQRS Tarso', rol: 'PQRS Tarso', estado: true },
-      { email: 'pqrs.pueblorico@canalcongroup.com', password: 'Canalco2025!', nombre: 'Hernán Zapata', cargo: 'Responsable PQRS Pueblo Rico', rol: 'PQRS Pueblo Rico', estado: true },
-      { email: 'pqrs.santabarbara@canalcongroup.com', password: 'Canalco2025!', nombre: 'Claudia Montoya', cargo: 'Responsable PQRS Santa Bárbara', rol: 'PQRS Santa Bárbara', estado: true },
-      { email: 'pqrs.puertoasis@canalcongroup.com', password: 'Canalco2025!', nombre: 'Rodrigo Carvajal', cargo: 'Responsable PQRS Puerto Asís', rol: 'PQRS Puerto Asís', estado: true },
+      {
+        email: "pqrs.elcerrito@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Gloria Estrada",
+        cargo: "Responsable PQRS El Cerrito",
+        rol: "PQRS El Cerrito",
+        estado: true,
+      },
+      {
+        email: "pqrs.guacari@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Fernando Córdoba",
+        cargo: "Responsable PQRS Guacarí",
+        rol: "PQRS Guacarí",
+        estado: true,
+      },
+      {
+        email: "pqrs.circasia@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Liliana Gómez",
+        cargo: "Responsable PQRS Circasia",
+        rol: "PQRS Circasia",
+        estado: true,
+      },
+      {
+        email: "pqrs.quimbaya@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Diego Murillo",
+        cargo: "Responsable PQRS Quimbaya",
+        rol: "PQRS Quimbaya",
+        estado: true,
+      },
+      {
+        email: "pqrs.jerico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Beatriz Salazar",
+        cargo: "Responsable PQRS Jericó",
+        rol: "PQRS Jericó",
+        estado: true,
+      },
+      {
+        email: "pqrs.ciudadbolivar@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Alberto Henao",
+        cargo: "Responsable PQRS Ciudad Bolívar",
+        rol: "PQRS Ciudad Bolívar",
+        estado: true,
+      },
+      {
+        email: "pqrs.tarso@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "María Eugenia Ríos",
+        cargo: "Responsable PQRS Tarso",
+        rol: "PQRS Tarso",
+        estado: true,
+      },
+      {
+        email: "pqrs.pueblorico@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Hernán Zapata",
+        cargo: "Responsable PQRS Pueblo Rico",
+        rol: "PQRS Pueblo Rico",
+        estado: true,
+      },
+      {
+        email: "pqrs.santabarbara@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Claudia Montoya",
+        cargo: "Responsable PQRS Santa Bárbara",
+        rol: "PQRS Santa Bárbara",
+        estado: true,
+      },
+      {
+        email: "pqrs.puertoasis@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Rodrigo Carvajal",
+        cargo: "Responsable PQRS Puerto Asís",
+        rol: "PQRS Puerto Asís",
+        estado: true,
+      },
 
       // COMPRAS
-      { email: 'compras@canalcongroup.com', password: 'Canalco2025!', nombre: 'Fabián Gutiérrez', cargo: 'Responsable de Compras', rol: 'Compras', estado: true },
+      {
+        email: "compras@canalcongroup.com",
+        password: "Canalco2025!",
+        nombre: "Fabián Gutiérrez",
+        cargo: "Responsable de Compras",
+        rol: "Compras",
+        estado: true,
+      },
     ];
 
     // 🔄 PROCESAMIENTO: Hash de contraseñas y mapeo de roles
-    const rolesMap = new Map(roles.map(r => [r.nombreRol, r]));
+    const rolesMap = new Map(roles.map((r) => [r.nombreRol, r]));
 
     const usersData = await Promise.all(
       usersDataSource.map(async (userData) => {
@@ -1320,7 +1557,7 @@ async function seed() {
           rolId: role.rolId,
           estado: userData.estado,
         };
-      })
+      }),
     );
 
     // 💾 GUARDADO: Inserción en base de datos
@@ -1330,84 +1567,88 @@ async function seed() {
     // ============================================
     // 15. SEED AUTHORIZATIONS (jerarquía de supervisión completa)
     // ============================================
-    console.log('Seeding authorizations...');
+    console.log("Seeding authorizations...");
 
     // Obtener usuarios
-    const gerenciaUser = users.find((u) => u.email === 'gerencia@canalcongroup.com')!;
-    const dirPMOUser = users.find((u) => u.email === 'director.pmo@canalcongroup.com')!;
+    const gerenciaUser = users.find(
+      (u) => u.email === "gerencia@canalcongroup.com",
+    )!;
+    const dirPMOUser = users.find(
+      (u) => u.email === "director.pmo@canalcongroup.com",
+    )!;
     const dirComercialUser = users.find(
-      (u) => u.email === 'director.comercial@canalcongroup.com',
+      (u) => u.email === "director.comercial@canalcongroup.com",
     )!;
     const dirJuridicoUser = users.find(
-      (u) => u.email === 'director.juridico@canalcongroup.com',
+      (u) => u.email === "director.juridico@canalcongroup.com",
     )!;
     const dirTecnicoUser = users.find(
-      (u) => u.email === 'director.tecnico@canalcongroup.com',
+      (u) => u.email === "director.tecnico@canalcongroup.com",
     )!;
     const dirFinancieroUser = users.find(
-      (u) => u.email === 'director.financiero@canalcongroup.com',
+      (u) => u.email === "director.financiero@canalcongroup.com",
     )!;
     const dirProyAntioquiaUser = users.find(
-      (u) => u.email === 'director.antioquia@canalcongroup.com',
+      (u) => u.email === "director.antioquia@canalcongroup.com",
     )!;
     const dirProyQuindioUser = users.find(
-      (u) => u.email === 'director.quindio@canalcongroup.com',
+      (u) => u.email === "director.quindio@canalcongroup.com",
     )!;
     const dirProyValleUser = users.find(
-      (u) => u.email === 'director.valle@canalcongroup.com',
+      (u) => u.email === "director.valle@canalcongroup.com",
     )!;
     const dirProyPutumayoUser = users.find(
-      (u) => u.email === 'director.putumayo@canalcongroup.com',
+      (u) => u.email === "director.putumayo@canalcongroup.com",
     )!;
     const analistaPMOUser = users.find(
-      (u) => u.email === 'analista.pmo@canalcongroup.com',
+      (u) => u.email === "analista.pmo@canalcongroup.com",
     )!;
     const analistaComercialUser = users.find(
-      (u) => u.email === 'analista.comercial@canalcongroup.com',
+      (u) => u.email === "analista.comercial@canalcongroup.com",
     )!;
     const analistaJuridicoUser = users.find(
-      (u) => u.email === 'analista.juridico@canalcongroup.com',
+      (u) => u.email === "analista.juridico@canalcongroup.com",
     )!;
     const analistaAdminUser = users.find(
-      (u) => u.email === 'analista.admin@canalcongroup.com',
+      (u) => u.email === "analista.admin@canalcongroup.com",
     )!;
     const coordFinancieroUser = users.find(
-      (u) => u.email === 'coordinador.financiero@canalcongroup.com',
+      (u) => u.email === "coordinador.financiero@canalcongroup.com",
     )!;
     const coordJuridicoUser = users.find(
-      (u) => u.email === 'coordinador.juridico@canalcongroup.com',
+      (u) => u.email === "coordinador.juridico@canalcongroup.com",
     )!;
 
     // PQRS de cada región
     const pqrsElCerritoUser = users.find(
-      (u) => u.email === 'pqrs.elcerrito@canalcongroup.com',
+      (u) => u.email === "pqrs.elcerrito@canalcongroup.com",
     )!;
     const pqrsGuacariUser = users.find(
-      (u) => u.email === 'pqrs.guacari@canalcongroup.com',
+      (u) => u.email === "pqrs.guacari@canalcongroup.com",
     )!;
     const pqrsCircasiaUser = users.find(
-      (u) => u.email === 'pqrs.circasia@canalcongroup.com',
+      (u) => u.email === "pqrs.circasia@canalcongroup.com",
     )!;
     const pqrsQuimbayaUser = users.find(
-      (u) => u.email === 'pqrs.quimbaya@canalcongroup.com',
+      (u) => u.email === "pqrs.quimbaya@canalcongroup.com",
     )!;
     const pqrsJericoUser = users.find(
-      (u) => u.email === 'pqrs.jerico@canalcongroup.com',
+      (u) => u.email === "pqrs.jerico@canalcongroup.com",
     )!;
     const pqrsCiudadBolivarUser = users.find(
-      (u) => u.email === 'pqrs.ciudadbolivar@canalcongroup.com',
+      (u) => u.email === "pqrs.ciudadbolivar@canalcongroup.com",
     )!;
     const pqrsTarsoUser = users.find(
-      (u) => u.email === 'pqrs.tarso@canalcongroup.com',
+      (u) => u.email === "pqrs.tarso@canalcongroup.com",
     )!;
     const pqrsPuebloRicoUser = users.find(
-      (u) => u.email === 'pqrs.pueblorico@canalcongroup.com',
+      (u) => u.email === "pqrs.pueblorico@canalcongroup.com",
     )!;
     const pqrsSantaBarbaraUser = users.find(
-      (u) => u.email === 'pqrs.santabarbara@canalcongroup.com',
+      (u) => u.email === "pqrs.santabarbara@canalcongroup.com",
     )!;
     const pqrsPuertoAsisUser = users.find(
-      (u) => u.email === 'pqrs.puertoasis@canalcongroup.com',
+      (u) => u.email === "pqrs.puertoasis@canalcongroup.com",
     )!;
 
     const authorizationsData = [
@@ -1420,7 +1661,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyAntioquiaUser.userId,
         usuarioAutorizadoId: pqrsJericoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1428,7 +1669,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyAntioquiaUser.userId,
         usuarioAutorizadoId: pqrsCiudadBolivarUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1436,7 +1677,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyAntioquiaUser.userId,
         usuarioAutorizadoId: pqrsTarsoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1444,7 +1685,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyAntioquiaUser.userId,
         usuarioAutorizadoId: pqrsPuebloRicoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1452,7 +1693,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyAntioquiaUser.userId,
         usuarioAutorizadoId: pqrsSantaBarbaraUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1462,7 +1703,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyQuindioUser.userId,
         usuarioAutorizadoId: pqrsCircasiaUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1470,7 +1711,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyQuindioUser.userId,
         usuarioAutorizadoId: pqrsQuimbayaUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1480,7 +1721,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyValleUser.userId,
         usuarioAutorizadoId: pqrsElCerritoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1488,7 +1729,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyValleUser.userId,
         usuarioAutorizadoId: pqrsGuacariUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1498,7 +1739,7 @@ async function seed() {
         usuarioAutorizadorId: dirProyPutumayoUser.userId,
         usuarioAutorizadoId: pqrsPuertoAsisUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1508,7 +1749,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirProyAntioquiaUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1516,7 +1757,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirProyQuindioUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1524,7 +1765,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirProyValleUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1532,7 +1773,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirProyPutumayoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1546,7 +1787,7 @@ async function seed() {
         usuarioAutorizadorId: dirTecnicoUser.userId,
         usuarioAutorizadoId: dirProyAntioquiaUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1554,7 +1795,7 @@ async function seed() {
         usuarioAutorizadorId: dirTecnicoUser.userId,
         usuarioAutorizadoId: dirProyQuindioUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1562,7 +1803,7 @@ async function seed() {
         usuarioAutorizadorId: dirTecnicoUser.userId,
         usuarioAutorizadoId: dirProyValleUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1570,7 +1811,7 @@ async function seed() {
         usuarioAutorizadorId: dirTecnicoUser.userId,
         usuarioAutorizadoId: dirProyPutumayoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1580,7 +1821,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirTecnicoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1594,7 +1835,7 @@ async function seed() {
         usuarioAutorizadorId: dirPMOUser.userId,
         usuarioAutorizadoId: analistaPMOUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1604,7 +1845,7 @@ async function seed() {
         usuarioAutorizadorId: dirComercialUser.userId,
         usuarioAutorizadoId: analistaComercialUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1614,7 +1855,7 @@ async function seed() {
         usuarioAutorizadorId: dirJuridicoUser.userId,
         usuarioAutorizadoId: analistaJuridicoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1624,7 +1865,7 @@ async function seed() {
         usuarioAutorizadorId: dirJuridicoUser.userId,
         usuarioAutorizadoId: coordJuridicoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1634,7 +1875,7 @@ async function seed() {
         usuarioAutorizadorId: dirFinancieroUser.userId,
         usuarioAutorizadoId: analistaAdminUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1644,7 +1885,7 @@ async function seed() {
         usuarioAutorizadorId: dirFinancieroUser.userId,
         usuarioAutorizadoId: coordFinancieroUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'revision',
+        tipoAutorizacion: "revision",
         nivel: 1,
         esActivo: true,
       },
@@ -1654,7 +1895,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirPMOUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1662,7 +1903,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirComercialUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1670,7 +1911,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirJuridicoUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1678,7 +1919,7 @@ async function seed() {
         usuarioAutorizadorId: gerenciaUser.userId,
         usuarioAutorizadoId: dirFinancieroUser.userId,
         gestionId: comprasGestion!.gestionId,
-        tipoAutorizacion: 'aprobacion',
+        tipoAutorizacion: "aprobacion",
         nivel: 2,
         esActivo: true,
       },
@@ -1691,31 +1932,36 @@ async function seed() {
     // ============================================
     // 16. SEED ROLE PERMISSIONS (permisos por rol para módulo Compras)
     // ============================================
-    console.log('Seeding role permissions...');
+    console.log("Seeding role permissions...");
 
-    const verPermission = permissions.find((p) => p.nombrePermiso === 'Ver')!;
+    const verPermission = permissions.find((p) => p.nombrePermiso === "Ver")!;
     const crearPermission = permissions.find(
-      (p) => p.nombrePermiso === 'Crear',
+      (p) => p.nombrePermiso === "Crear",
     )!;
     const revisarPermission = permissions.find(
-      (p) => p.nombrePermiso === 'Revisar',
+      (p) => p.nombrePermiso === "Revisar",
     )!;
     const aprobarPermission = permissions.find(
-      (p) => p.nombrePermiso === 'Aprobar',
+      (p) => p.nombrePermiso === "Aprobar",
     )!;
     const cotizarPermission = permissions.find(
-      (p) => p.nombrePermiso === 'Cotizar',
+      (p) => p.nombrePermiso === "Cotizar",
     )!;
 
     const rolePermissionsData: any[] = [];
 
     // Función helper para agregar permisos a un rol
-    const addRolePermissions = (roleName: string, permissionNames: string[]) => {
+    const addRolePermissions = (
+      roleName: string,
+      permissionNames: string[],
+    ) => {
       const role = roles.find((r) => r.nombreRol === roleName);
       if (!role) return;
 
       permissionNames.forEach((permName) => {
-        const permission = permissions.find((p) => p.nombrePermiso === permName);
+        const permission = permissions.find(
+          (p) => p.nombrePermiso === permName,
+        );
         if (permission) {
           rolePermissionsData.push({
             rolId: role.rolId,
@@ -1726,64 +1972,68 @@ async function seed() {
     };
 
     // PQRS (todos los municipios): Ver, Crear
-    addRolePermissions('PQRS El Cerrito', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Guacarí', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Circasia', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Quimbaya', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Jericó', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Ciudad Bolívar', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Tarso', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Pueblo Rico', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Santa Bárbara', ['Ver', 'Crear']);
-    addRolePermissions('PQRS Puerto Asís', ['Ver', 'Crear']);
+    addRolePermissions("PQRS El Cerrito", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Guacarí", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Circasia", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Quimbaya", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Jericó", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Ciudad Bolívar", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Tarso", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Pueblo Rico", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Santa Bárbara", ["Ver", "Crear"]);
+    addRolePermissions("PQRS Puerto Asís", ["Ver", "Crear"]);
 
     // Directores de Proyecto: Ver, Crear, Revisar
-    addRolePermissions('Director de Proyecto Antioquia', [
-      'Ver',
-      'Crear',
-      'Revisar',
+    addRolePermissions("Director de Proyecto Antioquia", [
+      "Ver",
+      "Crear",
+      "Revisar",
     ]);
-    addRolePermissions('Director de Proyecto Quindío', [
-      'Ver',
-      'Crear',
-      'Revisar',
+    addRolePermissions("Director de Proyecto Quindío", [
+      "Ver",
+      "Crear",
+      "Revisar",
     ]);
-    addRolePermissions('Director de Proyecto Valle', ['Ver', 'Crear', 'Revisar']);
-    addRolePermissions('Director de Proyecto Putumayo', [
-      'Ver',
-      'Crear',
-      'Revisar',
+    addRolePermissions("Director de Proyecto Valle", [
+      "Ver",
+      "Crear",
+      "Revisar",
+    ]);
+    addRolePermissions("Director de Proyecto Putumayo", [
+      "Ver",
+      "Crear",
+      "Revisar",
     ]);
 
     // Analistas y Coordinadores: Ver, Crear
-    addRolePermissions('Analista PMO', ['Ver', 'Crear']);
-    addRolePermissions('Analista Comercial', ['Ver', 'Crear']);
-    addRolePermissions('Analista Jurídico', ['Ver', 'Crear']);
-    addRolePermissions('Analista Administrativo', ['Ver', 'Crear']);
-    addRolePermissions('Coordinador Financiero', ['Ver', 'Crear']);
-    addRolePermissions('Coordinador Jurídico', ['Ver', 'Crear']);
+    addRolePermissions("Analista PMO", ["Ver", "Crear"]);
+    addRolePermissions("Analista Comercial", ["Ver", "Crear"]);
+    addRolePermissions("Analista Jurídico", ["Ver", "Crear"]);
+    addRolePermissions("Analista Administrativo", ["Ver", "Crear"]);
+    addRolePermissions("Coordinador Financiero", ["Ver", "Crear"]);
+    addRolePermissions("Coordinador Jurídico", ["Ver", "Crear"]);
 
     // Directores de Área: Ver, Crear, Revisar
-    addRolePermissions('Director PMO', ['Ver', 'Crear', 'Revisar']);
-    addRolePermissions('Director Comercial', ['Ver', 'Crear', 'Revisar']);
-    addRolePermissions('Director Jurídico', ['Ver', 'Crear', 'Revisar']);
-    addRolePermissions('Director Financiero y Administrativo', [
-      'Ver',
-      'Crear',
-      'Revisar',
+    addRolePermissions("Director PMO", ["Ver", "Crear", "Revisar"]);
+    addRolePermissions("Director Comercial", ["Ver", "Crear", "Revisar"]);
+    addRolePermissions("Director Jurídico", ["Ver", "Crear", "Revisar"]);
+    addRolePermissions("Director Financiero y Administrativo", [
+      "Ver",
+      "Crear",
+      "Revisar",
     ]);
 
     // Director Técnico: Ver, Crear, Revisar
-    addRolePermissions('Director Técnico', ['Ver', 'Crear', 'Revisar']);
+    addRolePermissions("Director Técnico", ["Ver", "Crear", "Revisar"]);
 
     // Gerencia: Ver, Aprobar
-    addRolePermissions('Gerencia', ['Ver', 'Aprobar']);
+    addRolePermissions("Gerencia", ["Ver", "Aprobar"]);
 
     // Gerencia de Proyectos: Ver, Crear, Autorizar
-    addRolePermissions('Gerencia de Proyectos', ['Ver', 'Crear', 'Autorizar']);
+    addRolePermissions("Gerencia de Proyectos", ["Ver", "Crear", "Autorizar"]);
 
     // Compras: Ver, Cotizar
-    addRolePermissions('Compras', ['Ver', 'Cotizar']);
+    addRolePermissions("Compras", ["Ver", "Cotizar"]);
 
     const rolePermissions =
       await rolePermissionRepository.save(rolePermissionsData);
@@ -1792,10 +2042,10 @@ async function seed() {
     // ============================================
     // RESUMEN FINAL
     // ============================================
-    console.log('\n' + '='.repeat(50));
-    console.log('✅ Seeding completed successfully!');
-    console.log('='.repeat(50));
-    console.log('\n📊 Summary:');
+    console.log("\n" + "=".repeat(50));
+    console.log("✅ Seeding completed successfully!");
+    console.log("=".repeat(50));
+    console.log("\n📊 Summary:");
     console.log(`   - ${roles.length} roles`);
     console.log(`   - ${permissions.length} permissions`);
     console.log(`   - ${rolePermissions.length} role permissions`);
@@ -1811,46 +2061,48 @@ async function seed() {
     console.log(`   - ${materials.length} materials`);
     console.log(`   - ${suppliers.length} suppliers`);
     console.log(`   - ${users.length} test users (27 roles completos)`);
-    console.log(`   - ${authorizations.length} authorizations (cadenas completas)`);
-    console.log('\n🔑 Credenciales de prueba (Password: Canalco2025!):');
-    console.log('\n   GERENCIA:');
-    console.log('   - gerencia@canalcongroup.com');
-    console.log('\n   DIRECTORES DE ÁREA:');
-    console.log('   - director.pmo@canalcongroup.com');
-    console.log('   - director.comercial@canalcongroup.com');
-    console.log('   - director.juridico@canalcongroup.com');
-    console.log('   - director.tecnico@canalcongroup.com');
-    console.log('   - director.financiero@canalcongroup.com');
-    console.log('\n   DIRECTORES DE PROYECTO:');
-    console.log('   - director.antioquia@canalcongroup.com');
-    console.log('   - director.quindio@canalcongroup.com');
-    console.log('   - director.valle@canalcongroup.com');
-    console.log('   - director.putumayo@canalcongroup.com');
-    console.log('\n   ANALISTAS/COORDINADORES:');
-    console.log('   - analista.pmo@canalcongroup.com');
-    console.log('   - analista.comercial@canalcongroup.com');
-    console.log('   - analista.juridico@canalcongroup.com');
-    console.log('   - analista.admin@canalcongroup.com');
-    console.log('   - coordinador.financiero@canalcongroup.com');
-    console.log('   - coordinador.juridico@canalcongroup.com');
-    console.log('\n   PQRS (10 municipios):');
-    console.log('   - pqrs.elcerrito@canalcongroup.com');
-    console.log('   - pqrs.guacari@canalcongroup.com');
-    console.log('   - pqrs.circasia@canalcongroup.com');
-    console.log('   - pqrs.quimbaya@canalcongroup.com');
-    console.log('   - pqrs.jerico@canalcongroup.com');
-    console.log('   - pqrs.ciudadbolivar@canalcongroup.com');
-    console.log('   - pqrs.tarso@canalcongroup.com');
-    console.log('   - pqrs.pueblorico@canalcongroup.com');
-    console.log('   - pqrs.santabarbara@canalcongroup.com');
-    console.log('   - pqrs.puertoasis@canalcongroup.com');
-    console.log('\n   COMPRAS:');
-    console.log('   - coordinadora.financiera1@canalcongroup.com');
-    console.log('\n' + '='.repeat(50) + '\n');
+    console.log(
+      `   - ${authorizations.length} authorizations (cadenas completas)`,
+    );
+    console.log("\n🔑 Credenciales de prueba (Password: Canalco2025!):");
+    console.log("\n   GERENCIA:");
+    console.log("   - gerencia@canalcongroup.com");
+    console.log("\n   DIRECTORES DE ÁREA:");
+    console.log("   - director.pmo@canalcongroup.com");
+    console.log("   - director.comercial@canalcongroup.com");
+    console.log("   - director.juridico@canalcongroup.com");
+    console.log("   - director.tecnico@canalcongroup.com");
+    console.log("   - director.financiero@canalcongroup.com");
+    console.log("\n   DIRECTORES DE PROYECTO:");
+    console.log("   - director.antioquia@canalcongroup.com");
+    console.log("   - director.quindio@canalcongroup.com");
+    console.log("   - director.valle@canalcongroup.com");
+    console.log("   - director.putumayo@canalcongroup.com");
+    console.log("\n   ANALISTAS/COORDINADORES:");
+    console.log("   - analista.pmo@canalcongroup.com");
+    console.log("   - analista.comercial@canalcongroup.com");
+    console.log("   - analista.juridico@canalcongroup.com");
+    console.log("   - analista.admin@canalcongroup.com");
+    console.log("   - coordinador.financiero@canalcongroup.com");
+    console.log("   - coordinador.juridico@canalcongroup.com");
+    console.log("\n   PQRS (10 municipios):");
+    console.log("   - pqrs.elcerrito@canalcongroup.com");
+    console.log("   - pqrs.guacari@canalcongroup.com");
+    console.log("   - pqrs.circasia@canalcongroup.com");
+    console.log("   - pqrs.quimbaya@canalcongroup.com");
+    console.log("   - pqrs.jerico@canalcongroup.com");
+    console.log("   - pqrs.ciudadbolivar@canalcongroup.com");
+    console.log("   - pqrs.tarso@canalcongroup.com");
+    console.log("   - pqrs.pueblorico@canalcongroup.com");
+    console.log("   - pqrs.santabarbara@canalcongroup.com");
+    console.log("   - pqrs.puertoasis@canalcongroup.com");
+    console.log("\n   COMPRAS:");
+    console.log("   - coordinadora.financiera1@canalcongroup.com");
+    console.log("\n" + "=".repeat(50) + "\n");
 
     await dataSource.destroy();
   } catch (error) {
-    console.error('❌ Error during seeding:', error);
+    console.error("❌ Error during seeding:", error);
     process.exit(1);
   }
 }

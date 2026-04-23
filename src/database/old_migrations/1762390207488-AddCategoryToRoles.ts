@@ -1,7 +1,7 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddCategoryToRoles1762390207488 implements MigrationInterface {
-  name = 'AddCategoryToRoles1762390207488';
+  name = "AddCategoryToRoles1762390207488";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Agregar columna category a tabla roles

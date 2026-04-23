@@ -5,20 +5,20 @@ import {
   IsArray,
   ValidateNested,
   Min,
-} from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+} from "class-validator";
+import { Type } from "class-transformer";
+import { ApiProperty } from "@nestjs/swagger";
 
 export class ItemPriceDto {
   @ApiProperty({
-    description: 'ID del ítem de la requisición',
+    description: "ID del ítem de la requisición",
     example: 1,
   })
   @IsNumber()
   itemId: number;
 
   @ApiProperty({
-    description: 'ID de la cotización (quotation) seleccionada para este ítem',
+    description: "ID de la cotización (quotation) seleccionada para este ítem",
     example: 5,
     required: false,
   })
@@ -27,7 +27,7 @@ export class ItemPriceDto {
   quotationId?: number;
 
   @ApiProperty({
-    description: 'Precio unitario sin IVA',
+    description: "Precio unitario sin IVA",
     example: 150000,
   })
   @IsNumber()
@@ -35,14 +35,14 @@ export class ItemPriceDto {
   unitPrice: number;
 
   @ApiProperty({
-    description: 'Indica si el ítem tiene IVA del 19%',
+    description: "Indica si el ítem tiene IVA del 19%",
     example: true,
   })
   @IsBoolean()
   hasIva: boolean;
 
   @ApiProperty({
-    description: 'Descuento aplicado al ítem',
+    description: "Descuento aplicado al ítem",
     example: 5000,
     required: false,
   })
@@ -54,7 +54,7 @@ export class ItemPriceDto {
 
 export class AssignPricesDto {
   @ApiProperty({
-    description: 'Array de ítems con sus precios asignados',
+    description: "Array de ítems con sus precios asignados",
     type: [ItemPriceDto],
   })
   @IsArray()

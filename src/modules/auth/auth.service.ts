@@ -2,17 +2,17 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
-import { User } from '../../database/entities/user.entity';
-import { Gestion } from '../../database/entities/gestion.entity';
-import { RoleGestion } from '../../database/entities/role-gestion.entity';
-import { RolePermission } from '../../database/entities/role-permission.entity';
-import { LoginDto } from './dto/login.dto';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { JwtService } from "@nestjs/jwt";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import * as bcrypt from "bcrypt";
+import { User } from "../../database/entities/user.entity";
+import { Gestion } from "../../database/entities/gestion.entity";
+import { RoleGestion } from "../../database/entities/role-gestion.entity";
+import { RolePermission } from "../../database/entities/role-permission.entity";
+import { LoginDto } from "./dto/login.dto";
 
 // Constantes para los IDs de permisos (basado en tabla permisos)
 const PERMISO_IDS = {
@@ -25,6 +25,30 @@ const PERMISO_IDS = {
   EXPORTAR: 7,
   VALIDAR: 8,
 } as const;
+
+// Mapa de slug de gestión → prefijo usado en permisos granulares del frontend
+const GESTION_PERMISSION_PREFIX: Record<string, string> = {
+  'levantamiento-obras': 'levantamientos',
+  'compras': 'compras',
+  'materiales': 'materiales',
+  'usuarios': 'usuarios',
+  'proveedores': 'proveedores',
+  'auditorias': 'auditorias',
+  'notificaciones': 'notificaciones',
+  'dashboard': 'dashboard',
+};
+
+// Mapa de ID de permiso → acciones granulares que otorga
+const PERMISO_ACTIONS: Record<number, string[]> = {
+  1: ['ver'],
+  2: ['crear', 'editar'],
+  3: ['revisar'],
+  4: ['aprobar'],
+  5: ['autorizar'],
+  6: ['cotizar'],
+  7: ['exportar'],
+  8: ['validar'],
+};
 
 @Injectable()
 export class AuthService {
@@ -41,67 +65,87 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
+  private async buildPermissions(rolId: number): Promise<string[]> {
+    const [roleGestiones, rolePermisos] = await Promise.all([
+      this.roleGestionRepository.find({ where: { rolId }, relations: ['gestion'] }),
+      this.rolePermissionRepository.find({ where: { rolId } }),
+    ]);
+
+    const permisoIds = new Set(rolePermisos.map((rp) => rp.permisoId));
+    const permissions: string[] = [];
+
+    for (const rg of roleGestiones) {
+      const prefix = GESTION_PERMISSION_PREFIX[rg.gestion.slug] ?? rg.gestion.slug;
+      for (const [permisoId, actions] of Object.entries(PERMISO_ACTIONS)) {
+        if (permisoIds.has(Number(permisoId))) {
+          for (const action of actions) {
+            permissions.push(`${prefix}:${action}`);
+          }
+        }
+      }
+    }
+
+    return [...new Set(permissions)];
+  }
+
   async login(loginDto: LoginDto) {
     try {
       const { email, password } = loginDto;
 
       // Validate corporate email domain
-      const allowedDomains = ['@canalco.com', '@alumbrado.com', '@canalcongroup.com'];
-      const emailDomain = '@' + email.split('@')[1];
+      const allowedDomains = [
+        "@canalco.com",
+        "@alumbrado.com",
+        "@canalcongroup.com",
+      ];
+      const emailDomain = "@" + email.split("@")[1];
 
       if (!allowedDomains.includes(emailDomain)) {
         throw new BadRequestException(
-          `El correo electrónico corporativo debe terminar en ${allowedDomains.join(', ')}`,
+          `El correo electrónico corporativo debe terminar en ${allowedDomains.join(", ")}`,
         );
       }
 
       // Find user with role
       const user = await this.userRepository.findOne({
         where: { email },
-        relations: ['role'],
+        relations: ["role"],
       });
 
       if (!user) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException("Invalid credentials");
       }
 
       // Check if user is active
       if (!user.estado) {
-        throw new UnauthorizedException('User account is inactive');
+        throw new UnauthorizedException("User account is inactive");
       }
 
       // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException("Invalid credentials");
       }
 
-      // Get user permissions (granular permissions)
-      const rolePermissions = await this.rolePermissionRepository.find({
-        where: { rolId: user.rolId },
-        relations: ['permission'],
-      });
-
-      const permissions = rolePermissions.map(rp => rp.permission.nombrePermiso);
-
       // Generate tokens
+      const permissions = await this.buildPermissions(user.rolId);
       const payload = {
         sub: user.userId,
         email: user.email,
         roleId: user.rolId,
         roleName: user.role.nombreRol,
-        permissions, // Incluir permisos en el JWT
+        permissions,
       };
       const accessToken = this.jwtService.sign(payload, {
-        secret: this.configService.get('jwt.secret') || 'change-this-secret',
-        expiresIn: `${this.configService.get('jwt.expiresIn') || 3600}s`,
+        secret: this.configService.get("jwt.secret") || "change-this-secret",
+        expiresIn: `${this.configService.get("jwt.expiresIn") || 3600}s`,
       });
 
       const refreshToken = this.jwtService.sign(payload, {
         secret:
-          this.configService.get('jwt.refreshSecret') ||
-          'change-this-refresh-secret',
-        expiresIn: `${this.configService.get('jwt.refreshExpiresIn') || 604800}s`,
+          this.configService.get("jwt.refreshSecret") ||
+          "change-this-refresh-secret",
+        expiresIn: `${this.configService.get("jwt.refreshExpiresIn") || 604800}s`,
       });
 
       // Hash and store refresh token
@@ -131,12 +175,12 @@ export class AuthService {
         throw error;
       }
       // For any other error, throw a generic BadRequestException
-      throw new BadRequestException('An error occurred during login');
+      throw new BadRequestException("An error occurred during login");
     }
   }
 
   async refreshToken(user: User) {
-    // Get user with role
+    // Get user with role (needed for roleName in payload)
     const userWithRole = await this.userRepository.findOne({
       where: { userId: user.userId },
       relations: ['role'],
@@ -146,25 +190,18 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Get user permissions (granular permissions)
-    const rolePermissions = await this.rolePermissionRepository.find({
-      where: { rolId: userWithRole.rolId },
-      relations: ['permission'],
-    });
-
-    const permissions = rolePermissions.map(rp => rp.permission.nombrePermiso);
-
+    const permissions = await this.buildPermissions(userWithRole.rolId);
     const payload = {
       sub: userWithRole.userId,
       email: userWithRole.email,
       roleId: userWithRole.rolId,
       roleName: userWithRole.role.nombreRol,
-      permissions, // Incluir permisos en el refresh token también
+      permissions,
     };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: this.configService.get('jwt.secret'),
-      expiresIn: `${this.configService.get('jwt.expiresIn')}s`,
+      secret: this.configService.get("jwt.secret"),
+      expiresIn: `${this.configService.get("jwt.expiresIn")}s`,
     });
 
     return {
@@ -175,11 +212,11 @@ export class AuthService {
   async getProfile(userId: number) {
     const user = await this.userRepository.findOne({
       where: { userId },
-      relations: ['role'],
+      relations: ["role"],
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException("User not found");
     }
 
     const { password, refreshToken, ...userWithoutSensitiveData } = user;
@@ -213,16 +250,16 @@ export class AuthService {
     // Get user with role
     const user = await this.userRepository.findOne({
       where: { userId },
-      relations: ['role'],
+      relations: ["role"],
     });
 
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new UnauthorizedException("User not found");
     }
 
     // Get all gestiones (modules)
     const allGestiones = await this.gestionRepository.find({
-      order: { gestionId: 'ASC' },
+      order: { gestionId: "ASC" },
     });
 
     // Get role gestiones for this user's role
@@ -236,14 +273,10 @@ export class AuthService {
     });
 
     // Create a set of gestionIds that the role has access to
-    const allowedGestionIds = new Set(
-      roleGestiones.map((rg) => rg.gestionId),
-    );
+    const allowedGestionIds = new Set(roleGestiones.map((rg) => rg.gestionId));
 
     // Create a set of permisoIds that the role has
-    const allowedPermisoIds = new Set(
-      rolePermisos.map((rp) => rp.permisoId),
-    );
+    const allowedPermisoIds = new Set(rolePermisos.map((rp) => rp.permisoId));
 
     // Build permissions object
     const permisos = {

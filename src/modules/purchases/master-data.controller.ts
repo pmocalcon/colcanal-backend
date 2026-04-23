@@ -11,33 +11,33 @@ import {
   ParseIntPipe,
   ConflictException,
   NotFoundException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
-} from '@nestjs/swagger';
-import { CreateMaterialGroupDto } from './dto/create-material-group.dto';
-import { CreateMaterialDto } from './dto/create-material.dto';
-import { UpdateMaterialDto } from './dto/update-material.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, ILike } from 'typeorm';
-import { Company } from '../../database/entities/company.entity';
-import { Project } from '../../database/entities/project.entity';
-import { Material } from '../../database/entities/material.entity';
-import { MaterialGroup } from '../../database/entities/material-group.entity';
-import { MaterialCategory } from '../../database/entities/material-category.entity';
-import { RequisitionStatus } from '../../database/entities/requisition-status.entity';
-import { OperationCenter } from '../../database/entities/operation-center.entity';
-import { ProjectCode } from '../../database/entities/project-code.entity';
+} from "@nestjs/swagger";
+import { CreateMaterialGroupDto } from "./dto/create-material-group.dto";
+import { CreateMaterialDto } from "./dto/create-material.dto";
+import { UpdateMaterialDto } from "./dto/update-material.dto";
+import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, DataSource, ILike } from "typeorm";
+import { Company } from "../../database/entities/company.entity";
+import { Project } from "../../database/entities/project.entity";
+import { Material } from "../../database/entities/material.entity";
+import { MaterialGroup } from "../../database/entities/material-group.entity";
+import { MaterialCategory } from "../../database/entities/material-category.entity";
+import { RequisitionStatus } from "../../database/entities/requisition-status.entity";
+import { OperationCenter } from "../../database/entities/operation-center.entity";
+import { ProjectCode } from "../../database/entities/project-code.entity";
 
-@ApiTags('Purchases - Master Data')
-@ApiBearerAuth('JWT-auth')
+@ApiTags("Purchases - Master Data")
+@ApiBearerAuth("JWT-auth")
 @UseGuards(JwtAuthGuard)
-@Controller('purchases/master-data')
+@Controller("purchases/master-data")
 export class MasterDataController {
   // Umbral de similitud para duplicados (0.5 = 50% similar)
   // Aumentado de 0.3 para reducir falsos positivos
@@ -63,9 +63,9 @@ export class MasterDataController {
     private readonly projectCodeRepository: Repository<ProjectCode>,
   ) {}
 
-  @Get('companies')
+  @Get("companies")
   @ApiOperation({
-    summary: 'Obtener todas las empresas',
+    summary: "Obtener todas las empresas",
     description: `
     Retorna la lista de todas las empresas disponibles para crear requisiciones.
 
@@ -96,21 +96,21 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de empresas retornada exitosamente',
+    description: "Lista de empresas retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             companyId: 1,
-            name: 'Canales & Contactos',
+            name: "Canales & Contactos",
           },
           {
             companyId: 2,
-            name: 'UT El Cerrito',
+            name: "UT El Cerrito",
           },
           {
             companyId: 3,
-            name: 'UT Circasia',
+            name: "UT Circasia",
           },
         ],
         total: 8,
@@ -119,7 +119,7 @@ export class MasterDataController {
   })
   async getCompanies() {
     const companies = await this.companyRepository.find({
-      order: { name: 'ASC' },
+      order: { name: "ASC" },
     });
 
     return {
@@ -128,9 +128,9 @@ export class MasterDataController {
     };
   }
 
-  @Get('projects')
+  @Get("projects")
   @ApiOperation({
-    summary: 'Obtener proyectos (opcionalmente filtrados por empresa)',
+    summary: "Obtener proyectos (opcionalmente filtrados por empresa)",
     description: `
     Retorna la lista de proyectos disponibles para crear requisiciones.
 
@@ -176,26 +176,26 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de proyectos retornada exitosamente',
+    description: "Lista de proyectos retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             projectId: 1,
-            name: 'Administrativo',
+            name: "Administrativo",
             companyId: 1,
             company: {
               companyId: 1,
-              name: 'Canales & Contactos',
+              name: "Canales & Contactos",
             },
           },
           {
             projectId: 2,
-            name: 'Ciudad Bolívar',
+            name: "Ciudad Bolívar",
             companyId: 1,
             company: {
               companyId: 1,
-              name: 'Canales & Contactos',
+              name: "Canales & Contactos",
             },
           },
         ],
@@ -203,13 +203,13 @@ export class MasterDataController {
       },
     },
   })
-  async getProjects(@Query('companyId') companyId?: string) {
+  async getProjects(@Query("companyId") companyId?: string) {
     const where = companyId ? { companyId: parseInt(companyId) } : {};
 
     const projects = await this.projectRepository.find({
       where,
-      relations: ['company'],
-      order: { name: 'ASC' },
+      relations: ["company"],
+      order: { name: "ASC" },
     });
 
     return {
@@ -218,19 +218,19 @@ export class MasterDataController {
     };
   }
 
-  @Get('operation-centers')
+  @Get("operation-centers")
   @ApiOperation({
-    summary: 'Obtener todos los centros de operación',
-    description: 'Retorna la lista de centros de operación disponibles',
+    summary: "Obtener todos los centros de operación",
+    description: "Retorna la lista de centros de operación disponibles",
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de centros de operación retornada exitosamente',
+    description: "Lista de centros de operación retornada exitosamente",
   })
   async getOperationCenters() {
     const centers = await this.operationCenterRepository.find({
-      relations: ['company', 'project'],
-      order: { code: 'ASC' },
+      relations: ["company", "project"],
+      order: { code: "ASC" },
     });
 
     return {
@@ -239,19 +239,19 @@ export class MasterDataController {
     };
   }
 
-  @Get('project-codes')
+  @Get("project-codes")
   @ApiOperation({
-    summary: 'Obtener todos los códigos de proyecto',
-    description: 'Retorna la lista de códigos de proyecto disponibles',
+    summary: "Obtener todos los códigos de proyecto",
+    description: "Retorna la lista de códigos de proyecto disponibles",
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de códigos de proyecto retornada exitosamente',
+    description: "Lista de códigos de proyecto retornada exitosamente",
   })
   async getProjectCodes() {
     const codes = await this.projectCodeRepository.find({
-      relations: ['company', 'project'],
-      order: { code: 'ASC' },
+      relations: ["company", "project"],
+      order: { code: "ASC" },
     });
 
     return {
@@ -260,9 +260,9 @@ export class MasterDataController {
     };
   }
 
-  @Get('material-categories')
+  @Get("material-categories")
   @ApiOperation({
-    summary: 'Obtener categorías de materiales',
+    summary: "Obtener categorías de materiales",
     description: `
     Retorna la lista de categorías de materiales disponibles.
 
@@ -312,24 +312,24 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de categorías retornada exitosamente',
+    description: "Lista de categorías retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             categoryId: 1,
-            name: 'Pendiente',
-            description: 'Categoría temporal para materiales sin categorizar',
+            name: "Pendiente",
+            description: "Categoría temporal para materiales sin categorizar",
           },
           {
             categoryId: 2,
-            name: 'Oficina',
-            description: 'Materiales y suministros de oficina',
+            name: "Oficina",
+            description: "Materiales y suministros de oficina",
           },
           {
             categoryId: 3,
-            name: 'Eléctrico',
-            description: 'Materiales eléctricos y componentes',
+            name: "Eléctrico",
+            description: "Materiales eléctricos y componentes",
           },
         ],
         total: 3,
@@ -338,7 +338,7 @@ export class MasterDataController {
   })
   async getMaterialCategories() {
     const categories = await this.materialCategoryRepository.find({
-      order: { name: 'ASC' },
+      order: { name: "ASC" },
     });
 
     return {
@@ -347,9 +347,10 @@ export class MasterDataController {
     };
   }
 
-  @Get('material-groups')
+  @Get("material-groups")
   @ApiOperation({
-    summary: 'Obtener grupos de materiales (opcionalmente filtrados por categoría)',
+    summary:
+      "Obtener grupos de materiales (opcionalmente filtrados por categoría)",
     description: `
     Retorna la lista de grupos de materiales disponibles.
 
@@ -405,28 +406,28 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de grupos de materiales retornada exitosamente',
+    description: "Lista de grupos de materiales retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             groupId: 1,
-            name: 'Luminarias y Reflectores',
+            name: "Luminarias y Reflectores",
             categoryId: 1,
             category: {
               categoryId: 1,
-              name: 'Pendiente',
-              description: 'Categoría temporal para materiales sin categorizar',
+              name: "Pendiente",
+              description: "Categoría temporal para materiales sin categorizar",
             },
           },
           {
             groupId: 2,
-            name: 'Herrajes',
+            name: "Herrajes",
             categoryId: 1,
             category: {
               categoryId: 1,
-              name: 'Pendiente',
-              description: 'Categoría temporal para materiales sin categorizar',
+              name: "Pendiente",
+              description: "Categoría temporal para materiales sin categorizar",
             },
           },
         ],
@@ -434,13 +435,13 @@ export class MasterDataController {
       },
     },
   })
-  async getMaterialGroups(@Query('categoryId') categoryId?: string) {
+  async getMaterialGroups(@Query("categoryId") categoryId?: string) {
     const where = categoryId ? { categoryId: parseInt(categoryId) } : {};
 
     const groups = await this.materialGroupRepository.find({
       where,
-      relations: ['category'],
-      order: { name: 'ASC' },
+      relations: ["category"],
+      order: { name: "ASC" },
     });
 
     return {
@@ -449,9 +450,9 @@ export class MasterDataController {
     };
   }
 
-  @Get('materials')
+  @Get("materials")
   @ApiOperation({
-    summary: 'Obtener materiales (opcionalmente filtrados por grupo)',
+    summary: "Obtener materiales (opcionalmente filtrados por grupo)",
     description: `
     Retorna la lista de materiales disponibles para agregar a requisiciones.
 
@@ -516,35 +517,35 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de materiales retornada exitosamente',
+    description: "Lista de materiales retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             materialId: 1,
-            code: 'ELEC-001',
-            description: 'Cable #10 AWG',
+            code: "ELEC-001",
+            description: "Cable #10 AWG",
             materialGroup: {
               groupId: 1,
-              name: 'Eléctrico',
+              name: "Eléctrico",
             },
           },
           {
             materialId: 2,
-            code: 'ELEC-002',
-            description: 'Cable #12 AWG',
+            code: "ELEC-002",
+            description: "Cable #12 AWG",
             materialGroup: {
               groupId: 1,
-              name: 'Eléctrico',
+              name: "Eléctrico",
             },
           },
           {
             materialId: 8,
-            code: 'OFIC-001',
-            description: 'Resma papel carta',
+            code: "OFIC-001",
+            description: "Resma papel carta",
             materialGroup: {
               groupId: 4,
-              name: 'Suministros de Oficina',
+              name: "Suministros de Oficina",
             },
           },
         ],
@@ -552,13 +553,13 @@ export class MasterDataController {
       },
     },
   })
-  async getMaterials(@Query('groupId') groupId?: string) {
+  async getMaterials(@Query("groupId") groupId?: string) {
     const where = groupId ? { groupId: parseInt(groupId) } : {};
 
     const materials = await this.materialRepository.find({
       where,
-      relations: ['materialGroup'],
-      order: { code: 'ASC' },
+      relations: ["materialGroup"],
+      order: { code: "ASC" },
     });
 
     return {
@@ -567,19 +568,19 @@ export class MasterDataController {
     };
   }
 
-  @Get('statuses')
+  @Get("statuses")
   @ApiOperation({
-    summary: 'Obtener estados de requisición',
+    summary: "Obtener estados de requisición",
     description:
-      'Retorna la lista de estados posibles para las requisiciones ordenados por secuencia de flujo',
+      "Retorna la lista de estados posibles para las requisiciones ordenados por secuencia de flujo",
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de estados retornada exitosamente',
+    description: "Lista de estados retornada exitosamente",
   })
   async getStatuses() {
     const statuses = await this.statusRepository.find({
-      order: { order: 'ASC' },
+      order: { order: "ASC" },
     });
 
     return {
@@ -592,18 +593,18 @@ export class MasterDataController {
   // CRUD GRUPOS DE MATERIALES
   // ============================================
 
-  @Post('material-groups')
+  @Post("material-groups")
   @ApiOperation({
-    summary: 'Crear un nuevo grupo de materiales',
-    description: 'Crea un nuevo grupo de materiales en la base de datos',
+    summary: "Crear un nuevo grupo de materiales",
+    description: "Crea un nuevo grupo de materiales en la base de datos",
   })
   @ApiResponse({
     status: 201,
-    description: 'Grupo creado exitosamente',
+    description: "Grupo creado exitosamente",
   })
   @ApiResponse({
     status: 409,
-    description: 'Ya existe un grupo con ese nombre',
+    description: "Ya existe un grupo con ese nombre",
   })
   async createMaterialGroup(@Body() createDto: CreateMaterialGroupDto) {
     // Verificar coincidencia exacta (case insensitive)
@@ -634,11 +635,13 @@ export class MasterDataController {
       );
       throw new ConflictException({
         message: `Se encontraron grupos similares. ¿Quisiste decir alguno de estos?`,
-        suggestions: similarGroups.map((g: { group_id: number; name: string }) => ({
-          groupId: g.group_id,
-          name: g.name,
-        })),
-        hint: suggestions.join(', '),
+        suggestions: similarGroups.map(
+          (g: { group_id: number; name: string }) => ({
+            groupId: g.group_id,
+            name: g.name,
+          }),
+        ),
+        hint: suggestions.join(", "),
       });
     }
 
@@ -650,27 +653,27 @@ export class MasterDataController {
     const saved = await this.materialGroupRepository.save(group);
 
     return {
-      message: 'Grupo creado exitosamente',
+      message: "Grupo creado exitosamente",
       data: saved,
     };
   }
 
-  @Patch('material-groups/:id')
+  @Patch("material-groups/:id")
   @ApiOperation({
-    summary: 'Actualizar un grupo de materiales',
-    description: 'Actualiza el nombre o categoría de un grupo existente',
+    summary: "Actualizar un grupo de materiales",
+    description: "Actualiza el nombre o categoría de un grupo existente",
   })
-  @ApiParam({ name: 'id', description: 'ID del grupo' })
+  @ApiParam({ name: "id", description: "ID del grupo" })
   @ApiResponse({
     status: 200,
-    description: 'Grupo actualizado exitosamente',
+    description: "Grupo actualizado exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Grupo no encontrado',
+    description: "Grupo no encontrado",
   })
   async updateMaterialGroup(
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() updateDto: CreateMaterialGroupDto,
   ) {
     const group = await this.materialGroupRepository.findOne({
@@ -697,34 +700,33 @@ export class MasterDataController {
     const saved = await this.materialGroupRepository.save(group);
 
     return {
-      message: 'Grupo actualizado exitosamente',
+      message: "Grupo actualizado exitosamente",
       data: saved,
     };
   }
 
-  @Delete('material-groups/:id')
+  @Delete("material-groups/:id")
   @ApiOperation({
-    summary: 'Eliminar un grupo de materiales',
-    description:
-      'Elimina un grupo. Falla si tiene materiales asociados.',
+    summary: "Eliminar un grupo de materiales",
+    description: "Elimina un grupo. Falla si tiene materiales asociados.",
   })
-  @ApiParam({ name: 'id', description: 'ID del grupo' })
+  @ApiParam({ name: "id", description: "ID del grupo" })
   @ApiResponse({
     status: 200,
-    description: 'Grupo eliminado exitosamente',
+    description: "Grupo eliminado exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Grupo no encontrado',
+    description: "Grupo no encontrado",
   })
   @ApiResponse({
     status: 409,
-    description: 'No se puede eliminar, tiene materiales asociados',
+    description: "No se puede eliminar, tiene materiales asociados",
   })
-  async deleteMaterialGroup(@Param('id', ParseIntPipe) id: number) {
+  async deleteMaterialGroup(@Param("id", ParseIntPipe) id: number) {
     const group = await this.materialGroupRepository.findOne({
       where: { groupId: id },
-      relations: ['materials'],
+      relations: ["materials"],
     });
 
     if (!group) {
@@ -748,22 +750,23 @@ export class MasterDataController {
   // CRUD MATERIALES
   // ============================================
 
-  @Post('materials')
+  @Post("materials")
   @ApiOperation({
-    summary: 'Crear un nuevo material',
-    description: 'Crea un nuevo material en la base de datos. El grupo es obligatorio.',
+    summary: "Crear un nuevo material",
+    description:
+      "Crea un nuevo material en la base de datos. El grupo es obligatorio.",
   })
   @ApiResponse({
     status: 201,
-    description: 'Material creado exitosamente',
+    description: "Material creado exitosamente",
   })
   @ApiResponse({
     status: 409,
-    description: 'Ya existe un material con ese código',
+    description: "Ya existe un material con ese código",
   })
   @ApiResponse({
     status: 404,
-    description: 'Grupo no encontrado',
+    description: "Grupo no encontrado",
   })
   async createMaterial(@Body() createDto: CreateMaterialDto) {
     // Verificar que el grupo existe
@@ -825,14 +828,19 @@ export class MasterDataController {
         throw new ConflictException({
           message: `Se encontraron materiales similares en el mismo grupo. ¿Quisiste decir alguno de estos?`,
           suggestions: similarMaterials.map(
-            (m: { material_id: number; code: string; description: string; group_name: string }) => ({
+            (m: {
+              material_id: number;
+              code: string;
+              description: string;
+              group_name: string;
+            }) => ({
               materialId: m.material_id,
               code: m.code,
               description: m.description,
               group: m.group_name,
             }),
           ),
-          hint: suggestions.join(', '),
+          hint: suggestions.join(", "),
         });
       }
     }
@@ -847,31 +855,31 @@ export class MasterDataController {
 
     const result = await this.materialRepository.findOne({
       where: { materialId: saved.materialId },
-      relations: ['materialGroup'],
+      relations: ["materialGroup"],
     });
 
     return {
-      message: 'Material creado exitosamente',
+      message: "Material creado exitosamente",
       data: result,
     };
   }
 
-  @Patch('materials/:id')
+  @Patch("materials/:id")
   @ApiOperation({
-    summary: 'Actualizar un material',
-    description: 'Actualiza los datos de un material existente',
+    summary: "Actualizar un material",
+    description: "Actualiza los datos de un material existente",
   })
-  @ApiParam({ name: 'id', description: 'ID del material' })
+  @ApiParam({ name: "id", description: "ID del material" })
   @ApiResponse({
     status: 200,
-    description: 'Material actualizado exitosamente',
+    description: "Material actualizado exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Material o grupo no encontrado',
+    description: "Material o grupo no encontrado",
   })
   async updateMaterial(
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() updateDto: UpdateMaterialDto,
   ) {
     const material = await this.materialRepository.findOne({
@@ -912,30 +920,30 @@ export class MasterDataController {
     // Retornar con la relación del grupo
     const result = await this.materialRepository.findOne({
       where: { materialId: id },
-      relations: ['materialGroup'],
+      relations: ["materialGroup"],
     });
 
     return {
-      message: 'Material actualizado exitosamente',
+      message: "Material actualizado exitosamente",
       data: result,
     };
   }
 
-  @Delete('materials/:id')
+  @Delete("materials/:id")
   @ApiOperation({
-    summary: 'Eliminar un material',
-    description: 'Elimina un material de la base de datos',
+    summary: "Eliminar un material",
+    description: "Elimina un material de la base de datos",
   })
-  @ApiParam({ name: 'id', description: 'ID del material' })
+  @ApiParam({ name: "id", description: "ID del material" })
   @ApiResponse({
     status: 200,
-    description: 'Material eliminado exitosamente',
+    description: "Material eliminado exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Material no encontrado',
+    description: "Material no encontrado",
   })
-  async deleteMaterial(@Param('id', ParseIntPipe) id: number) {
+  async deleteMaterial(@Param("id", ParseIntPipe) id: number) {
     const material = await this.materialRepository.findOne({
       where: { materialId: id },
     });
@@ -955,9 +963,9 @@ export class MasterDataController {
   // BÚSQUEDA CON SUGERENCIAS (Fuzzy Search)
   // ============================================
 
-  @Get('material-groups/search')
+  @Get("material-groups/search")
   @ApiOperation({
-    summary: 'Buscar grupos de materiales con fuzzy matching',
+    summary: "Buscar grupos de materiales con fuzzy matching",
     description: `
     Busca grupos por nombre usando similitud de texto.
     Útil para autocompletado y detección de typos.
@@ -967,9 +975,9 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de grupos similares',
+    description: "Lista de grupos similares",
   })
-  async searchMaterialGroups(@Query('q') query: string) {
+  async searchMaterialGroups(@Query("q") query: string) {
     if (!query || query.length < 2) {
       return { data: [], total: 0 };
     }
@@ -986,19 +994,26 @@ export class MasterDataController {
     );
 
     return {
-      data: results.map((r: { group_id: number; name: string; category_id: number; similarity_score: number }) => ({
-        groupId: r.group_id,
-        name: r.name,
-        categoryId: r.category_id,
-        similarity: Math.round(r.similarity_score * 100),
-      })),
+      data: results.map(
+        (r: {
+          group_id: number;
+          name: string;
+          category_id: number;
+          similarity_score: number;
+        }) => ({
+          groupId: r.group_id,
+          name: r.name,
+          categoryId: r.category_id,
+          similarity: Math.round(r.similarity_score * 100),
+        }),
+      ),
       total: results.length,
     };
   }
 
-  @Get('materials/search')
+  @Get("materials/search")
   @ApiOperation({
-    summary: 'Buscar materiales con fuzzy matching',
+    summary: "Buscar materiales con fuzzy matching",
     description: `
     Busca materiales por código o descripción usando similitud de texto.
     Útil para autocompletado y detección de typos.
@@ -1008,11 +1023,11 @@ export class MasterDataController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de materiales similares',
+    description: "Lista de materiales similares",
   })
   async searchMaterials(
-    @Query('q') query: string,
-    @Query('groupId') groupId?: string,
+    @Query("q") query: string,
+    @Query("groupId") groupId?: string,
   ) {
     if (!query || query.length < 2) {
       return { data: [], total: 0 };

@@ -1,12 +1,18 @@
-import { IsOptional, IsNumber, IsString, IsEnum, IsDateString } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsEnum,
+  IsDateString,
+} from "class-validator";
+import { Type } from "class-transformer";
+import { ApiProperty } from "@nestjs/swagger";
 
 export enum SurveyStatusFilter {
-  PENDING = 'pending',
-  IN_REVIEW = 'in_review',
-  APPROVED = 'approved',
-  REJECTED = 'rejected',
+  PENDING = "pending",
+  IN_REVIEW = "in_review",
+  APPROVED = "approved",
+  REJECTED = "rejected",
 }
 
 export enum BlockStatusFilter {
@@ -17,7 +23,7 @@ export enum BlockStatusFilter {
 
 export class FilterSurveysDto {
   @ApiProperty({
-    description: 'Filter by company ID',
+    description: "Filter by company ID",
     required: false,
   })
   @IsOptional()
@@ -26,7 +32,7 @@ export class FilterSurveysDto {
   companyId?: number;
 
   @ApiProperty({
-    description: 'Filter by project ID',
+    description: "Filter by project ID",
     required: false,
   })
   @IsOptional()
@@ -35,7 +41,7 @@ export class FilterSurveysDto {
   projectId?: number;
 
   @ApiProperty({
-    description: 'Filter by work ID',
+    description: "Filter by work ID",
     required: false,
   })
   @IsOptional()
@@ -44,7 +50,7 @@ export class FilterSurveysDto {
   workId?: number;
 
   @ApiProperty({
-    description: 'Filter by status',
+    description: "Filter by status",
     enum: SurveyStatusFilter,
     required: false,
   })
@@ -53,7 +59,7 @@ export class FilterSurveysDto {
   status?: SurveyStatusFilter;
 
   @ApiProperty({
-    description: 'Filter by creator user ID',
+    description: "Filter by creator user ID",
     required: false,
   })
   @IsOptional()
@@ -62,8 +68,8 @@ export class FilterSurveysDto {
   createdBy?: number;
 
   @ApiProperty({
-    description: 'Filter surveys from this date',
-    example: '2025-01-01',
+    description: "Filter surveys from this date",
+    example: "2025-01-01",
     required: false,
   })
   @IsOptional()
@@ -71,8 +77,8 @@ export class FilterSurveysDto {
   fromDate?: string;
 
   @ApiProperty({
-    description: 'Filter surveys until this date',
-    example: '2025-12-31',
+    description: "Filter surveys until this date",
+    example: "2025-12-31",
     required: false,
   })
   @IsOptional()
@@ -80,7 +86,7 @@ export class FilterSurveysDto {
   toDate?: string;
 
   @ApiProperty({
-    description: 'Search by project code',
+    description: "Search by project code",
     required: false,
   })
   @IsOptional()
@@ -88,7 +94,7 @@ export class FilterSurveysDto {
   projectCode?: string;
 
   @ApiProperty({
-    description: 'Page number',
+    description: "Page number",
     default: 1,
     required: false,
   })
@@ -98,7 +104,7 @@ export class FilterSurveysDto {
   page?: number;
 
   @ApiProperty({
-    description: 'Items per page',
+    description: "Items per page",
     default: 10,
     required: false,
   })

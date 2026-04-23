@@ -3,18 +3,18 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, In, Not } from "typeorm";
+import * as bcrypt from "bcrypt";
 
-import { User } from '../../database/entities/user.entity';
-import { Role } from '../../database/entities/role.entity';
-import { Authorization } from '../../database/entities/authorization.entity';
-import { Permission } from '../../database/entities/permission.entity';
-import { RolePermission } from '../../database/entities/role-permission.entity';
-import { RoleGestion } from '../../database/entities/role-gestion.entity';
-import { Gestion } from '../../database/entities/gestion.entity';
+import { User } from "../../database/entities/user.entity";
+import { Role } from "../../database/entities/role.entity";
+import { Authorization } from "../../database/entities/authorization.entity";
+import { Permission } from "../../database/entities/permission.entity";
+import { RolePermission } from "../../database/entities/role-permission.entity";
+import { RoleGestion } from "../../database/entities/role-gestion.entity";
+import { Gestion } from "../../database/entities/gestion.entity";
 
 import {
   CreateUserDto,
@@ -25,7 +25,7 @@ import {
   UpdateRoleDto,
   AssignPermissionsDto,
   AssignGestionesDto,
-} from './dto';
+} from "./dto";
 
 @Injectable()
 export class UsersService {
@@ -55,17 +55,17 @@ export class UsersService {
 
     const users = await this.userRepository.find({
       where,
-      relations: ['role'],
-      order: { nombre: 'ASC' },
+      relations: ["role"],
+      order: { nombre: "ASC" },
     });
 
-    return users.map(user => this.sanitizeUser(user));
+    return users.map((user) => this.sanitizeUser(user));
   }
 
   async findOne(userId: number) {
     const user = await this.userRepository.findOne({
       where: { userId },
-      relations: ['role', 'authorizationsGranted', 'authorizationsReceived'],
+      relations: ["role", "authorizationsGranted", "authorizationsReceived"],
     });
 
     if (!user) {
@@ -78,7 +78,7 @@ export class UsersService {
   async findByEmail(email: string) {
     const user = await this.userRepository.findOne({
       where: { email },
-      relations: ['role'],
+      relations: ["role"],
     });
 
     if (!user) {
@@ -95,7 +95,9 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException(`Ya existe un usuario con el email ${createUserDto.email}`);
+      throw new ConflictException(
+        `Ya existe un usuario con el email ${createUserDto.email}`,
+      );
     }
 
     // Verificar que el rol existe
@@ -104,7 +106,9 @@ export class UsersService {
     });
 
     if (!role) {
-      throw new NotFoundException(`Rol con ID ${createUserDto.rolId} no encontrado`);
+      throw new NotFoundException(
+        `Rol con ID ${createUserDto.rolId} no encontrado`,
+      );
     }
 
     // Hash de la contraseña
@@ -139,7 +143,9 @@ export class UsersService {
       });
 
       if (existingUser) {
-        throw new ConflictException(`Ya existe un usuario con el email ${updateUserDto.email}`);
+        throw new ConflictException(
+          `Ya existe un usuario con el email ${updateUserDto.email}`,
+        );
       }
     }
 
@@ -150,7 +156,9 @@ export class UsersService {
       });
 
       if (!role) {
-        throw new NotFoundException(`Rol con ID ${updateUserDto.rolId} no encontrado`);
+        throw new NotFoundException(
+          `Rol con ID ${updateUserDto.rolId} no encontrado`,
+        );
       }
     }
 
@@ -200,25 +208,25 @@ export class UsersService {
   async findAllRoles() {
     return this.roleRepository.find({
       relations: [
-        'rolePermissions',
-        'rolePermissions.permission',
-        'roleGestiones',
-        'roleGestiones.gestion',
+        "rolePermissions",
+        "rolePermissions.permission",
+        "roleGestiones",
+        "roleGestiones.gestion",
       ],
-      order: { rolId: 'ASC' },
+      order: { rolId: "ASC" },
     });
   }
 
   async findAllPermissions() {
     return this.permissionRepository.find({
-      order: { permisoId: 'ASC' },
+      order: { permisoId: "ASC" },
     });
   }
 
   async getRolePermissions(rolId: number) {
     const role = await this.roleRepository.findOne({
       where: { rolId },
-      relations: ['rolePermissions', 'rolePermissions.permission'],
+      relations: ["rolePermissions", "rolePermissions.permission"],
     });
 
     if (!role) {
@@ -231,7 +239,7 @@ export class UsersService {
         nombreRol: role.nombreRol,
         descripcion: role.descripcion,
       },
-      permissions: role.rolePermissions.map(rp => ({
+      permissions: role.rolePermissions.map((rp) => ({
         permisoId: rp.permission.permisoId,
         nombrePermiso: rp.permission.nombrePermiso,
         descripcion: rp.permission.descripcion,
@@ -247,10 +255,10 @@ export class UsersService {
     const role = await this.roleRepository.findOne({
       where: { rolId },
       relations: [
-        'rolePermissions',
-        'rolePermissions.permission',
-        'roleGestiones',
-        'roleGestiones.gestion',
+        "rolePermissions",
+        "rolePermissions.permission",
+        "roleGestiones",
+        "roleGestiones.gestion",
       ],
     });
 
@@ -264,12 +272,12 @@ export class UsersService {
       descripcion: role.descripcion,
       category: role.category,
       defaultModule: role.defaultModule,
-      permisos: role.rolePermissions.map(rp => ({
+      permisos: role.rolePermissions.map((rp) => ({
         permisoId: rp.permission.permisoId,
         nombrePermiso: rp.permission.nombrePermiso,
         descripcion: rp.permission.descripcion,
       })),
-      gestiones: role.roleGestiones.map(rg => ({
+      gestiones: role.roleGestiones.map((rg) => ({
         gestionId: rg.gestion.gestionId,
         nombre: rg.gestion.nombre,
         slug: rg.gestion.slug,
@@ -285,7 +293,9 @@ export class UsersService {
     });
 
     if (existingRole) {
-      throw new ConflictException(`Ya existe un rol con el nombre "${createRoleDto.nombreRol}"`);
+      throw new ConflictException(
+        `Ya existe un rol con el nombre "${createRoleDto.nombreRol}"`,
+      );
     }
 
     // Crear el rol
@@ -300,12 +310,16 @@ export class UsersService {
 
     // Asignar permisos si se especificaron
     if (createRoleDto.permisoIds && createRoleDto.permisoIds.length > 0) {
-      await this.assignPermissionsToRole(savedRole.rolId, { permisoIds: createRoleDto.permisoIds });
+      await this.assignPermissionsToRole(savedRole.rolId, {
+        permisoIds: createRoleDto.permisoIds,
+      });
     }
 
     // Asignar gestiones si se especificaron
     if (createRoleDto.gestionIds && createRoleDto.gestionIds.length > 0) {
-      await this.assignGestionesToRole(savedRole.rolId, { gestionIds: createRoleDto.gestionIds });
+      await this.assignGestionesToRole(savedRole.rolId, {
+        gestionIds: createRoleDto.gestionIds,
+      });
     }
 
     return this.findOneRole(savedRole.rolId);
@@ -327,7 +341,9 @@ export class UsersService {
       });
 
       if (existingRole) {
-        throw new ConflictException(`Ya existe un rol con el nombre "${updateRoleDto.nombreRol}"`);
+        throw new ConflictException(
+          `Ya existe un rol con el nombre "${updateRoleDto.nombreRol}"`,
+        );
       }
     }
 
@@ -340,7 +356,7 @@ export class UsersService {
   async deleteRole(rolId: number) {
     const role = await this.roleRepository.findOne({
       where: { rolId },
-      relations: ['users'],
+      relations: ["users"],
     });
 
     if (!role) {
@@ -351,7 +367,7 @@ export class UsersService {
     if (role.users && role.users.length > 0) {
       throw new BadRequestException(
         `No se puede eliminar el rol "${role.nombreRol}" porque tiene ${role.users.length} usuario(s) asignado(s). ` +
-        `Reasigne los usuarios a otro rol antes de eliminar.`
+          `Reasigne los usuarios a otro rol antes de eliminar.`,
       );
     }
 
@@ -383,9 +399,13 @@ export class UsersService {
       });
 
       if (permissions.length !== dto.permisoIds.length) {
-        const foundIds = permissions.map(p => p.permisoId);
-        const notFoundIds = dto.permisoIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Permisos no encontrados: ${notFoundIds.join(', ')}`);
+        const foundIds = permissions.map((p) => p.permisoId);
+        const notFoundIds = dto.permisoIds.filter(
+          (id) => !foundIds.includes(id),
+        );
+        throw new NotFoundException(
+          `Permisos no encontrados: ${notFoundIds.join(", ")}`,
+        );
       }
     }
 
@@ -394,8 +414,8 @@ export class UsersService {
 
     // Crear nuevos permisos
     if (dto.permisoIds.length > 0) {
-      const rolePermissions = dto.permisoIds.map(permisoId =>
-        this.rolePermissionRepository.create({ rolId, permisoId })
+      const rolePermissions = dto.permisoIds.map((permisoId) =>
+        this.rolePermissionRepository.create({ rolId, permisoId }),
       );
       await this.rolePermissionRepository.save(rolePermissions);
     }
@@ -419,9 +439,13 @@ export class UsersService {
       });
 
       if (gestiones.length !== dto.gestionIds.length) {
-        const foundIds = gestiones.map(g => g.gestionId);
-        const notFoundIds = dto.gestionIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Gestiones no encontradas: ${notFoundIds.join(', ')}`);
+        const foundIds = gestiones.map((g) => g.gestionId);
+        const notFoundIds = dto.gestionIds.filter(
+          (id) => !foundIds.includes(id),
+        );
+        throw new NotFoundException(
+          `Gestiones no encontradas: ${notFoundIds.join(", ")}`,
+        );
       }
     }
 
@@ -430,8 +454,8 @@ export class UsersService {
 
     // Crear nuevas gestiones
     if (dto.gestionIds.length > 0) {
-      const roleGestiones = dto.gestionIds.map(gestionId =>
-        this.roleGestionRepository.create({ rolId, gestionId })
+      const roleGestiones = dto.gestionIds.map((gestionId) =>
+        this.roleGestionRepository.create({ rolId, gestionId }),
       );
       await this.roleGestionRepository.save(roleGestiones);
     }
@@ -442,7 +466,7 @@ export class UsersService {
   async getRoleGestiones(rolId: number) {
     const role = await this.roleRepository.findOne({
       where: { rolId },
-      relations: ['roleGestiones', 'roleGestiones.gestion'],
+      relations: ["roleGestiones", "roleGestiones.gestion"],
     });
 
     if (!role) {
@@ -454,7 +478,7 @@ export class UsersService {
         rolId: role.rolId,
         nombreRol: role.nombreRol,
       },
-      gestiones: role.roleGestiones.map(rg => ({
+      gestiones: role.roleGestiones.map((rg) => ({
         gestionId: rg.gestion.gestionId,
         nombre: rg.gestion.nombre,
         slug: rg.gestion.slug,
@@ -479,20 +503,20 @@ export class UsersService {
     // Obtener autorizaciones otorgadas (usuarios que puede revisar/aprobar)
     const authorizationsGranted = await this.authorizationRepository.find({
       where: { usuarioAutorizadorId: userId, esActivo: true },
-      relations: ['usuarioAutorizado', 'gestion'],
+      relations: ["usuarioAutorizado", "gestion"],
     });
 
     // Obtener autorizaciones recibidas (quién lo puede revisar/aprobar)
     const authorizationsReceived = await this.authorizationRepository.find({
       where: { usuarioAutorizadoId: userId, esActivo: true },
-      relations: ['usuarioAutorizador', 'gestion'],
+      relations: ["usuarioAutorizador", "gestion"],
     });
 
     return {
       userId,
       nombre: user.nombre,
       // Subordinados (a quienes puede revisar/aprobar)
-      subordinados: authorizationsGranted.map(auth => ({
+      subordinados: authorizationsGranted.map((auth) => ({
         authorizationId: auth.id,
         usuario: {
           userId: auth.usuarioAutorizado.userId,
@@ -502,13 +526,15 @@ export class UsersService {
         },
         tipoAutorizacion: auth.tipoAutorizacion,
         nivel: auth.nivel,
-        gestion: auth.gestion ? {
-          gestionId: auth.gestion.gestionId,
-          nombre: auth.gestion.nombre,
-        } : null,
+        gestion: auth.gestion
+          ? {
+              gestionId: auth.gestion.gestionId,
+              nombre: auth.gestion.nombre,
+            }
+          : null,
       })),
       // Supervisores (quienes lo pueden revisar/aprobar)
-      supervisores: authorizationsReceived.map(auth => ({
+      supervisores: authorizationsReceived.map((auth) => ({
         authorizationId: auth.id,
         usuario: {
           userId: auth.usuarioAutorizador.userId,
@@ -518,10 +544,12 @@ export class UsersService {
         },
         tipoAutorizacion: auth.tipoAutorizacion,
         nivel: auth.nivel,
-        gestion: auth.gestion ? {
-          gestionId: auth.gestion.gestionId,
-          nombre: auth.gestion.nombre,
-        } : null,
+        gestion: auth.gestion
+          ? {
+              gestionId: auth.gestion.gestionId,
+              nombre: auth.gestion.nombre,
+            }
+          : null,
       })),
     };
   }
@@ -536,7 +564,9 @@ export class UsersService {
     });
 
     if (!autorizador) {
-      throw new NotFoundException(`Usuario autorizador con ID ${usuarioAutorizadorId} no encontrado`);
+      throw new NotFoundException(
+        `Usuario autorizador con ID ${usuarioAutorizadorId} no encontrado`,
+      );
     }
 
     // Verificar que el autorizado existe
@@ -545,12 +575,16 @@ export class UsersService {
     });
 
     if (!autorizado) {
-      throw new NotFoundException(`Usuario autorizado con ID ${createAuthorizationDto.usuarioAutorizadoId} no encontrado`);
+      throw new NotFoundException(
+        `Usuario autorizado con ID ${createAuthorizationDto.usuarioAutorizadoId} no encontrado`,
+      );
     }
 
     // No se puede autorizar a sí mismo
     if (usuarioAutorizadorId === createAuthorizationDto.usuarioAutorizadoId) {
-      throw new BadRequestException('Un usuario no puede autorizarse a sí mismo');
+      throw new BadRequestException(
+        "Un usuario no puede autorizarse a sí mismo",
+      );
     }
 
     // Verificar si la gestión existe (si se especifica)
@@ -560,12 +594,16 @@ export class UsersService {
       });
 
       if (!gestion) {
-        throw new NotFoundException(`Gestión con ID ${createAuthorizationDto.gestionId} no encontrada`);
+        throw new NotFoundException(
+          `Gestión con ID ${createAuthorizationDto.gestionId} no encontrada`,
+        );
       }
     }
 
     // Determinar el nivel basado en el tipo de autorización
-    const nivel = this.getNivelFromTipo(createAuthorizationDto.tipoAutorizacion);
+    const nivel = this.getNivelFromTipo(
+      createAuthorizationDto.tipoAutorizacion,
+    );
 
     // Verificar si ya existe esta autorización
     const whereCondition: any = {
@@ -582,13 +620,15 @@ export class UsersService {
 
     if (existingAuth) {
       if (existingAuth.esActivo) {
-        throw new ConflictException('Esta autorización ya existe');
+        throw new ConflictException("Esta autorización ya existe");
       }
       // Reactivar autorización existente
-      await this.authorizationRepository.update(existingAuth.id, { esActivo: true });
+      await this.authorizationRepository.update(existingAuth.id, {
+        esActivo: true,
+      });
       return this.authorizationRepository.findOne({
         where: { id: existingAuth.id },
-        relations: ['usuarioAutorizador', 'usuarioAutorizado', 'gestion'],
+        relations: ["usuarioAutorizador", "usuarioAutorizado", "gestion"],
       });
     }
 
@@ -610,7 +650,7 @@ export class UsersService {
 
     return this.authorizationRepository.findOne({
       where: { id: savedAuth.id },
-      relations: ['usuarioAutorizador', 'usuarioAutorizado', 'gestion'],
+      relations: ["usuarioAutorizador", "usuarioAutorizado", "gestion"],
     });
   }
 
@@ -633,7 +673,9 @@ export class UsersService {
         if (error instanceof ConflictException) {
           results.skipped++;
         } else {
-          results.errors.push(`Usuario ${usuarioAutorizadoId}: ${error.message}`);
+          results.errors.push(
+            `Usuario ${usuarioAutorizadoId}: ${error.message}`,
+          );
         }
       }
     }
@@ -644,15 +686,19 @@ export class UsersService {
   async removeAuthorization(authorizationId: number) {
     const authorization = await this.authorizationRepository.findOne({
       where: { id: authorizationId },
-      relations: ['usuarioAutorizador', 'usuarioAutorizado'],
+      relations: ["usuarioAutorizador", "usuarioAutorizado"],
     });
 
     if (!authorization) {
-      throw new NotFoundException(`Autorización con ID ${authorizationId} no encontrada`);
+      throw new NotFoundException(
+        `Autorización con ID ${authorizationId} no encontrada`,
+      );
     }
 
     // Desactivar en lugar de eliminar para mantener histórico
-    await this.authorizationRepository.update(authorizationId, { esActivo: false });
+    await this.authorizationRepository.update(authorizationId, {
+      esActivo: false,
+    });
 
     return {
       message: `Autorización removida: ${authorization.usuarioAutorizador.nombre} ya no puede ${authorization.tipoAutorizacion} a ${authorization.usuarioAutorizado.nombre}`,
@@ -663,8 +709,8 @@ export class UsersService {
     // Obtener todas las autorizaciones activas agrupadas
     const authorizations = await this.authorizationRepository.find({
       where: { esActivo: true },
-      relations: ['usuarioAutorizador', 'usuarioAutorizado', 'gestion'],
-      order: { nivel: 'ASC', usuarioAutorizadorId: 'ASC' },
+      relations: ["usuarioAutorizador", "usuarioAutorizado", "gestion"],
+      order: { nivel: "ASC", usuarioAutorizadorId: "ASC" },
     });
 
     // Agrupar por autorizador
@@ -692,7 +738,7 @@ export class UsersService {
         },
         tipoAutorizacion: auth.tipoAutorizacion,
         nivel: auth.nivel,
-        gestion: auth.gestion?.nombre || 'Todas',
+        gestion: auth.gestion?.nombre || "Todas",
       });
     }
 
@@ -710,11 +756,11 @@ export class UsersService {
 
   private getNivelFromTipo(tipo: string): number {
     switch (tipo) {
-      case 'revision':
+      case "revision":
         return 1;
-      case 'autorizacion':
+      case "autorizacion":
         return 2;
-      case 'aprobacion':
+      case "aprobacion":
         return 2;
       default:
         return 1;
@@ -737,7 +783,7 @@ export class UsersService {
 
     const excludeIds = [
       autorizadorId,
-      ...existingAuths.map(a => a.usuarioAutorizadoId),
+      ...existingAuths.map((a) => a.usuarioAutorizadoId),
     ];
 
     const availableUsers = await this.userRepository.find({
@@ -745,11 +791,11 @@ export class UsersService {
         userId: Not(In(excludeIds)),
         estado: true,
       },
-      relations: ['role'],
-      order: { nombre: 'ASC' },
+      relations: ["role"],
+      order: { nombre: "ASC" },
     });
 
-    return availableUsers.map(user => ({
+    return availableUsers.map((user) => ({
       userId: user.userId,
       nombre: user.nombre,
       cargo: user.cargo,
@@ -760,7 +806,7 @@ export class UsersService {
 
   async getAllGestiones() {
     return this.gestionRepository.find({
-      order: { gestionId: 'ASC' },
+      order: { gestionId: "ASC" },
     });
   }
 }

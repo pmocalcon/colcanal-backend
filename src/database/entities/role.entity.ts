@@ -4,28 +4,28 @@ import {
   PrimaryGeneratedColumn,
   OneToMany,
   ManyToMany,
-} from 'typeorm';
-import { User } from './user.entity';
-import { RolePermission } from './role-permission.entity';
-import { RoleGestion } from './role-gestion.entity';
+} from "typeorm";
+import { User } from "./user.entity";
+import { RolePermission } from "./role-permission.entity";
+import { RoleGestion } from "./role-gestion.entity";
 
-@Entity('roles')
+@Entity("roles")
 export class Role {
-  @PrimaryGeneratedColumn({ name: 'rol_id' })
+  @PrimaryGeneratedColumn({ name: "rol_id" })
   rolId: number;
 
-  @Column({ name: 'nombre_rol', type: 'varchar', length: 50, unique: true })
+  @Column({ name: "nombre_rol", type: "varchar", length: 50, unique: true })
   nombreRol: string;
 
-  @Column({ name: 'descripcion', type: 'text', nullable: true })
+  @Column({ name: "descripcion", type: "text", nullable: true })
   descripcion: string;
 
-  @Column({ type: 'varchar', length: 30, nullable: true })
+  @Column({ type: "varchar", length: 30, nullable: true })
   category: string;
 
   @Column({
-    name: 'default_module',
-    type: 'varchar',
+    name: "default_module",
+    type: "varchar",
     length: 50,
     nullable: true,
   })

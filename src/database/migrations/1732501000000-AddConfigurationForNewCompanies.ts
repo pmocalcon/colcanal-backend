@@ -1,11 +1,13 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class AddConfigurationForNewCompanies1732501000000 implements MigrationInterface {
-    name = 'AddConfigurationForNewCompanies1732501000000'
+export class AddConfigurationForNewCompanies1732501000000
+  implements MigrationInterface
+{
+  name = "AddConfigurationForNewCompanies1732501000000";
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        // 1. Agregar centros de operación para las nuevas empresas
-        await queryRunner.query(`
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // 1. Agregar centros de operación para las nuevas empresas
+    await queryRunner.query(`
             INSERT INTO operation_centers (company_id, project_id, code)
             SELECT company_id, NULL, '009'
             FROM companies
@@ -13,7 +15,7 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             ON CONFLICT DO NOTHING
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             INSERT INTO operation_centers (company_id, project_id, code)
             SELECT company_id, NULL, '010'
             FROM companies
@@ -21,8 +23,8 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             ON CONFLICT DO NOTHING
         `);
 
-        // 2. Agregar prefijos de requisición para las nuevas empresas
-        await queryRunner.query(`
+    // 2. Agregar prefijos de requisición para las nuevas empresas
+    await queryRunner.query(`
             INSERT INTO requisition_prefixes (company_id, project_id, prefix)
             SELECT company_id, NULL, 'U&A'
             FROM companies
@@ -30,7 +32,7 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             ON CONFLICT DO NOTHING
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             INSERT INTO requisition_prefixes (company_id, project_id, prefix)
             SELECT company_id, NULL, 'IGE'
             FROM companies
@@ -38,8 +40,8 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             ON CONFLICT DO NOTHING
         `);
 
-        // 3. Crear secuencias de requisición para los nuevos prefijos
-        await queryRunner.query(`
+    // 3. Crear secuencias de requisición para los nuevos prefijos
+    await queryRunner.query(`
             INSERT INTO requisition_sequences (prefix_id, last_number)
             SELECT prefix_id, 0
             FROM requisition_prefixes
@@ -49,11 +51,11 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
                 WHERE rs.prefix_id = requisition_prefixes.prefix_id
             )
         `);
-    }
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        // Revertir: Eliminar secuencias de requisición
-        await queryRunner.query(`
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Revertir: Eliminar secuencias de requisición
+    await queryRunner.query(`
             DELETE FROM requisition_sequences
             WHERE prefix_id IN (
                 SELECT prefix_id FROM requisition_prefixes
@@ -61,8 +63,8 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             )
         `);
 
-        // Revertir: Eliminar prefijos de requisición
-        await queryRunner.query(`
+    // Revertir: Eliminar prefijos de requisición
+    await queryRunner.query(`
             DELETE FROM requisition_prefixes
             WHERE company_id IN (
                 SELECT company_id FROM companies
@@ -70,13 +72,13 @@ export class AddConfigurationForNewCompanies1732501000000 implements MigrationIn
             )
         `);
 
-        // Revertir: Eliminar centros de operación
-        await queryRunner.query(`
+    // Revertir: Eliminar centros de operación
+    await queryRunner.query(`
             DELETE FROM operation_centers
             WHERE company_id IN (
                 SELECT company_id FROM companies
                 WHERE name IN ('Uniones y Alianzas', 'Inversiones Garcés Escalante')
             )
         `);
-    }
+  }
 }

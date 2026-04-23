@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import * as nodemailer from "nodemailer";
 
 export interface EmailNotification {
   to: string;
@@ -13,7 +13,7 @@ export interface RequisitionNotificationData {
   requisitionNumber: string;
   creatorName: string;
   projectName?: string;
-  priority: 'alta' | 'normal';
+  priority: "alta" | "normal";
   itemsCount: number;
   deadline?: Date;
   actionUrl?: string;
@@ -30,14 +30,18 @@ export class NotificationsService {
   }
 
   private initializeTransporter() {
-    const smtpHost = this.configService.get<string>('SMTP_HOST');
-    const smtpPort = this.configService.get<number>('SMTP_PORT');
-    const smtpUser = this.configService.get<string>('SMTP_USER');
-    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    const smtpHost = this.configService.get<string>("SMTP_HOST");
+    const smtpPort = this.configService.get<number>("SMTP_PORT");
+    const smtpUser = this.configService.get<string>("SMTP_USER");
+    const smtpPass = this.configService.get<string>("SMTP_PASS");
 
     if (!smtpHost || !smtpUser || !smtpPass) {
-      this.logger.warn('SMTP no configurado. Las notificaciones por correo están deshabilitadas.');
-      this.logger.warn('Configure las variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS');
+      this.logger.warn(
+        "SMTP no configurado. Las notificaciones por correo están deshabilitadas.",
+      );
+      this.logger.warn(
+        "Configure las variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS",
+      );
       return;
     }
 
@@ -57,12 +61,16 @@ export class NotificationsService {
 
   async sendEmail(notification: EmailNotification): Promise<boolean> {
     if (!this.isConfigured) {
-      this.logger.warn(`Correo no enviado (SMTP no configurado): ${notification.subject}`);
+      this.logger.warn(
+        `Correo no enviado (SMTP no configurado): ${notification.subject}`,
+      );
       return false;
     }
 
     try {
-      const fromEmail = this.configService.get<string>('SMTP_FROM') || this.configService.get<string>('SMTP_USER');
+      const fromEmail =
+        this.configService.get<string>("SMTP_FROM") ||
+        this.configService.get<string>("SMTP_USER");
 
       await this.transporter.sendMail({
         from: `"Sistema de Gestión" <${fromEmail}>`,
@@ -72,10 +80,14 @@ export class NotificationsService {
         text: notification.text,
       });
 
-      this.logger.log(`Correo enviado a: ${notification.to} - Asunto: ${notification.subject}`);
+      this.logger.log(
+        `Correo enviado a: ${notification.to} - Asunto: ${notification.subject}`,
+      );
       return true;
     } catch (error) {
-      this.logger.error(`Error enviando correo a ${notification.to}: ${error.message}`);
+      this.logger.error(
+        `Error enviando correo a ${notification.to}: ${error.message}`,
+      );
       return false;
     }
   }
@@ -89,9 +101,10 @@ export class NotificationsService {
     reviewerName: string,
     data: RequisitionNotificationData,
   ): Promise<boolean> {
-    const priorityBadge = data.priority === 'alta'
-      ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">PRIORIDAD ALTA</span>'
-      : '<span style="background-color: #6c757d; color: white; padding: 2px 8px; border-radius: 4px;">Normal</span>';
+    const priorityBadge =
+      data.priority === "alta"
+        ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">PRIORIDAD ALTA</span>'
+        : '<span style="background-color: #6c757d; color: white; padding: 2px 8px; border-radius: 4px;">Normal</span>';
 
     const html = `
       <!DOCTYPE html>
@@ -129,12 +142,16 @@ export class NotificationsService {
                 <span class="label">Creado por:</span>
                 <span>${data.creatorName}</span>
               </div>
-              ${data.projectName ? `
+              ${
+                data.projectName
+                  ? `
               <div class="info-row">
                 <span class="label">Proyecto:</span>
                 <span>${data.projectName}</span>
               </div>
-              ` : ''}
+              `
+                  : ""
+              }
               <div class="info-row">
                 <span class="label">Prioridad:</span>
                 <span>${priorityBadge}</span>
@@ -143,15 +160,19 @@ export class NotificationsService {
                 <span class="label">Materiales:</span>
                 <span>${data.itemsCount} ítem(s)</span>
               </div>
-              ${data.deadline ? `
+              ${
+                data.deadline
+                  ? `
               <div class="info-row">
                 <span class="label">Fecha límite:</span>
-                <span style="color: #dc3545;">${new Date(data.deadline).toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <span style="color: #dc3545;">${new Date(data.deadline).toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
               </div>
-              ` : ''}
+              `
+                  : ""
+              }
             </div>
 
-            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Ver Requisición</a>` : ''}
+            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Ver Requisición</a>` : ""}
           </div>
           <div class="footer">
             <p>Sistema de Gestión Empresarial - Canalcongroup</p>
@@ -164,7 +185,7 @@ export class NotificationsService {
 
     return this.sendEmail({
       to: reviewerEmail,
-      subject: `📋 Nueva requisición ${data.requisitionNumber} pendiente de revisión${data.priority === 'alta' ? ' [URGENTE]' : ''}`,
+      subject: `📋 Nueva requisición ${data.requisitionNumber} pendiente de revisión${data.priority === "alta" ? " [URGENTE]" : ""}`,
       html,
     });
   }
@@ -172,11 +193,16 @@ export class NotificationsService {
   async notifyRequisitionReviewed(
     creatorEmail: string,
     creatorName: string,
-    data: RequisitionNotificationData & { approved: boolean; comments?: string },
+    data: RequisitionNotificationData & {
+      approved: boolean;
+      comments?: string;
+    },
   ): Promise<boolean> {
-    const statusIcon = data.approved ? '✅' : '❌';
-    const statusText = data.approved ? 'APROBADA por Revisión' : 'RECHAZADA por Revisión';
-    const statusColor = data.approved ? '#28a745' : '#dc3545';
+    const statusIcon = data.approved ? "✅" : "❌";
+    const statusText = data.approved
+      ? "APROBADA por Revisión"
+      : "RECHAZADA por Revisión";
+    const statusColor = data.approved ? "#28a745" : "#dc3545";
 
     const html = `
       <!DOCTYPE html>
@@ -201,16 +227,20 @@ export class NotificationsService {
           </div>
           <div class="content">
             <p>Hola <strong>${creatorName}</strong>,</p>
-            <p>Tu requisición <strong>${data.requisitionNumber}</strong> ha sido ${data.approved ? 'aprobada' : 'rechazada'} en la etapa de revisión.</p>
+            <p>Tu requisición <strong>${data.requisitionNumber}</strong> ha sido ${data.approved ? "aprobada" : "rechazada"} en la etapa de revisión.</p>
 
-            ${data.comments ? `
+            ${
+              data.comments
+                ? `
             <div class="comments">
               <strong>Comentarios:</strong>
               <p>${data.comments}</p>
             </div>
-            ` : ''}
+            `
+                : ""
+            }
 
-            <p>${data.approved ? 'La requisición pasará ahora a la siguiente etapa de aprobación.' : 'Por favor revisa los comentarios y realiza las correcciones necesarias.'}</p>
+            <p>${data.approved ? "La requisición pasará ahora a la siguiente etapa de aprobación." : "Por favor revisa los comentarios y realiza las correcciones necesarias."}</p>
           </div>
           <div class="footer">
             <p>Sistema de Gestión Empresarial - Canalcongroup</p>
@@ -222,7 +252,7 @@ export class NotificationsService {
 
     return this.sendEmail({
       to: creatorEmail,
-      subject: `${statusIcon} Tu requisición ${data.requisitionNumber} fue ${data.approved ? 'aprobada' : 'rechazada'}`,
+      subject: `${statusIcon} Tu requisición ${data.requisitionNumber} fue ${data.approved ? "aprobada" : "rechazada"}`,
       html,
     });
   }
@@ -232,9 +262,10 @@ export class NotificationsService {
     approverName: string,
     data: RequisitionNotificationData,
   ): Promise<boolean> {
-    const priorityBadge = data.priority === 'alta'
-      ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">PRIORIDAD ALTA</span>'
-      : '';
+    const priorityBadge =
+      data.priority === "alta"
+        ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">PRIORIDAD ALTA</span>'
+        : "";
 
     const html = `
       <!DOCTYPE html>
@@ -264,11 +295,11 @@ export class NotificationsService {
             <div class="info-box">
               <p><strong>Número:</strong> ${data.requisitionNumber} ${priorityBadge}</p>
               <p><strong>Creado por:</strong> ${data.creatorName}</p>
-              ${data.projectName ? `<p><strong>Proyecto:</strong> ${data.projectName}</p>` : ''}
+              ${data.projectName ? `<p><strong>Proyecto:</strong> ${data.projectName}</p>` : ""}
               <p><strong>Materiales:</strong> ${data.itemsCount} ítem(s)</p>
             </div>
 
-            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Revisar y Aprobar</a>` : ''}
+            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Revisar y Aprobar</a>` : ""}
           </div>
           <div class="footer">
             <p>Sistema de Gestión Empresarial - Canalcongroup</p>
@@ -280,7 +311,7 @@ export class NotificationsService {
 
     return this.sendEmail({
       to: approverEmail,
-      subject: `🔐 Requisición ${data.requisitionNumber} pendiente de aprobación${data.priority === 'alta' ? ' [URGENTE]' : ''}`,
+      subject: `🔐 Requisición ${data.requisitionNumber} pendiente de aprobación${data.priority === "alta" ? " [URGENTE]" : ""}`,
       html,
     });
   }
@@ -334,9 +365,10 @@ export class NotificationsService {
     quoterName: string,
     data: RequisitionNotificationData,
   ): Promise<boolean> {
-    const priorityBadge = data.priority === 'alta'
-      ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">URGENTE</span>'
-      : '';
+    const priorityBadge =
+      data.priority === "alta"
+        ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">URGENTE</span>'
+        : "";
 
     const html = `
       <!DOCTYPE html>
@@ -362,9 +394,9 @@ export class NotificationsService {
             <p>Hola <strong>${quoterName}</strong>,</p>
             <p>La requisición <strong>${data.requisitionNumber}</strong> ${priorityBadge} está lista para cotización.</p>
             <p><strong>Materiales a cotizar:</strong> ${data.itemsCount} ítem(s)</p>
-            ${data.projectName ? `<p><strong>Proyecto:</strong> ${data.projectName}</p>` : ''}
+            ${data.projectName ? `<p><strong>Proyecto:</strong> ${data.projectName}</p>` : ""}
 
-            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Ir a Cotizar</a>` : ''}
+            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Ir a Cotizar</a>` : ""}
           </div>
           <div class="footer">
             <p>Sistema de Gestión Empresarial - Canalcongroup</p>
@@ -376,7 +408,7 @@ export class NotificationsService {
 
     return this.sendEmail({
       to: quoterEmail,
-      subject: `💰 Requisición ${data.requisitionNumber} lista para cotizar${data.priority === 'alta' ? ' [URGENTE]' : ''}`,
+      subject: `💰 Requisición ${data.requisitionNumber} lista para cotizar${data.priority === "alta" ? " [URGENTE]" : ""}`,
       html,
     });
   }
@@ -391,12 +423,12 @@ export class NotificationsService {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     if (!this.isConfigured) {
-      return { success: false, message: 'SMTP no configurado' };
+      return { success: false, message: "SMTP no configurado" };
     }
 
     try {
       await this.transporter.verify();
-      return { success: true, message: 'Conexión SMTP exitosa' };
+      return { success: true, message: "Conexión SMTP exitosa" };
     } catch (error) {
       return { success: false, message: `Error: ${error.message}` };
     }

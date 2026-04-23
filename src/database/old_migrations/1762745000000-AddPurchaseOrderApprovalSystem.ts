@@ -1,9 +1,9 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddPurchaseOrderApprovalSystem1762745000000
   implements MigrationInterface
 {
-  name = 'AddPurchaseOrderApprovalSystem1762745000000';
+  name = "AddPurchaseOrderApprovalSystem1762745000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create enum types for approval status

@@ -6,26 +6,26 @@ import {
   JoinColumn,
   OneToMany,
   Unique,
-} from 'typeorm';
-import { Company } from './company.entity';
-import { OperationCenter } from './operation-center.entity';
-import { ProjectCode } from './project-code.entity';
-import { RequisitionPrefix } from './requisition-prefix.entity';
-import { CompanyContact } from './company-contact.entity';
+} from "typeorm";
+import { Company } from "./company.entity";
+import { OperationCenter } from "./operation-center.entity";
+import { ProjectCode } from "./project-code.entity";
+import { RequisitionPrefix } from "./requisition-prefix.entity";
+import { CompanyContact } from "./company-contact.entity";
 
-@Entity('projects')
-@Unique(['companyId', 'name'])
+@Entity("projects")
+@Unique(["companyId", "name"])
 export class Project {
-  @PrimaryGeneratedColumn({ name: 'project_id' })
+  @PrimaryGeneratedColumn({ name: "project_id" })
   projectId: number;
 
-  @Column({ name: 'company_id' })
+  @Column({ name: "company_id" })
   companyId: number;
 
-  @Column({ type: 'text' })
+  @Column({ type: "text" })
   name: string;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
+  @Column({ type: "varchar", length: 10, nullable: true })
   abbreviation: string;
 
   @Column({ name: 'ipp_base_year', type: 'int', nullable: true })
@@ -38,7 +38,7 @@ export class Project {
   ippInitialValue: number;
 
   @ManyToOne(() => Company, (company) => company.projects)
-  @JoinColumn({ name: 'company_id' })
+  @JoinColumn({ name: "company_id" })
   company: Company;
 
   @OneToMany(() => OperationCenter, (center) => center.project)

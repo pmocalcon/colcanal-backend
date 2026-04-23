@@ -1,44 +1,39 @@
-import {
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
-import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsNumber, IsOptional, IsString, MaxLength } from "class-validator";
+import { Type } from "class-transformer";
+import { ApiProperty } from "@nestjs/swagger";
 
 export class CreateWorkDto {
   @ApiProperty({
-    description: 'ID of the company (UTAP) for this work',
+    description: "ID of the company (UTAP) for this work",
     example: 3,
     type: Number,
   })
-  @IsNumber({}, { message: 'companyId must be a valid number' })
+  @IsNumber({}, { message: "companyId must be a valid number" })
   @Type(() => Number)
   companyId: number;
 
   @ApiProperty({
-    description: 'ID of the project (only for Canales & Contactos)',
+    description: "ID of the project (only for Canales & Contactos)",
     example: 2,
     type: Number,
     required: false,
   })
   @IsOptional()
-  @IsNumber({}, { message: 'projectId must be a valid number' })
+  @IsNumber({}, { message: "projectId must be a valid number" })
   @Type(() => Number)
   projectId?: number;
 
   @ApiProperty({
-    description: 'Name of the work',
-    example: 'Plazoleta - Alto de la Cruz',
+    description: "Name of the work",
+    example: "Plazoleta - Alto de la Cruz",
   })
-  @IsString({ message: 'name must be a string' })
+  @IsString({ message: "name must be a string" })
   @MaxLength(255)
   name: string;
 
   @ApiProperty({
-    description: 'Address of the work',
-    example: 'Barrio Alto de la Cruz',
+    description: "Address of the work",
+    example: "Barrio Alto de la Cruz",
     required: false,
   })
   @IsOptional()
@@ -47,8 +42,8 @@ export class CreateWorkDto {
   address?: string;
 
   @ApiProperty({
-    description: 'Neighborhood or township',
-    example: 'Barrio Centro',
+    description: "Neighborhood or township",
+    example: "Barrio Centro",
     required: false,
   })
   @IsOptional()
@@ -57,8 +52,8 @@ export class CreateWorkDto {
   neighborhood?: string;
 
   @ApiProperty({
-    description: 'Sector or village',
-    example: 'Alto de la Cruz',
+    description: "Sector or village",
+    example: "Alto de la Cruz",
     required: false,
   })
   @IsOptional()
@@ -67,9 +62,9 @@ export class CreateWorkDto {
   sectorVillage?: string;
 
   @ApiProperty({
-    description: 'Zone type',
-    example: 'Urbano',
-    enum: ['Urbano', 'Rural'],
+    description: "Zone type",
+    example: "Urbano",
+    enum: ["Urbano", "Rural"],
     required: false,
   })
   @IsOptional()
@@ -78,8 +73,8 @@ export class CreateWorkDto {
   zone?: string;
 
   @ApiProperty({
-    description: 'Type of area to illuminate',
-    example: 'Plazoleta',
+    description: "Type of area to illuminate",
+    example: "Plazoleta",
     required: false,
   })
   @IsOptional()
@@ -88,9 +83,9 @@ export class CreateWorkDto {
   areaType?: string;
 
   @ApiProperty({
-    description: 'Type of request',
-    example: 'Expansión',
-    enum: ['Expansión', 'Modernización', 'Mantenimiento'],
+    description: "Type of request",
+    example: "Expansión",
+    enum: ["Expansión", "Modernización", "Mantenimiento"],
     required: false,
   })
   @IsOptional()
@@ -99,8 +94,9 @@ export class CreateWorkDto {
   requestType?: string;
 
   @ApiProperty({
-    description: 'Record number (Número de Acta) - generates workCode automatically',
-    example: '03-2025',
+    description:
+      "Record number (Número de Acta) - generates workCode automatically",
+    example: "03-2025",
     required: false,
   })
   @IsOptional()
@@ -109,8 +105,8 @@ export class CreateWorkDto {
   recordNumber?: string;
 
   @ApiProperty({
-    description: 'Name of the requesting user',
-    example: 'Alcalde',
+    description: "Name of the requesting user",
+    example: "Alcalde",
     required: false,
   })
   @IsOptional()
@@ -119,8 +115,8 @@ export class CreateWorkDto {
   userName?: string;
 
   @ApiProperty({
-    description: 'Requesting entity or institution',
-    example: 'Municipio',
+    description: "Requesting entity or institution",
+    example: "Municipio",
     required: false,
   })
   @IsOptional()
@@ -129,8 +125,8 @@ export class CreateWorkDto {
   requestingEntity?: string;
 
   @ApiProperty({
-    description: 'User address',
-    example: 'Calle Principal #10-20',
+    description: "User address",
+    example: "Calle Principal #10-20",
     required: false,
   })
   @IsOptional()
@@ -139,8 +135,8 @@ export class CreateWorkDto {
   userAddress?: string;
 
   @ApiProperty({
-    description: 'Filing number (No. Radicado)',
-    example: 'RAD-2025-001',
+    description: "Filing number (No. Radicado)",
+    example: "RAD-2025-001",
     required: false,
   })
   @IsOptional()

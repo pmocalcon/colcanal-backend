@@ -5,27 +5,27 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
-} from '@nestjs/common';
-import { AuditService } from './audit.service';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+} from "@nestjs/common";
+import { AuditService } from "./audit.service";
+import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import {
   ApiBearerAuth,
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiQuery,
-} from '@nestjs/swagger';
+} from "@nestjs/swagger";
 
-@ApiTags('Auditorías')
-@Controller('audit')
+@ApiTags("Auditorías")
+@Controller("audit")
 @UseGuards(JwtAuthGuard)
-@ApiBearerAuth('JWT-auth')
+@ApiBearerAuth("JWT-auth")
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
-  @Get('logs')
+  @Get("logs")
   @ApiOperation({
-    summary: 'Obtener todos los logs de auditoría del módulo de compras',
+    summary: "Obtener todos los logs de auditoría del módulo de compras",
     description: `
     Obtiene un listado paginado de todos los logs de auditoría del módulo de compras.
 
@@ -48,91 +48,101 @@ export class AuditController {
     `,
   })
   @ApiQuery({
-    name: 'page',
+    name: "page",
     required: false,
-    description: 'Número de página (default: 1)',
+    description: "Número de página (default: 1)",
     type: Number,
   })
   @ApiQuery({
-    name: 'limit',
+    name: "limit",
     required: false,
-    description: 'Registros por página (default: 50)',
+    description: "Registros por página (default: 50)",
     type: Number,
   })
   @ApiQuery({
-    name: 'userId',
+    name: "userId",
     required: false,
-    description: 'Filtrar por ID de usuario',
+    description: "Filtrar por ID de usuario",
     type: Number,
   })
   @ApiQuery({
-    name: 'action',
+    name: "action",
     required: false,
-    description: 'Filtrar por tipo de acción',
+    description: "Filtrar por tipo de acción",
     type: String,
   })
   @ApiQuery({
-    name: 'requisitionId',
+    name: "requisitionId",
     required: false,
-    description: 'Filtrar por ID de requisición',
+    description: "Filtrar por ID de requisición",
     type: Number,
   })
   @ApiQuery({
-    name: 'fromDate',
+    name: "requisitionNumber",
     required: false,
-    description: 'Fecha inicial (YYYY-MM-DD)',
+    description: "Filtrar por número de requisición (búsqueda parcial)",
     type: String,
   })
   @ApiQuery({
-    name: 'toDate',
+    name: "companyName",
     required: false,
-    description: 'Fecha final (YYYY-MM-DD)',
+    description: "Filtrar por nombre de empresa/proyecto (búsqueda parcial)",
+    type: String,
+  })
+  @ApiQuery({
+    name: "userName",
+    required: false,
+    description: "Filtrar por nombre de usuario (búsqueda parcial)",
+    type: String,
+  })
+  @ApiQuery({
+    name: "fromDate",
+    required: false,
+    description: "Fecha inicial (YYYY-MM-DD)",
+    type: String,
+  })
+  @ApiQuery({
+    name: "toDate",
+    required: false,
+    description: "Fecha final (YYYY-MM-DD)",
     type: String,
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de logs de auditoría obtenida exitosamente',
+    description: "Lista de logs de auditoría obtenida exitosamente",
   })
   async getAuditLogs(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('userId') userId?: string,
-    @Query('action') action?: string,
-    @Query('requisitionId') requisitionId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+    @Query("userId") userId?: string,
+    @Query("action") action?: string,
+    @Query("requisitionId") requisitionId?: string,
+    @Query("requisitionNumber") requisitionNumber?: string,
+    @Query("companyName") companyName?: string,
+    @Query("userName") userName?: string,
+    @Query("fromDate") fromDate?: string,
+    @Query("toDate") toDate?: string,
   ) {
     const pageNum = page ? parseInt(page) : 1;
     const limitNum = limit ? parseInt(limit) : 50;
 
     const filters: any = {};
 
-    if (userId) {
-      filters.userId = parseInt(userId);
-    }
-
-    if (action) {
-      filters.action = action;
-    }
-
-    if (requisitionId) {
-      filters.requisitionId = parseInt(requisitionId);
-    }
-
-    if (fromDate) {
-      filters.fromDate = fromDate;
-    }
-
-    if (toDate) {
-      filters.toDate = toDate;
-    }
+    if (userId) filters.userId = parseInt(userId);
+    if (action) filters.action = action;
+    if (requisitionId) filters.requisitionId = parseInt(requisitionId);
+    if (requisitionNumber) filters.requisitionNumber = requisitionNumber;
+    if (companyName) filters.companyName = companyName;
+    if (userName) filters.userName = userName;
+    if (fromDate) filters.fromDate = fromDate;
+    if (toDate) filters.toDate = toDate;
 
     return this.auditService.getAuditLogs(pageNum, limitNum, filters);
   }
 
-  @Get('requisition/:id')
+  @Get("requisition/:id")
   @ApiOperation({
-    summary: 'Obtener detalle completo de una requisición para auditoría',
+    summary: "Obtener detalle completo de una requisición para auditoría",
     description: `
     Obtiene información detallada de una requisición específica incluyendo:
 
@@ -147,19 +157,19 @@ export class AuditController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Detalle de requisición obtenido exitosamente',
+    description: "Detalle de requisición obtenido exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
-  async getRequisitionDetail(@Param('id', ParseIntPipe) id: number) {
+  async getRequisitionDetail(@Param("id", ParseIntPipe) id: number) {
     return this.auditService.getRequisitionDetail(id);
   }
 
-  @Get('stats')
+  @Get("stats")
   @ApiOperation({
-    summary: 'Obtener estadísticas de auditoría',
+    summary: "Obtener estadísticas de auditoría",
     description: `
     Obtiene estadísticas generales de los logs de auditoría:
 
@@ -170,7 +180,7 @@ export class AuditController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Estadísticas de auditoría obtenidas exitosamente',
+    description: "Estadísticas de auditoría obtenidas exitosamente",
   })
   async getAuditStats() {
     return this.auditService.getAuditStats();

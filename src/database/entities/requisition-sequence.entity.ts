@@ -1,21 +1,15 @@
-import {
-  Entity,
-  Column,
-  PrimaryColumn,
-  OneToOne,
-  JoinColumn,
-} from 'typeorm';
-import { RequisitionPrefix } from './requisition-prefix.entity';
+import { Entity, Column, PrimaryColumn, OneToOne, JoinColumn } from "typeorm";
+import { RequisitionPrefix } from "./requisition-prefix.entity";
 
-@Entity('requisition_sequences')
+@Entity("requisition_sequences")
 export class RequisitionSequence {
-  @PrimaryColumn({ name: 'prefix_id' })
+  @PrimaryColumn({ name: "prefix_id" })
   prefixId: number;
 
-  @Column({ name: 'last_number', type: 'integer' })
+  @Column({ name: "last_number", type: "integer" })
   lastNumber: number;
 
   @OneToOne(() => RequisitionPrefix, (prefix) => prefix.requisitionSequence)
-  @JoinColumn({ name: 'prefix_id' })
+  @JoinColumn({ name: "prefix_id" })
   requisitionPrefix: RequisitionPrefix;
 }

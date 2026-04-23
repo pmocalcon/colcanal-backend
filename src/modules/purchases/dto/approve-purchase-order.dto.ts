@@ -5,12 +5,12 @@ import {
   IsEnum,
   IsNumber,
   ValidateNested,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+} from "class-validator";
+import { Type } from "class-transformer";
 
 export enum ItemApprovalDecision {
-  APPROVED = 'approved',
-  REJECTED = 'rejected',
+  APPROVED = "approved",
+  REJECTED = "rejected",
 }
 
 export class ItemApprovalDto {

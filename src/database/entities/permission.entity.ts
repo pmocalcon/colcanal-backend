@@ -1,20 +1,20 @@
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
-import { RolePermission } from './role-permission.entity';
+import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
+import { RolePermission } from "./role-permission.entity";
 
-@Entity('permisos')
+@Entity("permisos")
 export class Permission {
-  @PrimaryGeneratedColumn({ name: 'permiso_id' })
+  @PrimaryGeneratedColumn({ name: "permiso_id" })
   permisoId: number;
 
   @Column({
-    name: 'nombre_permiso',
-    type: 'varchar',
+    name: "nombre_permiso",
+    type: "varchar",
     length: 100,
     unique: true,
   })
   nombrePermiso: string;
 
-  @Column({ name: 'descripcion', type: 'text', nullable: true })
+  @Column({ name: "descripcion", type: "text", nullable: true })
   descripcion: string;
 
   @OneToMany(

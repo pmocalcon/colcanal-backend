@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 interface MaterialRow {
   code: string;
@@ -9,34 +9,37 @@ interface MaterialRow {
 
 function generateSQL() {
   // Obtener ruta del CSV desde argumentos o usar default
-  const csvPath = process.argv[2] || path.join(process.cwd(), 'materials.csv');
-  const outputPath = process.argv[3] || path.join(process.cwd(), 'import-materials.sql');
+  const csvPath = process.argv[2] || path.join(process.cwd(), "materials.csv");
+  const outputPath =
+    process.argv[3] || path.join(process.cwd(), "import-materials.sql");
 
   if (!fs.existsSync(csvPath)) {
     console.error(`❌ Archivo no encontrado: ${csvPath}`);
-    console.log('\nUso: npx ts-node src/database/scripts/generate-materials-sql.ts <ruta-csv> [ruta-sql-salida]');
+    console.log(
+      "\nUso: npx ts-node src/database/scripts/generate-materials-sql.ts <ruta-csv> [ruta-sql-salida]",
+    );
     process.exit(1);
   }
 
   console.log(`📂 Leyendo archivo: ${csvPath}`);
 
   // Leer y parsear CSV
-  const fileContent = fs.readFileSync(csvPath, 'utf-8');
-  const lines = fileContent.split('\n').filter(line => line.trim());
+  const fileContent = fs.readFileSync(csvPath, "utf-8");
+  const lines = fileContent.split("\n").filter((line) => line.trim());
 
   // Detectar separador
   const header = lines[0];
-  const separator = header.includes(';') ? ';' : ',';
+  const separator = header.includes(";") ? ";" : ",";
   console.log(`📝 Separador detectado: "${separator}"`);
 
   // Parsear header
-  const headers = header.split(separator).map(h => h.trim().toLowerCase());
-  const codeIdx = headers.indexOf('code');
-  const descIdx = headers.indexOf('description');
-  const groupIdx = headers.indexOf('group');
+  const headers = header.split(separator).map((h) => h.trim().toLowerCase());
+  const codeIdx = headers.indexOf("code");
+  const descIdx = headers.indexOf("description");
+  const groupIdx = headers.indexOf("group");
 
   if (codeIdx === -1 || descIdx === -1 || groupIdx === -1) {
-    console.error('❌ El CSV debe tener columnas: code, description, group');
+    console.error("❌ El CSV debe tener columnas: code, description, group");
     process.exit(1);
   }
 
@@ -57,7 +60,7 @@ function generateSQL() {
   console.log(`📊 Materiales encontrados: ${materials.length}`);
 
   // Obtener grupos únicos
-  const uniqueGroups = [...new Set(materials.map(m => m.group))];
+  const uniqueGroups = [...new Set(materials.map((m) => m.group))];
   console.log(`📁 Grupos encontrados: ${uniqueGroups.length}`);
 
   // Generar SQL
@@ -123,7 +126,7 @@ ORDER BY g.name;
 `;
 
   // Escribir archivo SQL
-  fs.writeFileSync(outputPath, sql, 'utf-8');
+  fs.writeFileSync(outputPath, sql, "utf-8");
 
   console.log(`\n✅ Archivo SQL generado: ${outputPath}`);
   console.log(`\n📋 Instrucciones:`);
@@ -139,7 +142,7 @@ function escapeSQL(str: string): string {
 
 function parseCSVLine(line: string, separator: string): string[] {
   const result: string[] = [];
-  let current = '';
+  let current = "";
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
@@ -153,7 +156,7 @@ function parseCSVLine(line: string, separator: string): string[] {
       }
     } else if (char === separator && !inQuotes) {
       result.push(current.trim());
-      current = '';
+      current = "";
     } else {
       current += char;
     }

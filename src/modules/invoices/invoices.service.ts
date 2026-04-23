@@ -3,16 +3,16 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Invoice } from '../../database/entities/invoice.entity';
-import { PurchaseOrder } from '../../database/entities/purchase-order.entity';
-import { Requisition } from '../../database/entities/requisition.entity';
-import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { UpdateInvoiceDto } from './dto/update-invoice.dto';
-import { SendToAccountingDto } from './dto/send-to-accounting.dto';
-import { ReceivedByAccountingDto } from './dto/received-by-accounting.dto';
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { Invoice } from "../../database/entities/invoice.entity";
+import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
+import { Requisition } from "../../database/entities/requisition.entity";
+import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
+import { SendToAccountingDto } from "./dto/send-to-accounting.dto";
+import { ReceivedByAccountingDto } from "./dto/received-by-accounting.dto";
 
 @Injectable()
 export class InvoicesService {
@@ -32,14 +32,14 @@ export class InvoicesService {
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
       relations: [
-        'approvalStatus',
-        'supplier',
-        'requisition',
-        'requisition.operationCenter',
-        'requisition.operationCenter.company',
-        'items',
-        'items.requisitionItem',
-        'items.requisitionItem.material',
+        "approvalStatus",
+        "supplier",
+        "requisition",
+        "requisition.operationCenter",
+        "requisition.operationCenter.company",
+        "items",
+        "items.requisitionItem",
+        "items.requisitionItem.material",
       ],
     });
 
@@ -51,12 +51,12 @@ export class InvoicesService {
 
     const invoices = await this.invoiceRepository.find({
       where: { purchaseOrderId },
-      relations: ['creator'],
-      order: { createdAt: 'DESC' },
+      relations: ["creator"],
+      order: { createdAt: "DESC" },
     });
 
     // Transform items to flatten material data
-    const transformedItems = purchaseOrder.items?.map(item => ({
+    const transformedItems = purchaseOrder.items?.map((item) => ({
       purchaseOrderItemId: item.poItemId,
       materialId: item.requisitionItem?.material?.materialId,
       quantity: item.quantity,
@@ -64,12 +64,14 @@ export class InvoicesService {
       subtotal: item.subtotal,
       iva: item.ivaAmount,
       total: item.totalAmount,
-      material: item.requisitionItem?.material ? {
-        materialId: item.requisitionItem.material.materialId,
-        codigo: item.requisitionItem.material.code,
-        descripcion: item.requisitionItem.material.description,
-        unidadMedida: '-',
-      } : null,
+      material: item.requisitionItem?.material
+        ? {
+            materialId: item.requisitionItem.material.materialId,
+            codigo: item.requisitionItem.material.code,
+            descripcion: item.requisitionItem.material.description,
+            unidadMedida: "-",
+          }
+        : null,
     }));
 
     return {
@@ -82,7 +84,9 @@ export class InvoicesService {
         totalInvoices: invoices.length,
         totalInvoicedAmount: purchaseOrder.totalInvoicedAmount,
         totalInvoicedQuantity: purchaseOrder.totalInvoicedQuantity,
-        pendingAmount: Number(purchaseOrder.totalAmount) - Number(purchaseOrder.totalInvoicedAmount),
+        pendingAmount:
+          Number(purchaseOrder.totalAmount) -
+          Number(purchaseOrder.totalInvoicedAmount),
         invoiceStatus: purchaseOrder.invoiceStatus,
       },
     };
@@ -92,35 +96,32 @@ export class InvoicesService {
    * Obtener todas las órdenes de compra disponibles para facturar
    * IMPORTANTE: Solo muestra OCs aprobadas Y con recepción de materiales completa
    */
-  async getPurchaseOrdersForInvoicing(
-    page: number = 1,
-    limit: number = 10,
-  ) {
+  async getPurchaseOrdersForInvoicing(page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
 
     const [purchaseOrders, total] = await this.purchaseOrderRepository
-      .createQueryBuilder('po')
-      .leftJoinAndSelect('po.requisition', 'requisition')
-      .leftJoinAndSelect('requisition.status', 'requisitionStatus')
-      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
-      .leftJoinAndSelect('operationCenter.company', 'company')
-      .leftJoinAndSelect('po.supplier', 'supplier')
-      .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
-      .leftJoinAndSelect('po.invoices', 'invoices')
-      .leftJoinAndSelect('po.items', 'items')
-      .where('approvalStatus.code = :status', { status: 'aprobada_gerencia' })
-      .andWhere('requisitionStatus.code = :requisitionStatus', { requisitionStatus: 'recepcion_completa' })
+      .createQueryBuilder("po")
+      .leftJoinAndSelect("po.requisition", "requisition")
+      .leftJoinAndSelect("requisition.status", "requisitionStatus")
+      .leftJoinAndSelect("requisition.operationCenter", "operationCenter")
+      .leftJoinAndSelect("operationCenter.company", "company")
+      .leftJoinAndSelect("po.supplier", "supplier")
+      .leftJoinAndSelect("po.approvalStatus", "approvalStatus")
+      .leftJoinAndSelect("po.invoices", "invoices")
+      .leftJoinAndSelect("po.items", "items")
+      .where("approvalStatus.code = :status", { status: "aprobada_gerencia" })
+      .andWhere("requisitionStatus.code = :requisitionStatus", {
+        requisitionStatus: "recepcion_completa",
+      })
       .skip(skip)
       .take(limit)
-      .orderBy('po.createdAt', 'DESC')
+      .orderBy("po.createdAt", "DESC")
       .getManyAndCount();
 
     // Agregar información de valores por defecto para cada OC
-    const purchaseOrdersWithDefaults = purchaseOrders.map(po => {
-      const totalQuantity = po.items?.reduce(
-        (sum, item) => sum + Number(item.quantity),
-        0,
-      ) || 0;
+    const purchaseOrdersWithDefaults = purchaseOrders.map((po) => {
+      const totalQuantity =
+        po.items?.reduce((sum, item) => sum + Number(item.quantity), 0) || 0;
 
       return {
         ...po,
@@ -150,7 +151,13 @@ export class InvoicesService {
     // Verificar que la orden de compra exista y esté aprobada
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
-      relations: ['approvalStatus', 'invoices', 'items', 'requisition', 'requisition.status'],
+      relations: [
+        "approvalStatus",
+        "invoices",
+        "items",
+        "requisition",
+        "requisition.status",
+      ],
     });
 
     if (!purchaseOrder) {
@@ -160,17 +167,17 @@ export class InvoicesService {
     }
 
     // Verificar que la orden esté aprobada por gerencia
-    if (purchaseOrder.approvalStatus.code !== 'aprobada_gerencia') {
+    if (purchaseOrder.approvalStatus.code !== "aprobada_gerencia") {
       throw new BadRequestException(
-        'Solo se pueden registrar facturas para órdenes de compra aprobadas por gerencia',
+        "Solo se pueden registrar facturas para órdenes de compra aprobadas por gerencia",
       );
     }
 
     // NUEVA VALIDACIÓN: Verificar que la recepción de materiales esté completa
-    if (purchaseOrder.requisition?.status?.code !== 'recepcion_completa') {
+    if (purchaseOrder.requisition?.status?.code !== "recepcion_completa") {
       throw new BadRequestException(
-        'Solo se pueden registrar facturas después de que la recepción de materiales esté completa. ' +
-        `Estado actual de la requisición: ${purchaseOrder.requisition?.status?.name || 'desconocido'}`,
+        "Solo se pueden registrar facturas después de que la recepción de materiales esté completa. " +
+          `Estado actual de la requisición: ${purchaseOrder.requisition?.status?.name || "desconocido"}`,
       );
     }
 
@@ -189,27 +196,31 @@ export class InvoicesService {
     const invoiceCount = purchaseOrder.invoices?.length || 0;
     if (invoiceCount >= 3) {
       throw new BadRequestException(
-        'Una orden de compra no puede tener más de 3 facturas',
+        "Una orden de compra no puede tener más de 3 facturas",
       );
     }
 
     // Calcular cantidad total de la OC (suma de cantidades de los items)
-    const totalQuantityFromPO = purchaseOrder.items?.reduce(
-      (sum, item) => sum + Number(item.quantity),
-      0,
-    ) || 0;
+    const totalQuantityFromPO =
+      purchaseOrder.items?.reduce(
+        (sum, item) => sum + Number(item.quantity),
+        0,
+      ) || 0;
 
     // Usar valores por defecto de la OC si no se especifican
-    const finalAmount = createInvoiceDto.amount !== undefined
-      ? Number(createInvoiceDto.amount)
-      : Number(purchaseOrder.totalAmount);
+    const finalAmount =
+      createInvoiceDto.amount !== undefined
+        ? Number(createInvoiceDto.amount)
+        : Number(purchaseOrder.totalAmount);
 
-    const finalMaterialQuantity = createInvoiceDto.materialQuantity !== undefined
-      ? Number(createInvoiceDto.materialQuantity)
-      : totalQuantityFromPO;
+    const finalMaterialQuantity =
+      createInvoiceDto.materialQuantity !== undefined
+        ? Number(createInvoiceDto.materialQuantity)
+        : totalQuantityFromPO;
 
     // Calcular totales actuales
-    const currentInvoicedAmount = Number(purchaseOrder.totalInvoicedAmount) || 0;
+    const currentInvoicedAmount =
+      Number(purchaseOrder.totalInvoicedAmount) || 0;
 
     // Verificar que no exceda el total de la orden
     const newTotalAmount = currentInvoicedAmount + finalAmount;
@@ -237,7 +248,7 @@ export class InvoicesService {
 
     return this.invoiceRepository.findOne({
       where: { invoiceId: savedInvoice.invoiceId },
-      relations: ['creator', 'purchaseOrder'],
+      relations: ["creator", "purchaseOrder"],
     });
   }
 
@@ -247,7 +258,7 @@ export class InvoicesService {
   async update(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto) {
     const invoice = await this.invoiceRepository.findOne({
       where: { invoiceId },
-      relations: ['purchaseOrder', 'purchaseOrder.invoices'],
+      relations: ["purchaseOrder", "purchaseOrder.invoices"],
     });
 
     if (!invoice) {
@@ -257,12 +268,15 @@ export class InvoicesService {
     // Verificar que no se haya enviado a contabilidad
     if (invoice.sentToAccounting) {
       throw new ForbiddenException(
-        'No se puede editar una factura que ya fue enviada a contabilidad',
+        "No se puede editar una factura que ya fue enviada a contabilidad",
       );
     }
 
     // Si se está actualizando el número de factura, verificar que no exista
-    if (updateInvoiceDto.invoiceNumber && updateInvoiceDto.invoiceNumber !== invoice.invoiceNumber) {
+    if (
+      updateInvoiceDto.invoiceNumber &&
+      updateInvoiceDto.invoiceNumber !== invoice.invoiceNumber
+    ) {
       const existingInvoice = await this.invoiceRepository.findOne({
         where: { invoiceNumber: updateInvoiceDto.invoiceNumber },
       });
@@ -275,19 +289,26 @@ export class InvoicesService {
     }
 
     // Si se está actualizando el monto o cantidad, verificar que no exceda el total
-    if (updateInvoiceDto.amount !== undefined || updateInvoiceDto.materialQuantity !== undefined) {
-      const newAmount = updateInvoiceDto.amount !== undefined ? Number(updateInvoiceDto.amount) : Number(invoice.amount);
-      const newQuantity = updateInvoiceDto.materialQuantity !== undefined
-        ? Number(updateInvoiceDto.materialQuantity)
-        : Number(invoice.materialQuantity);
+    if (
+      updateInvoiceDto.amount !== undefined ||
+      updateInvoiceDto.materialQuantity !== undefined
+    ) {
+      const newAmount =
+        updateInvoiceDto.amount !== undefined
+          ? Number(updateInvoiceDto.amount)
+          : Number(invoice.amount);
+      const newQuantity =
+        updateInvoiceDto.materialQuantity !== undefined
+          ? Number(updateInvoiceDto.materialQuantity)
+          : Number(invoice.materialQuantity);
 
       // Calcular total sin esta factura
       const otherInvoicesAmount = invoice.purchaseOrder.invoices
-        .filter(inv => inv.invoiceId !== invoiceId)
+        .filter((inv) => inv.invoiceId !== invoiceId)
         .reduce((sum, inv) => sum + Number(inv.amount), 0);
 
       const otherInvoicesQuantity = invoice.purchaseOrder.invoices
-        .filter(inv => inv.invoiceId !== invoiceId)
+        .filter((inv) => inv.invoiceId !== invoiceId)
         .reduce((sum, inv) => sum + Number(inv.materialQuantity), 0);
 
       const totalAmount = otherInvoicesAmount + newAmount;
@@ -314,7 +335,7 @@ export class InvoicesService {
 
     return this.invoiceRepository.findOne({
       where: { invoiceId: updatedInvoice.invoiceId },
-      relations: ['creator', 'purchaseOrder'],
+      relations: ["creator", "purchaseOrder"],
     });
   }
 
@@ -333,7 +354,7 @@ export class InvoicesService {
     // Verificar que no se haya enviado a contabilidad
     if (invoice.sentToAccounting) {
       throw new ForbiddenException(
-        'No se puede eliminar una factura que ya fue enviada a contabilidad',
+        "No se puede eliminar una factura que ya fue enviada a contabilidad",
       );
     }
 
@@ -343,7 +364,7 @@ export class InvoicesService {
     // Recalcular totales de la orden de compra
     await this.updatePurchaseOrderInvoiceTotals(purchaseOrderId);
 
-    return { message: 'Factura eliminada exitosamente' };
+    return { message: "Factura eliminada exitosamente" };
   }
 
   /**
@@ -355,7 +376,7 @@ export class InvoicesService {
   ) {
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
-      relations: ['invoices'],
+      relations: ["invoices"],
     });
 
     if (!purchaseOrder) {
@@ -367,14 +388,14 @@ export class InvoicesService {
     // Verificar que tenga facturas
     if (!purchaseOrder.invoices || purchaseOrder.invoices.length === 0) {
       throw new BadRequestException(
-        'La orden de compra no tiene facturas registradas',
+        "La orden de compra no tiene facturas registradas",
       );
     }
 
     // Verificar que las facturas completen el total de la orden
-    if (purchaseOrder.invoiceStatus !== 'factura_completa') {
+    if (purchaseOrder.invoiceStatus !== "factura_completa") {
       throw new BadRequestException(
-        'La suma de las facturas debe ser igual al total de la orden de compra para enviar a contabilidad',
+        "La suma de las facturas debe ser igual al total de la orden de compra para enviar a contabilidad",
       );
     }
 
@@ -388,12 +409,12 @@ export class InvoicesService {
     }
 
     // Actualizar estado de la orden de compra
-    purchaseOrder.invoiceStatus = 'enviada_contabilidad';
+    purchaseOrder.invoiceStatus = "enviada_contabilidad";
     await this.purchaseOrderRepository.save(purchaseOrder);
 
     return {
-      message: 'Facturas enviadas a contabilidad exitosamente',
-      sentDate: sentDate.toISOString().split('T')[0],
+      message: "Facturas enviadas a contabilidad exitosamente",
+      sentDate: sentDate.toISOString().split("T")[0],
       invoicesCount: purchaseOrder.invoices.length,
     };
   }
@@ -404,7 +425,7 @@ export class InvoicesService {
   private async updatePurchaseOrderInvoiceTotals(purchaseOrderId: number) {
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
-      relations: ['invoices', 'items'],
+      relations: ["invoices", "items"],
     });
 
     if (!purchaseOrder) {
@@ -412,36 +433,41 @@ export class InvoicesService {
     }
 
     // Calcular totales facturados
-    const totalInvoicedAmount = purchaseOrder.invoices?.reduce(
-      (sum, invoice) => sum + Number(invoice.amount),
-      0,
-    ) || 0;
+    const totalInvoicedAmount =
+      purchaseOrder.invoices?.reduce(
+        (sum, invoice) => sum + Number(invoice.amount),
+        0,
+      ) || 0;
 
-    const totalInvoicedQuantity = purchaseOrder.invoices?.reduce(
-      (sum, invoice) => sum + Number(invoice.materialQuantity),
-      0,
-    ) || 0;
+    const totalInvoicedQuantity =
+      purchaseOrder.invoices?.reduce(
+        (sum, invoice) => sum + Number(invoice.materialQuantity),
+        0,
+      ) || 0;
 
     // Calcular cantidad total esperada de la orden de compra
-    const totalExpectedQuantity = purchaseOrder.items?.reduce(
-      (sum, item) => sum + Number(item.quantity),
-      0,
-    ) || 0;
+    const totalExpectedQuantity =
+      purchaseOrder.items?.reduce(
+        (sum, item) => sum + Number(item.quantity),
+        0,
+      ) || 0;
 
     // Determinar estado de facturación
-    let invoiceStatus = 'sin_factura';
+    let invoiceStatus = "sin_factura";
 
     if (totalInvoicedAmount > 0 || totalInvoicedQuantity > 0) {
       // Permitir pequeña tolerancia (1%) para errores de redondeo
-      const amountComplete = totalInvoicedAmount >= Number(purchaseOrder.totalAmount) * 0.99;
-      const quantityComplete = totalExpectedQuantity > 0
-        ? totalInvoicedQuantity >= totalExpectedQuantity * 0.99
-        : true; // Si no hay cantidad esperada, solo validar monto
+      const amountComplete =
+        totalInvoicedAmount >= Number(purchaseOrder.totalAmount) * 0.99;
+      const quantityComplete =
+        totalExpectedQuantity > 0
+          ? totalInvoicedQuantity >= totalExpectedQuantity * 0.99
+          : true; // Si no hay cantidad esperada, solo validar monto
 
       if (amountComplete && quantityComplete) {
-        invoiceStatus = 'factura_completa';
+        invoiceStatus = "factura_completa";
       } else {
-        invoiceStatus = 'facturacion_parcial';
+        invoiceStatus = "facturacion_parcial";
       }
     }
 
@@ -463,18 +489,18 @@ export class InvoicesService {
     const skip = (page - 1) * limit;
 
     const [purchaseOrders, total] = await this.purchaseOrderRepository
-      .createQueryBuilder('po')
-      .leftJoinAndSelect('po.requisition', 'requisition')
-      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
-      .leftJoinAndSelect('operationCenter.company', 'company')
-      .leftJoinAndSelect('po.supplier', 'supplier')
-      .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
-      .leftJoinAndSelect('po.invoices', 'invoices')
-      .leftJoinAndSelect('invoices.creator', 'invoiceCreator')
-      .where('po.invoiceStatus = :status', { status: 'enviada_contabilidad' })
+      .createQueryBuilder("po")
+      .leftJoinAndSelect("po.requisition", "requisition")
+      .leftJoinAndSelect("requisition.operationCenter", "operationCenter")
+      .leftJoinAndSelect("operationCenter.company", "company")
+      .leftJoinAndSelect("po.supplier", "supplier")
+      .leftJoinAndSelect("po.approvalStatus", "approvalStatus")
+      .leftJoinAndSelect("po.invoices", "invoices")
+      .leftJoinAndSelect("invoices.creator", "invoiceCreator")
+      .where("po.invoiceStatus = :status", { status: "enviada_contabilidad" })
       .skip(skip)
       .take(limit)
-      .orderBy('po.createdAt', 'DESC')
+      .orderBy("po.createdAt", "DESC")
       .getManyAndCount();
 
     return {
@@ -489,26 +515,23 @@ export class InvoicesService {
   /**
    * Obtener órdenes de compra con facturas ya recibidas por contabilidad
    */
-  async getInvoicesReceivedByAccounting(
-    page: number = 1,
-    limit: number = 10,
-  ) {
+  async getInvoicesReceivedByAccounting(page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
 
     const [purchaseOrders, total] = await this.purchaseOrderRepository
-      .createQueryBuilder('po')
-      .leftJoinAndSelect('po.requisition', 'requisition')
-      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
-      .leftJoinAndSelect('operationCenter.company', 'company')
-      .leftJoinAndSelect('po.supplier', 'supplier')
-      .leftJoinAndSelect('po.approvalStatus', 'approvalStatus')
-      .leftJoinAndSelect('po.invoices', 'invoices')
-      .leftJoinAndSelect('invoices.creator', 'invoiceCreator')
-      .leftJoinAndSelect('invoices.receivedByAccountingUser', 'receivedByUser')
-      .where('po.invoiceStatus = :status', { status: 'recibida_contabilidad' })
+      .createQueryBuilder("po")
+      .leftJoinAndSelect("po.requisition", "requisition")
+      .leftJoinAndSelect("requisition.operationCenter", "operationCenter")
+      .leftJoinAndSelect("operationCenter.company", "company")
+      .leftJoinAndSelect("po.supplier", "supplier")
+      .leftJoinAndSelect("po.approvalStatus", "approvalStatus")
+      .leftJoinAndSelect("po.invoices", "invoices")
+      .leftJoinAndSelect("invoices.creator", "invoiceCreator")
+      .leftJoinAndSelect("invoices.receivedByAccountingUser", "receivedByUser")
+      .where("po.invoiceStatus = :status", { status: "recibida_contabilidad" })
       .skip(skip)
       .take(limit)
-      .orderBy('po.createdAt', 'DESC')
+      .orderBy("po.createdAt", "DESC")
       .getManyAndCount();
 
     return {
@@ -531,7 +554,7 @@ export class InvoicesService {
   ) {
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
       where: { purchaseOrderId },
-      relations: ['invoices'],
+      relations: ["invoices"],
     });
 
     if (!purchaseOrder) {
@@ -541,17 +564,17 @@ export class InvoicesService {
     }
 
     // Verificar que las facturas hayan sido enviadas a contabilidad
-    if (purchaseOrder.invoiceStatus !== 'enviada_contabilidad') {
+    if (purchaseOrder.invoiceStatus !== "enviada_contabilidad") {
       throw new BadRequestException(
-        'Solo se pueden marcar como recibidas las facturas que ya fueron enviadas a contabilidad. ' +
-        `Estado actual: ${purchaseOrder.invoiceStatus}`,
+        "Solo se pueden marcar como recibidas las facturas que ya fueron enviadas a contabilidad. " +
+          `Estado actual: ${purchaseOrder.invoiceStatus}`,
       );
     }
 
     // Verificar que tenga facturas
     if (!purchaseOrder.invoices || purchaseOrder.invoices.length === 0) {
       throw new BadRequestException(
-        'La orden de compra no tiene facturas registradas',
+        "La orden de compra no tiene facturas registradas",
       );
     }
 
@@ -566,12 +589,12 @@ export class InvoicesService {
     }
 
     // Actualizar estado de la orden de compra al estado final
-    purchaseOrder.invoiceStatus = 'recibida_contabilidad';
+    purchaseOrder.invoiceStatus = "recibida_contabilidad";
     await this.purchaseOrderRepository.save(purchaseOrder);
 
     return {
-      message: 'Facturas marcadas como recibidas por contabilidad exitosamente',
-      receivedDate: receivedDate.toISOString().split('T')[0],
+      message: "Facturas marcadas como recibidas por contabilidad exitosamente",
+      receivedDate: receivedDate.toISOString().split("T")[0],
       invoicesCount: purchaseOrder.invoices.length,
       receivedBy: userId,
     };

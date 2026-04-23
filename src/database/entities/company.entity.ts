@@ -1,19 +1,19 @@
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
-import { Project } from './project.entity';
-import { OperationCenter } from './operation-center.entity';
-import { ProjectCode } from './project-code.entity';
-import { RequisitionPrefix } from './requisition-prefix.entity';
-import { CompanyContact } from './company-contact.entity';
+import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
+import { Project } from "./project.entity";
+import { OperationCenter } from "./operation-center.entity";
+import { ProjectCode } from "./project-code.entity";
+import { RequisitionPrefix } from "./requisition-prefix.entity";
+import { CompanyContact } from "./company-contact.entity";
 
-@Entity('companies')
+@Entity("companies")
 export class Company {
-  @PrimaryGeneratedColumn({ name: 'company_id' })
+  @PrimaryGeneratedColumn({ name: "company_id" })
   companyId: number;
 
-  @Column({ type: 'text', unique: true })
+  @Column({ type: "text", unique: true })
   name: string;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
+  @Column({ type: "varchar", length: 10, nullable: true })
   abbreviation: string;
 
   @Column({ name: 'ipp_base_year', type: 'int', nullable: true })

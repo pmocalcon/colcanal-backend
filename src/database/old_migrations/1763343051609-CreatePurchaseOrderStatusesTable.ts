@@ -1,10 +1,11 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class CreatePurchaseOrderStatusesTable1763343051609 implements MigrationInterface {
-
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        // Create purchase_order_statuses table
-        await queryRunner.query(`
+export class CreatePurchaseOrderStatusesTable1763343051609
+  implements MigrationInterface
+{
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Create purchase_order_statuses table
+    await queryRunner.query(`
             CREATE TABLE "purchase_order_statuses" (
                 "status_id" SERIAL NOT NULL,
                 "code" VARCHAR(50) NOT NULL,
@@ -19,26 +20,25 @@ export class CreatePurchaseOrderStatusesTable1763343051609 implements MigrationI
             )
         `);
 
-        // Create index on code for faster lookups
-        await queryRunner.query(`
+    // Create index on code for faster lookups
+    await queryRunner.query(`
             CREATE INDEX "IDX_purchase_order_statuses_code"
             ON "purchase_order_statuses"("code")
         `);
 
-        // Create index on order for sorting
-        await queryRunner.query(`
+    // Create index on order for sorting
+    await queryRunner.query(`
             CREATE INDEX "IDX_purchase_order_statuses_order"
             ON "purchase_order_statuses"("order")
         `);
-    }
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        // Drop indexes
-        await queryRunner.query(`DROP INDEX "IDX_purchase_order_statuses_order"`);
-        await queryRunner.query(`DROP INDEX "IDX_purchase_order_statuses_code"`);
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Drop indexes
+    await queryRunner.query(`DROP INDEX "IDX_purchase_order_statuses_order"`);
+    await queryRunner.query(`DROP INDEX "IDX_purchase_order_statuses_code"`);
 
-        // Drop table
-        await queryRunner.query(`DROP TABLE "purchase_order_statuses"`);
-    }
-
+    // Drop table
+    await queryRunner.query(`DROP TABLE "purchase_order_statuses"`);
+  }
 }

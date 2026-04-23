@@ -17,15 +17,16 @@ export const PERMISSION_IDS = {
  * Nombres de permisos para uso en decoradores y validaciones
  */
 export const PERMISSION_NAMES = {
-  VER: 'Ver',
-  CREAR: 'Crear',
-  REVISAR: 'Revisar',
-  APROBAR: 'Aprobar',
-  AUTORIZAR: 'Autorizar',
-  COTIZAR: 'Cotizar',
-  EXPORTAR: 'Exportar',
-  VALIDAR: 'Validar',
+  VER: "Ver",
+  CREAR: "Crear",
+  REVISAR: "Revisar",
+  APROBAR: "Aprobar",
+  AUTORIZAR: "Autorizar",
+  COTIZAR: "Cotizar",
+  EXPORTAR: "Exportar",
+  VALIDAR: "Validar",
 } as const;
 
 export type PermissionId = (typeof PERMISSION_IDS)[keyof typeof PERMISSION_IDS];
-export type PermissionName = (typeof PERMISSION_NAMES)[keyof typeof PERMISSION_NAMES];
+export type PermissionName =
+  (typeof PERMISSION_NAMES)[keyof typeof PERMISSION_NAMES];

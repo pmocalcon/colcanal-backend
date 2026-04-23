@@ -1,11 +1,13 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class AddRequisitionItemApprovals1762730000000 implements MigrationInterface {
-    name = 'AddRequisitionItemApprovals1762730000000'
+export class AddRequisitionItemApprovals1762730000000
+  implements MigrationInterface
+{
+  name = "AddRequisitionItemApprovals1762730000000";
 
-    public async up(queryRunner: QueryRunner): Promise<void> {
-        // Crear tabla requisition_item_approvals
-        await queryRunner.query(`
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    // Crear tabla requisition_item_approvals
+    await queryRunner.query(`
             CREATE TABLE "requisition_item_approvals" (
                 "item_approval_id" SERIAL NOT NULL,
                 "requisition_id" integer NOT NULL,
@@ -24,8 +26,8 @@ export class AddRequisitionItemApprovals1762730000000 implements MigrationInterf
             )
         `);
 
-        // Agregar comentarios para claridad
-        await queryRunner.query(`
+    // Agregar comentarios para claridad
+    await queryRunner.query(`
             COMMENT ON TABLE "requisition_item_approvals" IS 'Tracks item-level approvals for requisitions';
             COMMENT ON COLUMN "requisition_item_approvals"."item_number" IS 'Item number within the requisition';
             COMMENT ON COLUMN "requisition_item_approvals"."material_id" IS 'Material ID for matching items even after recreation';
@@ -37,8 +39,8 @@ export class AddRequisitionItemApprovals1762730000000 implements MigrationInterf
             COMMENT ON COLUMN "requisition_item_approvals"."is_valid" IS 'Becomes false if item is modified after approval'
         `);
 
-        // Agregar foreign keys
-        await queryRunner.query(`
+    // Agregar foreign keys
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             ADD CONSTRAINT "FK_item_approval_requisition"
             FOREIGN KEY ("requisition_id")
@@ -46,7 +48,7 @@ export class AddRequisitionItemApprovals1762730000000 implements MigrationInterf
             ON DELETE CASCADE ON UPDATE NO ACTION
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             ADD CONSTRAINT "FK_item_approval_item"
             FOREIGN KEY ("requisition_item_id")
@@ -54,7 +56,7 @@ export class AddRequisitionItemApprovals1762730000000 implements MigrationInterf
             ON DELETE SET NULL ON UPDATE NO ACTION
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             ADD CONSTRAINT "FK_item_approval_user"
             FOREIGN KEY ("user_id")
@@ -62,49 +64,49 @@ export class AddRequisitionItemApprovals1762730000000 implements MigrationInterf
             ON DELETE NO ACTION ON UPDATE NO ACTION
         `);
 
-        // Crear índice único para evitar duplicados por nivel de aprobación
-        await queryRunner.query(`
+    // Crear índice único para evitar duplicados por nivel de aprobación
+    await queryRunner.query(`
             CREATE UNIQUE INDEX "IDX_item_approval_unique"
             ON "requisition_item_approvals" ("requisition_id", "item_number", "material_id", "approval_level")
         `);
 
-        // Crear índice para búsquedas rápidas por requisición
-        await queryRunner.query(`
+    // Crear índice para búsquedas rápidas por requisición
+    await queryRunner.query(`
             CREATE INDEX "IDX_item_approval_requisition"
             ON "requisition_item_approvals" ("requisition_id")
         `);
 
-        // Crear índice para aprobaciones válidas
-        await queryRunner.query(`
+    // Crear índice para aprobaciones válidas
+    await queryRunner.query(`
             CREATE INDEX "IDX_item_approval_valid"
             ON "requisition_item_approvals" ("is_valid")
             WHERE "is_valid" = true
         `);
-    }
+  }
 
-    public async down(queryRunner: QueryRunner): Promise<void> {
-        // Eliminar índices
-        await queryRunner.query(`DROP INDEX "IDX_item_approval_valid"`);
-        await queryRunner.query(`DROP INDEX "IDX_item_approval_requisition"`);
-        await queryRunner.query(`DROP INDEX "IDX_item_approval_unique"`);
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    // Eliminar índices
+    await queryRunner.query(`DROP INDEX "IDX_item_approval_valid"`);
+    await queryRunner.query(`DROP INDEX "IDX_item_approval_requisition"`);
+    await queryRunner.query(`DROP INDEX "IDX_item_approval_unique"`);
 
-        // Eliminar foreign keys
-        await queryRunner.query(`
+    // Eliminar foreign keys
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             DROP CONSTRAINT "FK_item_approval_user"
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             DROP CONSTRAINT "FK_item_approval_item"
         `);
 
-        await queryRunner.query(`
+    await queryRunner.query(`
             ALTER TABLE "requisition_item_approvals"
             DROP CONSTRAINT "FK_item_approval_requisition"
         `);
 
-        // Eliminar tabla
-        await queryRunner.query(`DROP TABLE "requisition_item_approvals"`);
-    }
+    // Eliminar tabla
+    await queryRunner.query(`DROP TABLE "requisition_item_approvals"`);
+  }
 }

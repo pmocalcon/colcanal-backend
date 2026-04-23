@@ -1,9 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
-import { RolePermission } from '../../database/entities/role-permission.entity';
+import { Injectable, CanActivate, ExecutionContext } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { PERMISSIONS_KEY } from "../decorators/permissions.decorator";
+import { RolePermission } from "../../database/entities/role-permission.entity";
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -31,7 +31,7 @@ export class PermissionsGuard implements CanActivate {
 
     const userPermissions = await this.rolePermissionRepository.find({
       where: { rolId: user.role.rolId },
-      relations: ['permission'],
+      relations: ["permission"],
     });
 
     const permissionNames = userPermissions.map(

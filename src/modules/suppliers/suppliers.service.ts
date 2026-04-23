@@ -2,13 +2,13 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Supplier } from '../../database/entities/supplier.entity';
-import { CreateSupplierDto } from './dto/create-supplier.dto';
-import { UpdateSupplierDto } from './dto/update-supplier.dto';
-import { QuerySupplierDto } from './dto/query-supplier.dto';
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { Supplier } from "../../database/entities/supplier.entity";
+import { CreateSupplierDto } from "./dto/create-supplier.dto";
+import { UpdateSupplierDto } from "./dto/update-supplier.dto";
+import { QuerySupplierDto } from "./dto/query-supplier.dto";
 
 @Injectable()
 export class SuppliersService {
@@ -22,32 +22,46 @@ export class SuppliersService {
   // ============================================
 
   async findAllPaginated(query: QuerySupplierDto) {
-    const { page = 1, limit = 10, search, city, isActive, sortBy = 'name', sortOrder = 'ASC' } = query;
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      city,
+      isActive,
+      sortBy = "name",
+      sortOrder = "ASC",
+    } = query;
     const skip = (page - 1) * limit;
 
-    const qb = this.supplierRepository.createQueryBuilder('supplier');
+    const qb = this.supplierRepository.createQueryBuilder("supplier");
 
     // Filtro por estado activo
     if (isActive !== undefined) {
-      qb.andWhere('supplier.isActive = :isActive', { isActive });
+      qb.andWhere("supplier.isActive = :isActive", { isActive });
     }
 
     // Filtro por ciudad
     if (city) {
-      qb.andWhere('supplier.city ILIKE :city', { city: `%${city}%` });
+      qb.andWhere("supplier.city ILIKE :city", { city: `%${city}%` });
     }
 
     // Búsqueda general
     if (search) {
       qb.andWhere(
-        '(supplier.name ILIKE :search OR supplier.nitCc ILIKE :search OR supplier.city ILIKE :search OR supplier.contactName ILIKE :search)',
+        "(supplier.name ILIKE :search OR supplier.nitCc ILIKE :search OR supplier.city ILIKE :search OR supplier.contactName ILIKE :search)",
         { search: `%${search}%` },
       );
     }
 
     // Ordenamiento
-    const validSortFields = ['name', 'city', 'nitCc', 'createdAt', 'supplierId'];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : 'name';
+    const validSortFields = [
+      "name",
+      "city",
+      "nitCc",
+      "createdAt",
+      "supplierId",
+    ];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : "name";
     qb.orderBy(`supplier.${sortField}`, sortOrder);
 
     // Obtener total y datos paginados
@@ -72,17 +86,21 @@ export class SuppliersService {
 
   async getStats() {
     const total = await this.supplierRepository.count();
-    const active = await this.supplierRepository.count({ where: { isActive: true } });
-    const inactive = await this.supplierRepository.count({ where: { isActive: false } });
+    const active = await this.supplierRepository.count({
+      where: { isActive: true },
+    });
+    const inactive = await this.supplierRepository.count({
+      where: { isActive: false },
+    });
 
     // Contar por ciudad
     const citiesResult = await this.supplierRepository
-      .createQueryBuilder('supplier')
-      .select('supplier.city', 'city')
-      .addSelect('COUNT(*)', 'count')
-      .where('supplier.isActive = true')
-      .groupBy('supplier.city')
-      .orderBy('count', 'DESC')
+      .createQueryBuilder("supplier")
+      .select("supplier.city", "city")
+      .addSelect("COUNT(*)", "count")
+      .where("supplier.isActive = true")
+      .groupBy("supplier.city")
+      .orderBy("count", "DESC")
       .limit(10)
       .getRawMany();
 
@@ -100,11 +118,11 @@ export class SuppliersService {
 
   async getCities() {
     const result = await this.supplierRepository
-      .createQueryBuilder('supplier')
-      .select('DISTINCT supplier.city', 'city')
-      .where('supplier.city IS NOT NULL')
+      .createQueryBuilder("supplier")
+      .select("DISTINCT supplier.city", "city")
+      .where("supplier.city IS NOT NULL")
       .andWhere("supplier.city != ''")
-      .orderBy('supplier.city', 'ASC')
+      .orderBy("supplier.city", "ASC")
       .getRawMany();
 
     return result.map((r) => r.city);
@@ -140,7 +158,7 @@ export class SuppliersService {
     const where = activeOnly ? { isActive: true } : {};
     return await this.supplierRepository.find({
       where,
-      order: { name: 'ASC' },
+      order: { name: "ASC" },
     });
   }
 
@@ -163,10 +181,7 @@ export class SuppliersService {
     const supplier = await this.findOne(id);
 
     // Si se está actualizando el NIT, verificar que no esté duplicado
-    if (
-      updateSupplierDto.nitCc &&
-      updateSupplierDto.nitCc !== supplier.nitCc
-    ) {
+    if (updateSupplierDto.nitCc && updateSupplierDto.nitCc !== supplier.nitCc) {
       const existingSupplier = await this.supplierRepository.findOne({
         where: { nitCc: updateSupplierDto.nitCc },
       });
@@ -190,13 +205,13 @@ export class SuppliersService {
 
   async search(query: string): Promise<Supplier[]> {
     return await this.supplierRepository
-      .createQueryBuilder('supplier')
-      .where('supplier.isActive = true')
+      .createQueryBuilder("supplier")
+      .where("supplier.isActive = true")
       .andWhere(
-        '(supplier.name ILIKE :query OR supplier.nitCc ILIKE :query OR supplier.city ILIKE :query)',
+        "(supplier.name ILIKE :query OR supplier.nitCc ILIKE :query OR supplier.city ILIKE :query)",
         { query: `%${query}%` },
       )
-      .orderBy('supplier.name', 'ASC')
+      .orderBy("supplier.name", "ASC")
       .getMany();
   }
 }

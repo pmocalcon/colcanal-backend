@@ -1,7 +1,9 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class AddUserEmailNotificacion1734900001000 implements MigrationInterface {
-  name = 'AddUserEmailNotificacion1734900001000';
+export class AddUserEmailNotificacion1734900001000
+  implements MigrationInterface
+{
+  name = "AddUserEmailNotificacion1734900001000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Agregar columna email_notificacion para correos de notificación
@@ -19,7 +21,11 @@ export class AddUserEmailNotificacion1734900001000 implements MigrationInterface
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS idx_users_email_notificacion`);
-    await queryRunner.query(`ALTER TABLE users DROP COLUMN IF EXISTS email_notificacion`);
+    await queryRunner.query(
+      `DROP INDEX IF EXISTS idx_users_email_notificacion`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE users DROP COLUMN IF EXISTS email_notificacion`,
+    );
   }
 }

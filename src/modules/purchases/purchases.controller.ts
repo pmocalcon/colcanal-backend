@@ -11,7 +11,7 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   ApiTags,
   ApiOperation,
@@ -19,30 +19,30 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
-} from '@nestjs/swagger';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { GetUser } from '../../common/decorators/get-user.decorator';
-import { PurchasesService } from './purchases.service';
-import { CreateRequisitionDto } from './dto/create-requisition.dto';
-import { UpdateRequisitionDto } from './dto/update-requisition.dto';
-import { FilterRequisitionsDto } from './dto/filter-requisitions.dto';
-import { ReviewRequisitionDto } from './dto/review-requisition.dto';
+} from "@nestjs/swagger";
+import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { GetUser } from "../../common/decorators/get-user.decorator";
+import { PurchasesService } from "./purchases.service";
+import { CreateRequisitionDto } from "./dto/create-requisition.dto";
+import { UpdateRequisitionDto } from "./dto/update-requisition.dto";
+import { FilterRequisitionsDto } from "./dto/filter-requisitions.dto";
+import { ReviewRequisitionDto } from "./dto/review-requisition.dto";
 import {
   ApproveRequisitionDto,
   RejectRequisitionDto,
-} from './dto/approve-requisition.dto';
-import { ManageQuotationDto } from './dto/manage-quotation.dto';
-import { CreatePurchaseOrdersDto } from './dto/create-purchase-orders.dto';
-import { CreateMaterialReceiptDto } from './dto/create-material-receipt.dto';
-import { UpdateMaterialReceiptDto } from './dto/update-material-receipt.dto';
-import { ApprovePurchaseOrderDto } from './dto/approve-purchase-order.dto';
-import { ValidateRequisitionDto } from './dto/validate-requisition.dto';
-import { User } from '../../database/entities/user.entity';
+} from "./dto/approve-requisition.dto";
+import { ManageQuotationDto } from "./dto/manage-quotation.dto";
+import { CreatePurchaseOrdersDto } from "./dto/create-purchase-orders.dto";
+import { CreateMaterialReceiptDto } from "./dto/create-material-receipt.dto";
+import { UpdateMaterialReceiptDto } from "./dto/update-material-receipt.dto";
+import { ApprovePurchaseOrderDto } from "./dto/approve-purchase-order.dto";
+import { ValidateRequisitionDto } from "./dto/validate-requisition.dto";
+import { User } from "../../database/entities/user.entity";
 
-@ApiTags('Purchases - Requisitions')
-@ApiBearerAuth('JWT-auth')
+@ApiTags("Purchases - Requisitions")
+@ApiBearerAuth("JWT-auth")
 @UseGuards(JwtAuthGuard)
-@Controller('purchases/requisitions')
+@Controller("purchases/requisitions")
 export class PurchasesController {
   constructor(private readonly purchasesService: PurchasesService) {}
 
@@ -52,7 +52,7 @@ export class PurchasesController {
 
   @Post()
   @ApiOperation({
-    summary: 'Crear nueva requisición de compra',
+    summary: "Crear nueva requisición de compra",
     description: `
     Crea una nueva requisición de compra con numeración automática según empresa/proyecto.
 
@@ -106,29 +106,29 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Requisición creada exitosamente con número automático',
+    description: "Requisición creada exitosamente con número automático",
     schema: {
       example: {
         requisitionId: 1,
-        requisitionNumber: 'CB-0001',
-        status: 'pendiente',
+        requisitionNumber: "CB-0001",
+        status: "pendiente",
         companyId: 1,
         projectId: 2,
         operationCenterId: 2,
         projectCodeId: 2,
         createdBy: 5,
-        createdAt: '2025-11-06T01:30:00.000Z',
+        createdAt: "2025-11-06T01:30:00.000Z",
         items: [
           {
             itemId: 1,
             itemNumber: 1,
             materialId: 1,
             quantity: 10,
-            observation: 'Cable #10 para instalación principal',
+            observation: "Cable #10 para instalación principal",
             material: {
               materialId: 1,
-              code: 'ELEC-001',
-              description: 'Cable #10 AWG',
+              code: "ELEC-001",
+              description: "Cable #10 AWG",
             },
           },
           {
@@ -136,21 +136,21 @@ export class PurchasesController {
             itemNumber: 2,
             materialId: 3,
             quantity: 5,
-            observation: 'Breakers para tablero secundario',
+            observation: "Breakers para tablero secundario",
             material: {
               materialId: 3,
-              code: 'ELEC-003',
-              description: 'Breaker 2x20A',
+              code: "ELEC-003",
+              description: "Breaker 2x20A",
             },
           },
         ],
         company: {
           companyId: 1,
-          name: 'Canales & Contactos',
+          name: "Canales & Contactos",
         },
         project: {
           projectId: 2,
-          name: 'Ciudad Bolívar',
+          name: "Ciudad Bolívar",
         },
       },
     },
@@ -158,37 +158,37 @@ export class PurchasesController {
   @ApiResponse({
     status: 400,
     description:
-      'Datos de entrada inválidos. Causas posibles:\n' +
-      '- companyId o projectId no existen\n' +
-      '- materialId no existe\n' +
-      '- No se encontró prefijo para empresa/proyecto\n' +
-      '- Items vacío o sin al menos un elemento',
+      "Datos de entrada inválidos. Causas posibles:\n" +
+      "- companyId o projectId no existen\n" +
+      "- materialId no existe\n" +
+      "- No se encontró prefijo para empresa/proyecto\n" +
+      "- Items vacío o sin al menos un elemento",
     schema: {
       example: {
         statusCode: 400,
         message: [
-          'No se encontró prefijo para companyId=1, projectId=99. Verifica que exista un prefijo configurado para esta combinación.',
+          "No se encontró prefijo para companyId=1, projectId=99. Verifica que exista un prefijo configurado para esta combinación.",
         ],
-        error: 'Bad Request',
+        error: "Bad Request",
       },
     },
   })
   @ApiResponse({
     status: 403,
     description:
-      'Usuario no tiene permisos para crear requisiciones. Solo Analistas, PQRS y Directores pueden crear.',
+      "Usuario no tiene permisos para crear requisiciones. Solo Analistas, PQRS y Directores pueden crear.",
     schema: {
       example: {
         statusCode: 403,
         message:
-          'Los usuarios con rol Gerencia o Compras no pueden crear requisiciones',
-        error: 'Forbidden',
+          "Los usuarios con rol Gerencia o Compras no pueden crear requisiciones",
+        error: "Forbidden",
       },
     },
   })
   @ApiResponse({
     status: 401,
-    description: 'No autorizado. Token inválido o expirado.',
+    description: "No autorizado. Token inválido o expirado.",
   })
   async createRequisition(
     @GetUser() user: User,
@@ -200,9 +200,9 @@ export class PurchasesController {
     );
   }
 
-  @Get('my-requisitions')
+  @Get("my-requisitions")
   @ApiOperation({
-    summary: 'Obtener mis requisiciones creadas',
+    summary: "Obtener mis requisiciones creadas",
     description: `
     Retorna todas las requisiciones creadas por el usuario autenticado.
 
@@ -232,34 +232,34 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de requisiciones retornada exitosamente',
+    description: "Lista de requisiciones retornada exitosamente",
     schema: {
       example: {
         data: [
           {
             requisitionId: 1,
-            requisitionNumber: 'CB-0001',
-            status: 'pendiente',
+            requisitionNumber: "CB-0001",
+            status: "pendiente",
             companyId: 1,
             projectId: 2,
-            createdAt: '2025-11-06T01:30:00.000Z',
+            createdAt: "2025-11-06T01:30:00.000Z",
             items: [
               {
                 itemId: 1,
                 materialId: 1,
                 quantity: 10,
-                observation: 'Cable #10 para instalación principal',
+                observation: "Cable #10 para instalación principal",
                 material: {
-                  code: 'ELEC-001',
-                  description: 'Cable #10 AWG',
+                  code: "ELEC-001",
+                  description: "Cable #10 AWG",
                 },
               },
             ],
             company: {
-              name: 'Canales & Contactos',
+              name: "Canales & Contactos",
             },
             project: {
-              name: 'Ciudad Bolívar',
+              name: "Ciudad Bolívar",
             },
           },
         ],
@@ -272,7 +272,7 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 401,
-    description: 'No autorizado. Token inválido o expirado.',
+    description: "No autorizado. Token inválido o expirado.",
   })
   async getMyRequisitions(
     @GetUser() user: User,
@@ -281,15 +281,15 @@ export class PurchasesController {
     return this.purchasesService.getMyRequisitions(user.userId, filters);
   }
 
-  @Get('pending-actions')
+  @Get("pending-actions")
   @ApiOperation({
-    summary: 'Obtener requisiciones pendientes de acción',
+    summary: "Obtener requisiciones pendientes de acción",
     description:
-      'Retorna las requisiciones que requieren revisión o aprobación del usuario actual según su rol y autorizaciones',
+      "Retorna las requisiciones que requieren revisión o aprobación del usuario actual según su rol y autorizaciones",
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de requisiciones pendientes retornada exitosamente',
+    description: "Lista de requisiciones pendientes retornada exitosamente",
   })
   async getPendingActions(
     @GetUser() user: User,
@@ -302,9 +302,9 @@ export class PurchasesController {
   // Quotation Endpoints (MUST be before :id route)
   // ========================
 
-  @Get('for-quotation')
+  @Get("for-quotation")
   @ApiOperation({
-    summary: 'Listar requisiciones listas para cotización (Compras)',
+    summary: "Listar requisiciones listas para cotización (Compras)",
     description: `
     Retorna todas las requisiciones aprobadas por gerencia que están listas para asignar cotizaciones.
 
@@ -326,11 +326,11 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de requisiciones retornada exitosamente',
+    description: "Lista de requisiciones retornada exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos. Solo el rol Compras puede acceder.',
+    description: "No tiene permisos. Solo el rol Compras puede acceder.",
   })
   async getRequisitionsForQuotation(
     @GetUser() user: User,
@@ -342,9 +342,9 @@ export class PurchasesController {
     );
   }
 
-  @Get('my-pending-receipts')
+  @Get("my-pending-receipts")
   @ApiOperation({
-    summary: 'Listar mis requisiciones pendientes de recepción',
+    summary: "Listar mis requisiciones pendientes de recepción",
     description: `
     Retorna todas las requisiciones creadas por el usuario que están pendientes de recibir materiales.
 
@@ -370,7 +370,7 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de requisiciones pendientes retornada exitosamente',
+    description: "Lista de requisiciones pendientes retornada exitosamente",
   })
   async getMyPendingReceipts(
     @GetUser() user: User,
@@ -379,58 +379,58 @@ export class PurchasesController {
     return this.purchasesService.getMyPendingReceipts(user.userId, filters);
   }
 
-  @Get(':id')
+  @Get(":id")
   @ApiOperation({
-    summary: 'Obtener detalle de requisición',
+    summary: "Obtener detalle de requisición",
     description:
-      'Retorna el detalle completo de una requisición específica con todos sus ítems y logs',
+      "Retorna el detalle completo de una requisición específica con todos sus ítems y logs",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Detalle de requisición retornado exitosamente',
+    description: "Detalle de requisición retornado exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async getRequisitionById(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.getRequisitionById(id, user.userId);
   }
 
-  @Patch(':id')
+  @Patch(":id")
   @ApiOperation({
-    summary: 'Actualizar requisición',
+    summary: "Actualizar requisición",
     description:
       'Actualiza una requisición existente. Solo el creador puede editarla y únicamente si está en estado "Pendiente", "Rechazada por Revisor" o "Rechazada por Gerencia"',
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a actualizar',
+    name: "id",
+    description: "ID de la requisición a actualizar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición actualizada exitosamente',
+    description: "Requisición actualizada exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para editar esta requisición',
+    description: "No tiene permisos para editar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async updateRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() updateRequisitionDto: UpdateRequisitionDto,
   ) {
     return this.purchasesService.updateRequisition(
@@ -440,33 +440,33 @@ export class PurchasesController {
     );
   }
 
-  @Delete(':id')
+  @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'Eliminar requisición',
+    summary: "Eliminar requisición",
     description:
       'Elimina una requisición. Solo el creador puede eliminarla y únicamente si está en estado "Pendiente"',
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a eliminar',
+    name: "id",
+    description: "ID de la requisición a eliminar",
     type: Number,
   })
   @ApiResponse({
     status: 204,
-    description: 'Requisición eliminada exitosamente',
+    description: "Requisición eliminada exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para eliminar esta requisición',
+    description: "No tiene permisos para eliminar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async deleteRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.deleteRequisition(id, user.userId);
   }
@@ -475,44 +475,44 @@ export class PurchasesController {
   // Approval Workflow Endpoints
   // ========================
 
-  @Post(':id/review')
+  @Post(":id/review")
   @ApiOperation({
-    summary: 'Revisar requisición (Directores)',
+    summary: "Revisar requisición (Directores)",
     description:
-      'Permite a los Directores aprobar o rechazar una requisición en revisión. Solo usuarios con autorización de nivel 1 pueden revisar.',
+      "Permite a los Directores aprobar o rechazar una requisición en revisión. Solo usuarios con autorización de nivel 1 pueden revisar.",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a revisar',
+    name: "id",
+    description: "ID de la requisición a revisar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición revisada exitosamente',
+    description: "Requisición revisada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está en estado válido para revisión',
+    description: "La requisición no está en estado válido para revisión",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para revisar esta requisición',
+    description: "No tiene permisos para revisar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async reviewRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() reviewDto: ReviewRequisitionDto,
   ) {
     return this.purchasesService.reviewRequisition(id, user.userId, reviewDto);
   }
 
-  @Post(':id/validate')
+  @Post(":id/validate")
   @ApiOperation({
-    summary: 'Validar requisición con obra (Director de Proyecto)',
+    summary: "Validar requisición con obra (Director de Proyecto)",
     description: `
     Permite a un Director de Proyecto validar una requisición con campo "obra" diligenciado,
     creada por PQRS o Coordinador Operativo.
@@ -548,13 +548,13 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a validar',
+    name: "id",
+    description: "ID de la requisición a validar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición validada exitosamente',
+    description: "Requisición validada exitosamente",
   })
   @ApiResponse({
     status: 400,
@@ -562,50 +562,55 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para validar esta requisición (no es Director de Proyecto o no es autorizador del creador)',
+    description:
+      "No tiene permisos para validar esta requisición (no es Director de Proyecto o no es autorizador del creador)",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async validateRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() validateDto: ValidateRequisitionDto,
   ) {
-    return this.purchasesService.validateRequisition(id, user.userId, validateDto);
+    return this.purchasesService.validateRequisition(
+      id,
+      user.userId,
+      validateDto,
+    );
   }
 
-  @Post(':id/approve')
+  @Post(":id/approve")
   @ApiOperation({
-    summary: 'Aprobar requisición (Gerencia)',
+    summary: "Aprobar requisición (Gerencia)",
     description:
-      'Permite a la Gerencia aprobar una requisición que ya fue revisada por un Director. Solo usuarios con rol de Gerencia pueden aprobar.',
+      "Permite a la Gerencia aprobar una requisición que ya fue revisada por un Director. Solo usuarios con rol de Gerencia pueden aprobar.",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a aprobar',
+    name: "id",
+    description: "ID de la requisición a aprobar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición aprobada exitosamente',
+    description: "Requisición aprobada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está en estado válido para aprobación',
+    description: "La requisición no está en estado válido para aprobación",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para aprobar esta requisición',
+    description: "No tiene permisos para aprobar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async approveRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() approveDto: ApproveRequisitionDto,
   ) {
     return this.purchasesService.approveRequisition(
@@ -615,37 +620,41 @@ export class PurchasesController {
     );
   }
 
-  @Post(':id/authorize')
+  @Post(":id/authorize")
   @ApiOperation({
-    summary: 'Autorizar requisición (Gerencia de Proyectos)',
+    summary: "Autorizar requisición (Gerencia de Proyectos)",
     description:
-      'Permite a Gerencia de Proyectos autorizar o rechazar requisiciones creadas por Directores de Proyecto en proyectos específicos.',
+      "Permite a Gerencia de Proyectos autorizar o rechazar requisiciones creadas por Directores de Proyecto en proyectos específicos.",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a autorizar',
+    name: "id",
+    description: "ID de la requisición a autorizar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición autorizada exitosamente',
+    description: "Requisición autorizada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está en estado válido para autorización',
+    description: "La requisición no está en estado válido para autorización",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para autorizar esta requisición',
+    description: "No tiene permisos para autorizar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async authorizeRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() authorizeDto: { decision: 'approve' | 'authorize' | 'reject'; comments?: string },
+    @Param("id", ParseIntPipe) id: number,
+    @Body()
+    authorizeDto: {
+      decision: "approve" | "authorize" | "reject";
+      comments?: string;
+    },
   ) {
     return this.purchasesService.authorizeRequisition(
       id,
@@ -654,68 +663,68 @@ export class PurchasesController {
     );
   }
 
-  @Get(':id/item-approvals')
+  @Get(":id/item-approvals")
   @ApiOperation({
-    summary: 'Obtener aprobaciones de ítems previas',
+    summary: "Obtener aprobaciones de ítems previas",
     description:
-      'Permite obtener las aprobaciones previas a nivel de ítem para una requisición. Útil para pre-cargar decisiones cuando se revisa/aprueba una requisición nuevamente.',
+      "Permite obtener las aprobaciones previas a nivel de ítem para una requisición. Útil para pre-cargar decisiones cuando se revisa/aprueba una requisición nuevamente.",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiQuery({
-    name: 'approvalLevel',
-    description: 'Nivel de aprobación a filtrar (reviewer o management)',
+    name: "approvalLevel",
+    description: "Nivel de aprobación a filtrar (reviewer o management)",
     required: false,
-    enum: ['reviewer', 'management'],
+    enum: ["reviewer", "management"],
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de aprobaciones de ítems',
+    description: "Lista de aprobaciones de ítems",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async getItemApprovals(
-    @Param('id', ParseIntPipe) id: number,
-    @Query('approvalLevel') approvalLevel?: 'reviewer' | 'management',
+    @Param("id", ParseIntPipe) id: number,
+    @Query("approvalLevel") approvalLevel?: "reviewer" | "management",
   ) {
     return this.purchasesService.getItemApprovals(id, approvalLevel);
   }
 
-  @Post(':id/reject')
+  @Post(":id/reject")
   @ApiOperation({
-    summary: 'Rechazar requisición (Gerencia)',
+    summary: "Rechazar requisición (Gerencia)",
     description:
-      'Permite a la Gerencia rechazar una requisición que ya fue revisada por un Director. Los comentarios son obligatorios.',
+      "Permite a la Gerencia rechazar una requisición que ya fue revisada por un Director. Los comentarios son obligatorios.",
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición a rechazar',
+    name: "id",
+    description: "ID de la requisición a rechazar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Requisición rechazada exitosamente',
+    description: "Requisición rechazada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está en estado válido para rechazo',
+    description: "La requisición no está en estado válido para rechazo",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos para rechazar esta requisición',
+    description: "No tiene permisos para rechazar esta requisición",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async rejectRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() rejectDto: RejectRequisitionDto,
   ) {
     return this.purchasesService.rejectRequisitionByManager(
@@ -729,9 +738,9 @@ export class PurchasesController {
   // Quotation Endpoints (parameterized)
   // ========================
 
-  @Get(':id/quotation')
+  @Get(":id/quotation")
   @ApiOperation({
-    summary: 'Obtener detalle de requisición con cotizaciones (Compras)',
+    summary: "Obtener detalle de requisición con cotizaciones (Compras)",
     description: `
     Retorna el detalle completo de una requisición con su información de cotización actual.
 
@@ -760,36 +769,37 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Detalle de requisición con cotizaciones retornado exitosamente',
+    description:
+      "Detalle de requisición con cotizaciones retornado exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está disponible para cotización',
+    description: "La requisición no está disponible para cotización",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos. Solo el rol Compras puede acceder.',
+    description: "No tiene permisos. Solo el rol Compras puede acceder.",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async getRequisitionQuotation(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.getRequisitionQuotation(id, user.userId);
   }
 
-  @Post(':id/quotation')
+  @Post(":id/quotation")
   @ApiOperation({
-    summary: 'Gestionar cotizaciones de una requisición (Compras)',
+    summary: "Gestionar cotizaciones de una requisición (Compras)",
     description: `
     Permite asignar proveedores y acciones a los ítems de una requisición.
 
@@ -850,29 +860,29 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Cotizaciones actualizadas exitosamente',
+    description: "Cotizaciones actualizadas exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'Datos inválidos o requisición no disponible para cotización',
+    description: "Datos inválidos o requisición no disponible para cotización",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permisos. Solo el rol Compras puede acceder.',
+    description: "No tiene permisos. Solo el rol Compras puede acceder.",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async manageQuotation(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() manageQuotationDto: ManageQuotationDto,
   ) {
     return this.purchasesService.manageQuotation(
@@ -886,9 +896,9 @@ export class PurchasesController {
   // ASIGNAR PRECIOS A COTIZACIONES
   // ============================================
 
-  @Post(':id/assign-prices')
+  @Post(":id/assign-prices")
   @ApiOperation({
-    summary: 'Asignar precios a las cotizaciones de una requisición',
+    summary: "Asignar precios a las cotizaciones de una requisición",
     description: `
     Permite a Compras ingresar los precios unitarios, IVA y descuentos para cada ítem cotizado.
 
@@ -931,25 +941,25 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Precios asignados exitosamente',
+    description: "Precios asignados exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'Datos inválidos o requisición no disponible',
+    description: "Datos inválidos o requisición no disponible",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async assignPrices(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() assignPricesDto: any, // AssignPricesDto
   ) {
     return this.purchasesService.assignPrices(id, user.userId, assignPricesDto);
@@ -959,9 +969,9 @@ export class PurchasesController {
   // CREAR ÓRDENES DE COMPRA
   // ============================================
 
-  @Post(':id/purchase-orders')
+  @Post(":id/purchase-orders")
   @ApiOperation({
-    summary: 'Crear órdenes de compra para una requisición cotizada',
+    summary: "Crear órdenes de compra para una requisición cotizada",
     description: `
     Genera una o más órdenes de compra a partir de una requisición en estado "cotizada".
 
@@ -1025,26 +1035,25 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición cotizada',
+    name: "id",
+    description: "ID de la requisición cotizada",
     type: Number,
   })
   @ApiResponse({
     status: 201,
-    description: 'Órdenes de compra creadas exitosamente',
+    description: "Órdenes de compra creadas exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description:
-      'Requisición no está en estado "cotizada" o datos inválidos',
+    description: 'Requisición no está en estado "cotizada" o datos inválidos',
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async createPurchaseOrders(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() createPurchaseOrdersDto: CreatePurchaseOrdersDto,
   ) {
     return this.purchasesService.createPurchaseOrders(
@@ -1058,9 +1067,9 @@ export class PurchasesController {
   // MATERIAL RECEIPTS - RECEPCIÓN DE MATERIALES
   // ============================================
 
-  @Get(':id/receipts')
+  @Get(":id/receipts")
   @ApiOperation({
-    summary: 'Ver recepciones de una requisición',
+    summary: "Ver recepciones de una requisición",
     description: `
     Retorna el detalle completo de una requisición con todas sus recepciones de materiales.
 
@@ -1086,32 +1095,33 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Recepciones retornadas exitosamente',
+    description: "Recepciones retornadas exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'No tiene permiso para ver las recepciones de esta requisición',
+    description:
+      "No tiene permiso para ver las recepciones de esta requisición",
   })
   @ApiResponse({
     status: 400,
-    description: 'La requisición no está en proceso de recepción',
+    description: "La requisición no está en proceso de recepción",
   })
   async getRequisitionReceipts(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.getRequisitionReceipts(id, user.userId);
   }
 
-  @Post(':id/receipts')
+  @Post(":id/receipts")
   @ApiOperation({
-    summary: 'Registrar recepción de materiales',
+    summary: "Registrar recepción de materiales",
     description: `
     Permite registrar la recepción de uno o más ítems de una requisición.
 
@@ -1162,25 +1172,25 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 201,
-    description: 'Recepción registrada exitosamente',
+    description: "Recepción registrada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'Datos inválidos o sobreentrega sin justificación',
+    description: "Datos inválidos o sobreentrega sin justificación",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el creador puede registrar recepciones',
+    description: "Solo el creador puede registrar recepciones",
   })
   async createMaterialReceipts(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() createMaterialReceiptDto: CreateMaterialReceiptDto,
   ) {
     return this.purchasesService.createMaterialReceipts(
@@ -1190,9 +1200,9 @@ export class PurchasesController {
     );
   }
 
-  @Patch(':id/receipts/:receiptId')
+  @Patch(":id/receipts/:receiptId")
   @ApiOperation({
-    summary: 'Actualizar una recepción de material',
+    summary: "Actualizar una recepción de material",
     description: `
     Permite corregir los datos de una recepción ya registrada.
 
@@ -1223,27 +1233,27 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiParam({
-    name: 'receiptId',
-    description: 'ID de la recepción a actualizar',
+    name: "receiptId",
+    description: "ID de la recepción a actualizar",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Recepción actualizada exitosamente',
+    description: "Recepción actualizada exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el creador puede editar recepciones',
+    description: "Solo el creador puede editar recepciones",
   })
   async updateMaterialReceipt(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
-    @Param('receiptId', ParseIntPipe) receiptId: number,
+    @Param("id", ParseIntPipe) id: number,
+    @Param("receiptId", ParseIntPipe) receiptId: number,
     @Body() updateMaterialReceiptDto: UpdateMaterialReceiptDto,
   ) {
     return this.purchasesService.updateMaterialReceipt(
@@ -1258,9 +1268,9 @@ export class PurchasesController {
   // CONSULTAR ÓRDENES DE COMPRA
   // ============================================
 
-  @Get('purchase-orders')
+  @Get("purchase-orders")
   @ApiOperation({
-    summary: 'Listar todas las órdenes de compra',
+    summary: "Listar todas las órdenes de compra",
     description: `
     Obtiene un listado paginado de todas las órdenes de compra generadas.
 
@@ -1287,16 +1297,16 @@ export class PurchasesController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de órdenes de compra obtenida exitosamente',
+    description: "Lista de órdenes de compra obtenida exitosamente",
   })
   async getAllPurchaseOrders(
     @GetUser() user: User,
-    @Query('page', ParseIntPipe) page: number = 1,
-    @Query('limit', ParseIntPipe) limit: number = 10,
-    @Query('requisitionId') requisitionId?: string,
-    @Query('supplierId') supplierId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
+    @Query("page", ParseIntPipe) page: number = 1,
+    @Query("limit", ParseIntPipe) limit: number = 10,
+    @Query("requisitionId") requisitionId?: string,
+    @Query("supplierId") supplierId?: string,
+    @Query("fromDate") fromDate?: string,
+    @Query("toDate") toDate?: string,
   ) {
     const filters: any = {};
 
@@ -1327,9 +1337,9 @@ export class PurchasesController {
   // APROBACIÓN DE ÓRDENES DE COMPRA
   // ============================================
 
-  @Get('purchase-orders/pending-approval')
+  @Get("purchase-orders/pending-approval")
   @ApiOperation({
-    summary: 'Listar órdenes de compra para aprobación (Gerencia)',
+    summary: "Listar órdenes de compra para aprobación (Gerencia)",
     description: `
     Obtiene un listado paginado de todas las órdenes de compra pendientes, aprobadas y rechazadas por Gerencia.
 
@@ -1364,29 +1374,29 @@ export class PurchasesController {
     `,
   })
   @ApiQuery({
-    name: 'page',
+    name: "page",
     required: false,
     type: Number,
-    description: 'Número de página (default: 1)',
+    description: "Número de página (default: 1)",
   })
   @ApiQuery({
-    name: 'limit',
+    name: "limit",
     required: false,
     type: Number,
-    description: 'Registros por página (default: 10)',
+    description: "Registros por página (default: 10)",
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de órdenes pendientes obtenida exitosamente',
+    description: "Lista de órdenes pendientes obtenida exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el rol Gerencia puede acceder a este endpoint',
+    description: "Solo el rol Gerencia puede acceder a este endpoint",
   })
   async getPendingPurchaseOrdersForApproval(
     @GetUser() user: User,
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+    @Query("page", new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query("limit", new ParseIntPipe({ optional: true })) limit: number = 10,
   ) {
     return this.purchasesService.getPendingPurchaseOrdersForApproval(
       user.userId,
@@ -1395,9 +1405,9 @@ export class PurchasesController {
     );
   }
 
-  @Get('purchase-orders/:id/for-approval')
+  @Get("purchase-orders/:id/for-approval")
   @ApiOperation({
-    summary: 'Ver detalle de una orden de compra para aprobar (Gerencia)',
+    summary: "Ver detalle de una orden de compra para aprobar (Gerencia)",
     description: `
     Obtiene el detalle completo de una orden de compra para su aprobación o rechazo.
 
@@ -1432,33 +1442,33 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la orden de compra',
+    name: "id",
+    description: "ID de la orden de compra",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Detalle de la orden de compra obtenido exitosamente',
+    description: "Detalle de la orden de compra obtenido exitosamente",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el rol Gerencia puede acceder a este endpoint',
+    description: "Solo el rol Gerencia puede acceder a este endpoint",
   })
   @ApiResponse({
     status: 404,
-    description: 'Orden de compra no encontrada',
+    description: "Orden de compra no encontrada",
   })
   async getPurchaseOrderForApproval(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.getPurchaseOrderForApproval(id, user.userId);
   }
 
-  @Post('purchase-orders/:id/approve')
+  @Post("purchase-orders/:id/approve")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Aprobar o rechazar ítems de una orden de compra (Gerencia)',
+    summary: "Aprobar o rechazar ítems de una orden de compra (Gerencia)",
     description: `
     Procesa la aprobación o rechazo de una orden de compra con decisiones item por item.
 
@@ -1514,29 +1524,29 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la orden de compra',
+    name: "id",
+    description: "ID de la orden de compra",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Orden de compra procesada exitosamente',
+    description: "Orden de compra procesada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'Datos inválidos o falta justificación de rechazo',
+    description: "Datos inválidos o falta justificación de rechazo",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el rol Gerencia puede aprobar órdenes',
+    description: "Solo el rol Gerencia puede aprobar órdenes",
   })
   @ApiResponse({
     status: 404,
-    description: 'Orden de compra no encontrada',
+    description: "Orden de compra no encontrada",
   })
   async approvePurchaseOrder(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
     @Body() approvePurchaseOrderDto: ApprovePurchaseOrderDto,
   ) {
     return this.purchasesService.approvePurchaseOrder(
@@ -1546,10 +1556,10 @@ export class PurchasesController {
     );
   }
 
-  @Post('purchase-orders/:id/reject')
+  @Post("purchase-orders/:id/reject")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Rechazar una orden de compra completa (Gerencia)',
+    summary: "Rechazar una orden de compra completa (Gerencia)",
     description: `
     Rechaza una orden de compra completa sin necesidad de revisar ítem por ítem.
 
@@ -1589,30 +1599,30 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la orden de compra',
+    name: "id",
+    description: "ID de la orden de compra",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Orden de compra rechazada exitosamente',
+    description: "Orden de compra rechazada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'Falta la razón de rechazo',
+    description: "Falta la razón de rechazo",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el rol Gerencia puede rechazar órdenes',
+    description: "Solo el rol Gerencia puede rechazar órdenes",
   })
   @ApiResponse({
     status: 404,
-    description: 'Orden de compra no encontrada',
+    description: "Orden de compra no encontrada",
   })
   async rejectPurchaseOrder(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
-    @Body('rejectionReason') rejectionReason: string,
+    @Param("id", ParseIntPipe) id: number,
+    @Body("rejectionReason") rejectionReason: string,
   ) {
     return this.purchasesService.rejectPurchaseOrder(
       id,
@@ -1621,9 +1631,9 @@ export class PurchasesController {
     );
   }
 
-  @Patch('purchase-orders/:id/resubmit')
+  @Patch("purchase-orders/:id/resubmit")
   @ApiOperation({
-    summary: 'Reenviar una orden de compra rechazada (Compras)',
+    summary: "Reenviar una orden de compra rechazada (Compras)",
     description: `
     Reenvía una orden de compra que fue rechazada por Gerencia, después de realizar las correcciones necesarias.
 
@@ -1665,30 +1675,30 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la orden de compra',
+    name: "id",
+    description: "ID de la orden de compra",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Orden de compra reenviada exitosamente',
+    description: "Orden de compra reenviada exitosamente",
   })
   @ApiResponse({
     status: 400,
-    description: 'La orden no está en estado rechazado',
+    description: "La orden no está en estado rechazado",
   })
   @ApiResponse({
     status: 403,
-    description: 'Solo el rol Compras puede reenviar órdenes',
+    description: "Solo el rol Compras puede reenviar órdenes",
   })
   @ApiResponse({
     status: 404,
-    description: 'Orden de compra no encontrada',
+    description: "Orden de compra no encontrada",
   })
   async resubmitPurchaseOrder(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
-    @Body('comments') comments?: string,
+    @Param("id", ParseIntPipe) id: number,
+    @Body("comments") comments?: string,
   ) {
     return this.purchasesService.resubmitPurchaseOrder(
       id,
@@ -1697,9 +1707,9 @@ export class PurchasesController {
     );
   }
 
-  @Get('purchase-orders/:id')
+  @Get("purchase-orders/:id")
   @ApiOperation({
-    summary: 'Ver detalle de una orden de compra',
+    summary: "Ver detalle de una orden de compra",
     description: `
     Obtiene el detalle completo de una orden de compra específica.
 
@@ -1721,28 +1731,28 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la orden de compra',
+    name: "id",
+    description: "ID de la orden de compra",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Detalle de la orden de compra obtenido exitosamente',
+    description: "Detalle de la orden de compra obtenido exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Orden de compra no encontrada',
+    description: "Orden de compra no encontrada",
   })
   async getPurchaseOrderDetail(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
     return this.purchasesService.getPurchaseOrderById(id);
   }
 
-  @Get(':id/purchase-orders')
+  @Get(":id/purchase-orders")
   @ApiOperation({
-    summary: 'Ver órdenes de compra de una requisición',
+    summary: "Ver órdenes de compra de una requisición",
     description: `
     Obtiene todas las órdenes de compra generadas para una requisición específica.
 
@@ -1766,33 +1776,35 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'id',
-    description: 'ID de la requisición',
+    name: "id",
+    description: "ID de la requisición",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Órdenes de compra de la requisición obtenidas exitosamente',
+    description: "Órdenes de compra de la requisición obtenidas exitosamente",
   })
   @ApiResponse({
     status: 404,
-    description: 'Requisición no encontrada',
+    description: "Requisición no encontrada",
   })
   async getPurchaseOrdersByRequisition(
     @GetUser() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Param("id", ParseIntPipe) id: number,
   ) {
-    return this.purchasesService.getPurchaseOrdersByRequisition(id, user.userId);
+    return this.purchasesService.getPurchaseOrdersByRequisition(
+      id,
+      user.userId,
+    );
   }
-
 
   // ============================================
   // MATERIAL PRICE HISTORY
   // ============================================
 
-  @Get('materials/:materialId/latest-price/:supplierId')
+  @Get("materials/:materialId/latest-price/:supplierId")
   @ApiOperation({
-    summary: 'Obtener último precio de material por proveedor',
+    summary: "Obtener último precio de material por proveedor",
     description: `
     Obtiene el precio más reciente de un material específico con un proveedor específico,
     basado en órdenes de compra previas.
@@ -1818,22 +1830,23 @@ export class PurchasesController {
     `,
   })
   @ApiParam({
-    name: 'materialId',
-    description: 'ID del material',
+    name: "materialId",
+    description: "ID del material",
     type: Number,
   })
   @ApiParam({
-    name: 'supplierId',
-    description: 'ID del proveedor',
+    name: "supplierId",
+    description: "ID del proveedor",
     type: Number,
   })
   @ApiResponse({
     status: 200,
-    description: 'Precio obtenido exitosamente (puede ser null si no hay historial)',
+    description:
+      "Precio obtenido exitosamente (puede ser null si no hay historial)",
   })
   async getLatestMaterialPrice(
-    @Param('materialId', ParseIntPipe) materialId: number,
-    @Param('supplierId', ParseIntPipe) supplierId: number,
+    @Param("materialId", ParseIntPipe) materialId: number,
+    @Param("supplierId", ParseIntPipe) supplierId: number,
   ) {
     return this.purchasesService.getLatestMaterialPrice(materialId, supplierId);
   }

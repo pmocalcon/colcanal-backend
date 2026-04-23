@@ -1,9 +1,9 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class AddObraFieldsToRequisitions1762520000000
   implements MigrationInterface
 {
-  name = 'AddObraFieldsToRequisitions1762520000000';
+  name = "AddObraFieldsToRequisitions1762520000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Agregar columnas 'obra' y 'codigo_obra' a tabla requisitions

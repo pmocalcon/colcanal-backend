@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { RequisitionLog } from '../../database/entities/requisition-log.entity';
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 
 @Injectable()
 export class AuditService {
@@ -20,52 +20,74 @@ export class AuditService {
       userId?: number;
       action?: string;
       requisitionId?: number;
+      requisitionNumber?: string;
+      companyName?: string;
+      userName?: string;
       fromDate?: string;
       toDate?: string;
     },
   ) {
     const skip = (page - 1) * limit;
 
-    // Construir query con Query Builder para mejor control
     const queryBuilder = this.requisitionLogRepository
-      .createQueryBuilder('log')
-      .leftJoinAndSelect('log.user', 'user')
-      .leftJoinAndSelect('log.requisition', 'requisition')
-      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
-      .leftJoinAndSelect('operationCenter.company', 'company');
+      .createQueryBuilder("log")
+      .leftJoinAndSelect("log.user", "user")
+      .leftJoinAndSelect("log.requisition", "requisition")
+      .leftJoinAndSelect("requisition.operationCenter", "operationCenter")
+      .leftJoinAndSelect("operationCenter.company", "company");
 
-    // Aplicar filtros
     if (filters?.userId) {
-      queryBuilder.andWhere('log.userId = :userId', { userId: filters.userId });
+      queryBuilder.andWhere("log.userId = :userId", { userId: filters.userId });
     }
 
     if (filters?.action) {
-      queryBuilder.andWhere('log.action = :action', { action: filters.action });
+      queryBuilder.andWhere("log.action = :action", { action: filters.action });
     }
 
     if (filters?.requisitionId) {
-      queryBuilder.andWhere('log.requisitionId = :requisitionId', {
+      queryBuilder.andWhere("log.requisitionId = :requisitionId", {
         requisitionId: filters.requisitionId,
       });
     }
 
+    if (filters?.requisitionNumber) {
+      queryBuilder.andWhere(
+        "requisition.requisitionNumber ILIKE :requisitionNumber",
+        {
+          requisitionNumber: `%${filters.requisitionNumber}%`,
+        },
+      );
+    }
+
+    if (filters?.companyName) {
+      queryBuilder.andWhere("company.name ILIKE :companyName", {
+        companyName: `%${filters.companyName}%`,
+      });
+    }
+
+    if (filters?.userName) {
+      queryBuilder.andWhere("user.nombre ILIKE :userName", {
+        userName: `%${filters.userName}%`,
+      });
+    }
+
     if (filters?.fromDate && filters?.toDate) {
-      queryBuilder.andWhere('log.createdAt BETWEEN :fromDate AND :toDate', {
+      queryBuilder.andWhere("log.createdAt BETWEEN :fromDate AND :toDate", {
         fromDate: new Date(filters.fromDate),
-        toDate: new Date(filters.toDate),
+        toDate: new Date(`${filters.toDate}T23:59:59`),
       });
     } else if (filters?.fromDate) {
-      queryBuilder.andWhere('log.createdAt >= :fromDate', {
+      queryBuilder.andWhere("log.createdAt >= :fromDate", {
         fromDate: new Date(filters.fromDate),
       });
     } else if (filters?.toDate) {
-      queryBuilder.andWhere('log.createdAt <= :toDate', {
-        toDate: new Date(filters.toDate),
+      queryBuilder.andWhere("log.createdAt <= :toDate", {
+        toDate: new Date(`${filters.toDate}T23:59:59`),
       });
     }
 
     // Ordenar por fecha descendente (más recientes primero)
-    queryBuilder.orderBy('log.createdAt', 'DESC');
+    queryBuilder.orderBy("log.createdAt", "DESC");
 
     // Aplicar paginación
     queryBuilder.skip(skip).take(limit);
@@ -87,28 +109,28 @@ export class AuditService {
   async getRequisitionDetail(requisitionId: number) {
     // Obtener todos los logs de esta requisición con sus relaciones
     const logs = await this.requisitionLogRepository
-      .createQueryBuilder('log')
-      .leftJoinAndSelect('log.user', 'user')
-      .leftJoinAndSelect('log.requisition', 'requisition')
-      .leftJoinAndSelect('requisition.company', 'company')
-      .leftJoinAndSelect('requisition.project', 'project')
-      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
-      .leftJoinAndSelect('requisition.projectCode', 'projectCode')
-      .leftJoinAndSelect('requisition.creator', 'creator')
-      .leftJoinAndSelect('requisition.status', 'status')
-      .leftJoinAndSelect('requisition.reviewer', 'reviewer')
-      .leftJoinAndSelect('requisition.approver', 'approver')
-      .leftJoinAndSelect('requisition.items', 'items')
-      .leftJoinAndSelect('items.material', 'material')
-      .leftJoinAndSelect('items.quotations', 'quotations')
-      .leftJoinAndSelect('quotations.supplier', 'supplier')
-      .leftJoinAndSelect('requisition.purchaseOrders', 'purchaseOrders')
-      .leftJoinAndSelect('purchaseOrders.items', 'purchaseOrderItems')
-      .leftJoinAndSelect('purchaseOrders.supplier', 'poSupplier')
-      .leftJoinAndSelect('requisition.approvals', 'approvals')
-      .leftJoinAndSelect('approvals.user', 'approvalUser')
-      .where('log.requisitionId = :requisitionId', { requisitionId })
-      .orderBy('log.createdAt', 'ASC')
+      .createQueryBuilder("log")
+      .leftJoinAndSelect("log.user", "user")
+      .leftJoinAndSelect("log.requisition", "requisition")
+      .leftJoinAndSelect("requisition.company", "company")
+      .leftJoinAndSelect("requisition.project", "project")
+      .leftJoinAndSelect("requisition.operationCenter", "operationCenter")
+      .leftJoinAndSelect("requisition.projectCode", "projectCode")
+      .leftJoinAndSelect("requisition.creator", "creator")
+      .leftJoinAndSelect("requisition.status", "status")
+      .leftJoinAndSelect("requisition.reviewer", "reviewer")
+      .leftJoinAndSelect("requisition.approver", "approver")
+      .leftJoinAndSelect("requisition.items", "items")
+      .leftJoinAndSelect("items.material", "material")
+      .leftJoinAndSelect("items.quotations", "quotations")
+      .leftJoinAndSelect("quotations.supplier", "supplier")
+      .leftJoinAndSelect("requisition.purchaseOrders", "purchaseOrders")
+      .leftJoinAndSelect("purchaseOrders.items", "purchaseOrderItems")
+      .leftJoinAndSelect("purchaseOrders.supplier", "poSupplier")
+      .leftJoinAndSelect("requisition.approvals", "approvals")
+      .leftJoinAndSelect("approvals.user", "approvalUser")
+      .where("log.requisitionId = :requisitionId", { requisitionId })
+      .orderBy("log.createdAt", "ASC")
       .getMany();
 
     if (!logs || logs.length === 0) {
@@ -127,7 +149,8 @@ export class AuditService {
       requisition.items.forEach((item) => {
         if (item.quotations && item.quotations.length > 0) {
           // Usar la cotización seleccionada o la primera disponible
-          const selectedQuotation = item.quotations.find((q) => q.isSelected) || item.quotations[0];
+          const selectedQuotation =
+            item.quotations.find((q) => q.isSelected) || item.quotations[0];
           if (selectedQuotation && selectedQuotation.unitPrice) {
             const itemSubtotal = selectedQuotation.unitPrice * item.quantity;
             subtotal += itemSubtotal;
@@ -143,20 +166,22 @@ export class AuditService {
       let timeSincePrevious: string | null = null;
       if (index > 0) {
         const prevLog = logs[index - 1];
-        const diffMs = new Date(log.createdAt).getTime() - new Date(prevLog.createdAt).getTime();
+        const diffMs =
+          new Date(log.createdAt).getTime() -
+          new Date(prevLog.createdAt).getTime();
         const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
         const diffDays = Math.floor(diffHours / 24);
 
         if (diffDays > 0) {
-          timeSincePrevious = `${diffDays} día${diffDays > 1 ? 's' : ''}`;
+          timeSincePrevious = `${diffDays} día${diffDays > 1 ? "s" : ""}`;
         } else if (diffHours > 0) {
-          timeSincePrevious = `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+          timeSincePrevious = `${diffHours} hora${diffHours > 1 ? "s" : ""}`;
         } else {
           const diffMinutes = Math.floor(diffMs / (1000 * 60));
           if (diffMinutes > 0) {
-            timeSincePrevious = `${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
+            timeSincePrevious = `${diffMinutes} minuto${diffMinutes > 1 ? "s" : ""}`;
           } else {
-            timeSincePrevious = 'unos segundos';
+            timeSincePrevious = "unos segundos";
           }
         }
       }
@@ -217,10 +242,10 @@ export class AuditService {
 
     // Logs por acción
     const logsByAction = await this.requisitionLogRepository
-      .createQueryBuilder('log')
-      .select('log.action', 'action')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('log.action')
+      .createQueryBuilder("log")
+      .select("log.action", "action")
+      .addSelect("COUNT(*)", "count")
+      .groupBy("log.action")
       .getRawMany();
 
     // Logs de los últimos 7 días
@@ -228,8 +253,8 @@ export class AuditService {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const recentLogs = await this.requisitionLogRepository
-      .createQueryBuilder('log')
-      .where('log.createdAt >= :sevenDaysAgo', { sevenDaysAgo })
+      .createQueryBuilder("log")
+      .where("log.createdAt >= :sevenDaysAgo", { sevenDaysAgo })
       .getCount();
 
     return {
