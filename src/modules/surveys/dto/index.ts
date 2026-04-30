@@ -4,3 +4,4 @@ export * from "./create-survey.dto";
 export * from "./update-survey.dto";
 export * from "./review-survey.dto";
 export * from "./filter-surveys.dto";
+export * from "./create-ucap.dto";

@@ -585,7 +585,7 @@ export class PurchasesService {
       // 6=Director Técnico, 7=Director de Área, 30=Director Comercial
       // NOTA: Directores de Proyecto (8-11) SÍ requieren revisión por Director Técnico
       const ROLES_SKIP_REVIEW = [2, 3, 4, 5, 6, 7, 30];
-      const skipsReview = ROLES_SKIP_REVIEW.includes(user.role.rolId);
+      const skipsReview = ROLES_SKIP_REVIEW.includes(Number(user.role.rolId));
 
       // Verificar si tiene obra especial que requiere autorización de Gerencia de Proyectos
       const hasSpecialObra = dto.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(dto.obra.trim());
@@ -747,8 +747,7 @@ export class PurchasesService {
       .leftJoinAndSelect('logs.user', 'logUser')
       .leftJoinAndSelect('logUser.role', 'logUserRole')
       .where('requisition.createdBy = :userId', { userId })
-      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
-      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
+      .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
       .addOrderBy('logs.createdAt', 'DESC');
@@ -1165,8 +1164,7 @@ export class PurchasesService {
       });
     }
 
-    // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
-    queryBuilder.andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE });
+    queryBuilder.andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') });
 
     // Ordenar por prioridad (alta primero) y luego por fecha de creación
     queryBuilder
@@ -2162,8 +2160,7 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['aprobada_gerencia', 'en_cotizacion']
       })
-      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
-      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
+      .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC');
 
@@ -2174,11 +2171,10 @@ export class PurchasesService {
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['cotizada', 'en_orden_compra', 'pendiente_recepcion', 'en_recepcion', 'recepcion_completa']
       })
-      // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
-      .andWhere('requisition.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
+      .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
-      .take(20); // Limitar a 20 procesadas
+      .take(30); // Limitar a 20 procesadas
 
     const [processedRequisitions, processedTotal] = await processedQueryBuilder.getManyAndCount();
 
@@ -3725,7 +3721,7 @@ export class PurchasesService {
       // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
       .andWhere('po.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('po.createdAt', 'DESC')
-      .take(20); // Limitar a 20 procesadas
+      .take(30); // Limitar a 20 procesadas
 
     const [processedOrders, processedTotal] = await processedQueryBuilder.getManyAndCount();
 

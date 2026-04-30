@@ -28,6 +28,7 @@ import {
   ReviewBlockDto,
   SurveyBlock,
   BlockReviewStatus,
+  CreateUcapDto,
 } from './dto';
 import { BlockStatus } from '../../database/entities/survey.entity';
 
@@ -498,6 +499,46 @@ export class SurveysService {
     const ucaps = await query.getMany();
 
     return { ippConfig, ucaps };
+  }
+
+  async createUcap(dto: CreateUcapDto): Promise<Ucap> {
+    const company = await this.companyRepository.findOne({
+      where: { companyId: dto.companyId },
+    });
+    if (!company) {
+      throw new NotFoundException(`Empresa con ID ${dto.companyId} no encontrada`);
+    }
+
+    if (dto.projectId) {
+      const project = await this.projectRepository.findOne({
+        where: { projectId: dto.projectId },
+      });
+      if (!project) {
+        throw new NotFoundException(`Proyecto con ID ${dto.projectId} no encontrado`);
+      }
+    }
+
+    // Verificar si ya existe una UCAP con el mismo código para esta empresa
+    const existing = await this.ucapRepository.findOne({
+      where: { companyId: dto.companyId, code: dto.code },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `Ya existe una UCAP con el código "${dto.code}" para esta empresa`,
+      );
+    }
+
+    const ucap = this.ucapRepository.create({
+      companyId: dto.companyId,
+      projectId: dto.projectId ?? undefined,
+      code: dto.code,
+      description: dto.description,
+      roundedValue: dto.roundedValue,
+      initialIpp: dto.initialIpp,
+      isActive: dto.isActive ?? true,
+    });
+
+    return this.ucapRepository.save(ucap) as Promise<Ucap>;
   }
 
   // ============================================
