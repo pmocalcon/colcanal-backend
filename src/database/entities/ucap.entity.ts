@@ -7,11 +7,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Unique,
 } from "typeorm";
 import { Company } from "./company.entity";
 import { Project } from "./project.entity";
 
 @Entity("ucaps")
+@Unique(["companyId", "projectId", "code"])
 export class Ucap {
   @PrimaryGeneratedColumn({ name: "ucap_id" })
   ucapId: number;

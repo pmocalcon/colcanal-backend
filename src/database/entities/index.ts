@@ -49,3 +49,7 @@ export { SurveyInvestmentItem } from './survey-investment-item.entity';
 export { SurveyMaterial } from './survey-material.entity';
 export { SurveyTravelExpense } from './survey-travel-expense.entity';
 export { SurveyReviewerAccess } from './survey-reviewer-access.entity';
+
+// Director Budgets (Presupuesto Director de Proyectos)
+export { DirectorBudget } from './director-budget.entity';
+export { DirectorBudgetItem } from './director-budget-item.entity';

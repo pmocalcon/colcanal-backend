@@ -28,6 +28,8 @@ import {
   ReviewSurveyDto,
   FilterSurveysDto,
   ReviewBlockDto,
+  CreateUcapDto,
+  UpdateUcapDto,
 } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -277,6 +279,26 @@ export class SurveysController {
   // ============================================
   // UCAP ENDPOINTS
   // ============================================
+
+  @Post('ucaps')
+  @Permissions('levantamientos:crear')
+  @ApiOperation({ summary: 'Create a new UCAP' })
+  @ApiResponse({ status: 201, description: 'UCAP created successfully' })
+  async createUcap(@Body() createUcapDto: CreateUcapDto) {
+    return this.surveysService.createUcap(createUcapDto);
+  }
+
+  @Patch('ucaps/:id')
+  @Permissions('levantamientos:crear')
+  @ApiOperation({ summary: 'Update a UCAP' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'UCAP updated successfully' })
+  async updateUcap(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateUcapDto: UpdateUcapDto,
+  ) {
+    return this.surveysService.updateUcap(id, updateUcapDto);
+  }
 
   @Get('ucaps/:companyId')
   @Permissions('levantamientos:ver')

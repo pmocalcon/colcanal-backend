@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
@@ -28,6 +28,8 @@ import {
   ReviewBlockDto,
   SurveyBlock,
   BlockReviewStatus,
+  CreateUcapDto,
+  UpdateUcapDto,
 } from './dto';
 import { BlockStatus } from '../../database/entities/survey.entity';
 
@@ -1103,6 +1105,76 @@ export class SurveysService {
     }
 
     await this.surveyReviewerAccessRepository.remove(access);
+  }
+
+  /**
+   * Create a new UCAP for a company/project
+   */
+  async createUcap(dto: CreateUcapDto): Promise<Ucap> {
+    const company = await this.companyRepository.findOne({ where: { companyId: dto.companyId } });
+    if (!company) {
+      throw new NotFoundException(`Company with ID ${dto.companyId} not found`);
+    }
+
+    if (dto.projectId) {
+      const project = await this.projectRepository.findOne({ where: { projectId: dto.projectId } });
+      if (!project) {
+        throw new NotFoundException(`Project with ID ${dto.projectId} not found`);
+      }
+    }
+
+    const existing = await this.ucapRepository.findOne({
+      where: {
+        code: dto.code,
+        companyId: dto.companyId,
+        projectId: dto.projectId ?? IsNull(),
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(`Ya existe una UCAP con código "${dto.code}" en este proyecto/empresa`);
+    }
+
+    const ucapData: Partial<Ucap> = {
+      companyId: dto.companyId,
+      code: dto.code,
+      description: dto.description,
+      roundedValue: dto.roundedValue,
+      initialIpp: dto.initialIpp,
+      isActive: true,
+    };
+    if (dto.projectId) {
+      ucapData.projectId = dto.projectId;
+    }
+
+    const ucap = this.ucapRepository.create(ucapData as Ucap);
+    return this.ucapRepository.save(ucap);
+  }
+
+  async updateUcap(ucapId: number, dto: UpdateUcapDto): Promise<Ucap> {
+    const ucap = await this.ucapRepository.findOne({ where: { ucapId } });
+    if (!ucap) {
+      throw new NotFoundException(`UCAP with ID ${ucapId} not found`);
+    }
+
+    if (dto.code && dto.code !== ucap.code) {
+      const existing = await this.ucapRepository.findOne({
+        where: {
+          code: dto.code,
+          companyId: ucap.companyId,
+          projectId: ucap.projectId ?? IsNull(),
+        },
+      });
+      if (existing) {
+        throw new BadRequestException(`Ya existe una UCAP con código "${dto.code}" en este proyecto/empresa`);
+      }
+    }
+
+    if (dto.code !== undefined) ucap.code = dto.code;
+    if (dto.description !== undefined) ucap.description = dto.description;
+    if (dto.roundedValue !== undefined) ucap.roundedValue = dto.roundedValue;
+    if (dto.initialIpp !== undefined) ucap.initialIpp = dto.initialIpp;
+
+    return this.ucapRepository.save(ucap);
   }
 
   /**
