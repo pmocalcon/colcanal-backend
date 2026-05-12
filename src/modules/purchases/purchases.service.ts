@@ -2174,7 +2174,7 @@ export class PurchasesService {
       .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
-      .take(40); // Limitar a 20 procesadas
+      .take(90); // Limitar a 20 procesadas
 
     const [processedRequisitions, processedTotal] = await processedQueryBuilder.getManyAndCount();
 
@@ -3721,7 +3721,7 @@ export class PurchasesService {
       // Filtrar datos de prueba (anteriores al 6 de enero de 2026)
       .andWhere('po.createdAt >= :officialDataStartDate', { officialDataStartDate: OFFICIAL_DATA_START_DATE })
       .orderBy('po.createdAt', 'DESC')
-      .take(40); // Limitar a 20 procesadas
+      .take(90); // Limitar a 20 procesadas
 
     const [processedOrders, processedTotal] = await processedQueryBuilder.getManyAndCount();
 
