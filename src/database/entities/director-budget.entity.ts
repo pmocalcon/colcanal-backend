@@ -14,6 +14,7 @@ import { DirectorBudgetItem } from './director-budget-item.entity';
 
 export enum DirectorBudgetStatus {
   DRAFT = 'draft',
+  EN_REVISION = 'en_revision',
   FINAL = 'final',
 }
 

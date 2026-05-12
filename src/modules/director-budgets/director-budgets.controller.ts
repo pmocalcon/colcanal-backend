@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Body,
   Param,
   Query,
@@ -20,6 +21,7 @@ import {
   CreateDirectorBudgetDto,
   UpdateDirectorBudgetDto,
   FilterDirectorBudgetsDto,
+  UpdateBudgetStatusDto,
 } from './dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -67,5 +69,15 @@ export class DirectorBudgetsController {
   @ApiOperation({ summary: 'Get a single director budget' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(id);
+  }
+
+  @Patch(':id/status')
+  @Permissions('levantamientos:crear')
+  @ApiOperation({ summary: 'Update budget status (draft → en_revision → final)' })
+  async updateStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateBudgetStatusDto,
+  ) {
+    return this.service.updateStatus(id, dto.status);
   }
 }

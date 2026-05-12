@@ -2,10 +2,11 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { DirectorBudget } from '../../database/entities/director-budget.entity';
+import { DirectorBudget, DirectorBudgetStatus } from '../../database/entities/director-budget.entity';
 import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
 import { Work } from '../../database/entities/work.entity';
 import {
@@ -164,5 +165,29 @@ export class DirectorBudgetsService {
     });
     if (!budget) throw new NotFoundException('Presupuesto no encontrado');
     return budget;
+  }
+
+  async updateStatus(
+    budgetId: number,
+    newStatus: DirectorBudgetStatus,
+  ): Promise<DirectorBudget> {
+    const budget = await this.budgetRepo.findOne({ where: { budgetId } });
+    if (!budget) throw new NotFoundException('Presupuesto no encontrado');
+
+    const allowed: Record<DirectorBudgetStatus, DirectorBudgetStatus[]> = {
+      [DirectorBudgetStatus.DRAFT]: [DirectorBudgetStatus.EN_REVISION],
+      [DirectorBudgetStatus.EN_REVISION]: [DirectorBudgetStatus.FINAL, DirectorBudgetStatus.DRAFT],
+      [DirectorBudgetStatus.FINAL]: [],
+    };
+
+    if (!allowed[budget.status].includes(newStatus)) {
+      throw new BadRequestException(
+        `No se puede cambiar de '${budget.status}' a '${newStatus}'`,
+      );
+    }
+
+    budget.status = newStatus;
+    await this.budgetRepo.save(budget);
+    return this.findOne(budgetId);
   }
 }
