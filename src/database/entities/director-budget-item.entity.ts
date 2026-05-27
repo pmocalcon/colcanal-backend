@@ -43,6 +43,9 @@ export class DirectorBudgetItem {
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
   ejecutado: number;
 
+  @Column({ name: 'has_iva', type: 'boolean', default: true })
+  hasIva: boolean;
+
   @ManyToOne(() => DirectorBudget, (b) => b.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'budget_id' })
   budget: DirectorBudget;

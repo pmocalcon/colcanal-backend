@@ -6,6 +6,7 @@ import { DirectorBudget } from '../../database/entities/director-budget.entity';
 import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
 import { Work } from '../../database/entities/work.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
+import { RoleGestion } from '../../database/entities/role-gestion.entity';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { RolePermission } from '../../database/entities/role-permission.entity';
       DirectorBudgetItem,
       Work,
       RolePermission,
+      RoleGestion,
     ]),
   ],
   controllers: [DirectorBudgetsController],

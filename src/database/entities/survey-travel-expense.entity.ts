@@ -36,6 +36,9 @@ export class SurveyTravelExpense {
   @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
   quantity: number;
 
+  @Column({ name: "unit_price", type: "decimal", precision: 15, scale: 2, nullable: true })
+  unitPrice: number;
+
   @Column({ type: "text", nullable: true })
   observations: string;
 

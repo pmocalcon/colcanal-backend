@@ -43,6 +43,7 @@ export { Invoice } from './invoice.entity';
 // Survey (Levantamiento de Obras) entities
 export { Ucap } from './ucap.entity';
 export { Work } from './work.entity';
+export { WorkActa } from './work-acta.entity';
 export { Survey } from './survey.entity';
 export { SurveyBudgetItem } from './survey-budget-item.entity';
 export { SurveyInvestmentItem } from './survey-investment-item.entity';
@@ -53,3 +54,9 @@ export { SurveyReviewerAccess } from './survey-reviewer-access.entity';
 // Director Budgets (Presupuesto Director de Proyectos)
 export { DirectorBudget } from './director-budget.entity';
 export { DirectorBudgetItem } from './director-budget-item.entity';
+
+// Schedules (Cronograma)
+export { Schedule } from './schedule.entity';
+export { ScheduleItem } from './schedule-item.entity';
+export { ScheduleDailyPlan } from './schedule-daily-plan.entity';
+export { ScheduleMaterialLog } from './schedule-material-log.entity';

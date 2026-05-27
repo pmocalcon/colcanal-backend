@@ -1,5 +1,5 @@
-import { IsNumber, IsOptional, IsString, MaxLength } from "class-validator";
-import { Type } from "class-transformer";
+import { IsNumber, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
+import { Transform, Type } from "class-transformer";
 import { ApiProperty } from "@nestjs/swagger";
 
 export class CreateWorkDto {
@@ -143,4 +143,15 @@ export class CreateWorkDto {
   @IsString()
   @MaxLength(50)
   filingNumber?: string;
+
+  @ApiProperty({
+    description: "Annual plan year this work belongs to",
+    example: 2026,
+    required: false,
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.annualPlan !== null)
+  @IsNumber({}, { message: "annualPlan must be a valid number" })
+  @Transform(({ value }) => (value === null || value === undefined ? value : Number(value)))
+  annualPlan?: number | null;
 }

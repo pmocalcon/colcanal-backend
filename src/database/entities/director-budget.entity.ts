@@ -32,8 +32,20 @@ export class DirectorBudget {
   @Column({ name: 'work_name', type: 'varchar', length: 255, nullable: true })
   workName: string;
 
+  @Column({ name: 'company_name', type: 'varchar', length: 255, nullable: true })
+  companyName: string | null;
+
   @Column({ type: 'text', nullable: true })
   observaciones: string;
+
+  @Column({ name: 'fuente_financiacion', type: 'varchar', length: 255, nullable: true })
+  fuenteFinanciacion: string;
+
+  @Column({ name: 'valor_minimo_excedentes', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  valorMinimoExcedentes: number;
+
+  @Column({ name: 'valor_actual_excedentes', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  valorActualExcedentes: number;
 
   @Column({ name: 'mano_de_obra', type: 'decimal', precision: 15, scale: 2, nullable: true })
   manoDeObra: number;

@@ -35,6 +35,7 @@ import { PurchaseOrderApproval } from "../../database/entities/purchase-order-ap
 import { PurchaseOrderItemApproval } from "../../database/entities/purchase-order-item-approval.entity";
 import { Permission } from "../../database/entities/permission.entity";
 import { RolePermission } from "../../database/entities/role-permission.entity";
+import { RoleGestion } from "../../database/entities/role-gestion.entity";
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { RolePermission } from "../../database/entities/role-permission.entity";
       // Permission entities
       Permission,
       RolePermission,
+      RoleGestion,
     ]),
   ],
   controllers: [MasterDataController, PurchasesController],

@@ -32,12 +32,16 @@ export class DirectorBudgetsService {
     private readonly workRepo: Repository<Work>,
   ) {}
 
-  private buildBudgetEntity(dto: CreateDirectorBudgetDto): Partial<DirectorBudget> {
+  private buildBudgetEntity(dto: CreateDirectorBudgetDto, resolvedCompanyName?: string): Partial<DirectorBudget> {
     return {
       workId: n(dto.workId) as number,
       departmentName: dto.departmentName,
       workName: dto.workName,
+      companyName: resolvedCompanyName ?? dto.companyName ?? null,
       observaciones: dto.observaciones,
+      fuenteFinanciacion: dto.fuenteFinanciacion,
+      valorMinimoExcedentes: n(dto.valorMinimoExcedentes) as number,
+      valorActualExcedentes: n(dto.valorActualExcedentes) as number,
       manoDeObra: n(dto.manoDeObra) as number,
       manoDeObraEj: n(dto.manoDeObraEj) as number,
       materialesInventario: n(dto.materialesInventario) as number,
@@ -69,12 +73,25 @@ export class DirectorBudgetsService {
       cantBodega: n(item.cantBodega) as number,
       costoTransporte: n(item.costoTransporte) as number,
       ejecutado: n(item.ejecutado) as number,
+      hasIva: item.hasIva !== false,
     }));
   }
 
+  private async resolveCompanyName(dto: CreateDirectorBudgetDto): Promise<string | undefined> {
+    if (dto.workId) {
+      const work = await this.workRepo.findOne({
+        where: { workId: dto.workId },
+        relations: ['company'],
+      });
+      if (work?.company?.name) return work.company.name;
+    }
+    return dto.companyName;
+  }
+
   async create(dto: CreateDirectorBudgetDto, userId: number): Promise<DirectorBudget> {
+    const companyName = await this.resolveCompanyName(dto);
     const budget = this.budgetRepo.create({
-      ...this.buildBudgetEntity(dto),
+      ...this.buildBudgetEntity(dto, companyName),
       createdBy: userId,
     } as DirectorBudget);
 
@@ -101,7 +118,8 @@ export class DirectorBudgetsService {
       throw new ForbiddenException('No tienes permiso para editar este presupuesto');
     }
 
-    Object.assign(budget, this.buildBudgetEntity(dto));
+    const companyName = await this.resolveCompanyName(dto);
+    Object.assign(budget, this.buildBudgetEntity(dto, companyName));
     await this.budgetRepo.save(budget);
 
     await this.itemRepo.delete({ budgetId });
@@ -130,7 +148,10 @@ export class DirectorBudgetsService {
       .leftJoinAndSelect('b.work', 'work')
       .leftJoinAndSelect('work.company', 'company')
       .leftJoinAndSelect('b.creator', 'creator')
-      .orderBy('b.updatedAt', 'DESC')
+      .leftJoinAndSelect('b.items', 'items')
+      .leftJoinAndSelect('items.material', 'itemMaterial')
+      .orderBy('b.budgetId', 'ASC')
+      .addOrderBy('items.itemOrder', 'ASC')
       .skip(skip)
       .take(limit);
 
@@ -149,7 +170,14 @@ export class DirectorBudgetsService {
         .map((id) => parseInt(id.trim(), 10))
         .filter((id) => !isNaN(id));
       if (ids.length) {
-        qb.andWhere('work.companyId IN (:...companyIds)', { companyIds: ids });
+        if (filters.departmentName) {
+          qb.andWhere(
+            '(work.companyId IN (:...companyIds) OR (b.workId IS NULL AND b.departmentName = :deptName))',
+            { companyIds: ids, deptName: filters.departmentName },
+          );
+        } else {
+          qb.andWhere('work.companyId IN (:...companyIds)', { companyIds: ids });
+        }
       }
     }
 

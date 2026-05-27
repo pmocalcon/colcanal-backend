@@ -68,7 +68,7 @@ export class AuthService {
   private async buildPermissions(rolId: number): Promise<string[]> {
     const [roleGestiones, rolePermisos] = await Promise.all([
       this.roleGestionRepository.find({ where: { rolId }, relations: ['gestion'] }),
-      this.rolePermissionRepository.find({ where: { rolId } }),
+      this.rolePermissionRepository.find({ where: { rolId }, relations: ['permission'] }),
     ]);
 
     const permisoIds = new Set(rolePermisos.map((rp) => rp.permisoId));
@@ -82,6 +82,14 @@ export class AuthService {
             permissions.push(`${prefix}:${action}`);
           }
         }
+      }
+    }
+
+    // Permisos específicos (nombre_permiso directo) que no están en PERMISO_ACTIONS
+    const knownPermisoIds = new Set(Object.keys(PERMISO_ACTIONS).map(Number));
+    for (const rp of rolePermisos) {
+      if (!knownPermisoIds.has(rp.permisoId)) {
+        permissions.push(rp.permission.nombrePermiso);
       }
     }
 
@@ -180,7 +188,6 @@ export class AuthService {
   }
 
   async refreshToken(user: User) {
-    // Get user with role (needed for roleName in payload)
     const userWithRole = await this.userRepository.findOne({
       where: { userId: user.userId },
       relations: ['role'],
@@ -204,9 +211,15 @@ export class AuthService {
       expiresIn: `${this.configService.get("jwt.expiresIn")}s`,
     });
 
-    return {
-      accessToken,
-    };
+    const newRefreshToken = this.jwtService.sign(payload, {
+      secret: this.configService.get("jwt.refreshSecret") || "change-this-refresh-secret",
+      expiresIn: `${this.configService.get("jwt.refreshExpiresIn") || 604800}s`,
+    });
+
+    const hashedRefreshToken = await bcrypt.hash(newRefreshToken, 10);
+    await this.userRepository.update(userWithRole.userId, { refreshToken: hashedRefreshToken });
+
+    return { accessToken, refreshToken: newRefreshToken };
   }
 
   async getProfile(userId: number) {

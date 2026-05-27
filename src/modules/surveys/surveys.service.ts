@@ -5,9 +5,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, In } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
+import { WorkActa, ActaStatus } from '../../database/entities/work-acta.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -58,6 +59,8 @@ export class SurveysService {
     private userRepository: Repository<User>,
     @InjectRepository(SurveyReviewerAccess)
     private surveyReviewerAccessRepository: Repository<SurveyReviewerAccess>,
+    @InjectRepository(WorkActa)
+    private workActaRepository: Repository<WorkActa>,
   ) {}
 
   // ============================================
@@ -184,7 +187,7 @@ export class SurveysService {
     // Generate project code
     const projectCode = await this.generateProjectCode(work.companyId, work.projectId);
 
-    // Get Technical Director as assigned reviewer
+    // Get Director Técnico as assigned reviewer
     const technicalDirector = await this.userRepository.findOne({
       where: { cargo: 'Director Técnico', estado: true },
     });
@@ -310,7 +313,7 @@ export class SurveysService {
     return survey;
   }
 
-  async getSurveys(filters: FilterSurveysDto): Promise<{ data: Survey[]; total: number; page: number; limit: number }> {
+  async getSurveys(filters: FilterSurveysDto): Promise<{ data: any[]; total: number; page: number; limit: number }> {
     const page = filters.page || 1;
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
@@ -320,10 +323,27 @@ export class SurveysService {
       .leftJoinAndSelect('work.company', 'company')
       .leftJoinAndSelect('work.project', 'project')
       .leftJoinAndSelect('survey.creator', 'creator')
-      .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer');
+      .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer')
+      .leftJoinAndSelect('survey.materialItems', 'materialItems')
+      .leftJoinAndSelect('materialItems.material', 'material');
 
-    if (filters.companyId) {
-      query.andWhere('work.companyId = :companyId', { companyId: filters.companyId });
+    const hasCompanyFilter = filters.companyId?.length;
+    const hasProjectIdsFilter = filters.projectIds?.length;
+    if (hasCompanyFilter || hasProjectIdsFilter) {
+      const conditions: string[] = [];
+      const params: Record<string, number[]> = {};
+
+      if (hasCompanyFilter) {
+        conditions.push('work.companyId IN (:...companyIds)');
+        params.companyIds = filters.companyId!;
+      }
+
+      if (hasProjectIdsFilter) {
+        conditions.push('work.projectId IN (:...projectIds)');
+        params.projectIds = filters.projectIds!;
+      }
+
+      query.andWhere(`(${conditions.join(' OR ')})`, params);
     }
 
     if (filters.projectId) {
@@ -356,7 +376,16 @@ export class SurveysService {
 
     query.orderBy('survey.createdAt', 'DESC');
 
-    const [data, total] = await query.skip(skip).take(limit).getManyAndCount();
+    const [surveys, total] = await query.skip(skip).take(limit).getManyAndCount();
+
+    const recordNumbers = [...new Set(surveys.map(s => s.work?.recordNumber).filter(Boolean))] as string[];
+    const actaMap = await this.getActaProjectCodeMap(recordNumbers);
+
+    const data = surveys.map((survey) => ({
+      ...survey,
+      surveyNumber: survey.projectCode,
+      projectCode: actaMap.get(survey.work?.recordNumber || '') || null,
+    }));
 
     return { data, total, page, limit };
   }
@@ -519,11 +548,18 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    // Validar que el usuario es el Director Técnico asignado
+    // Validar que el usuario es el Director Técnico asignado o tiene rol privilegiado
     if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
-      throw new ForbiddenException(
-        'Solo el Director Técnico asignado puede revisar este levantamiento',
-      );
+      const user = await this.userRepository.findOne({
+        where: { userId },
+        relations: ['role'],
+      });
+      const rol = user?.role?.nombreRol;
+      if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+        throw new ForbiddenException(
+          'Solo el Director Técnico asignado puede revisar este levantamiento',
+        );
+      }
     }
 
     // Map block to status
@@ -572,11 +608,18 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    // Validar que el usuario es el Director Técnico asignado
+    // Validar que el usuario es el Director Técnico asignado o tiene rol privilegiado
     if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
-      throw new ForbiddenException(
-        'Solo el Director Técnico asignado puede aprobar este levantamiento',
-      );
+      const user = await this.userRepository.findOne({
+        where: { userId },
+        relations: ['role'],
+      });
+      const rol = user?.role?.nombreRol;
+      if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+        throw new ForbiddenException(
+          'Solo el Director Técnico asignado puede aprobar este levantamiento',
+        );
+      }
     }
 
     // Approve all blocks
@@ -614,11 +657,18 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    // Validar que el usuario es el Director Técnico asignado
+    // Validar que el usuario es el Director Técnico asignado o tiene rol privilegiado
     if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
-      throw new ForbiddenException(
-        'Solo el Director Técnico asignado puede reabrir este levantamiento',
-      );
+      const user = await this.userRepository.findOne({
+        where: { userId },
+        relations: ['role'],
+      });
+      const rol = user?.role?.nombreRol;
+      if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+        throw new ForbiddenException(
+          'Solo el Director Técnico asignado puede reabrir este levantamiento',
+        );
+      }
     }
 
     // Reset all block statuses to pending
@@ -679,6 +729,7 @@ export class SurveysService {
   async getSurveyDatabase(
     filters: FilterSurveysDto,
     userId: number,
+    permissions: string[] = [],
   ): Promise<{
     data: any[];
     total: number;
@@ -691,7 +742,7 @@ export class SurveysService {
     const skip = (page - 1) * limit;
 
     // Get user access
-    const userAccess = await this.getMyAccess(userId);
+    const userAccess = await this.getMyAccess(userId, permissions);
     const accessibleCompanyIds = userAccess.companies.map((c) => c.companyId);
     const accessibleProjectIds = userAccess.projects.map((p) => p.projectId);
 
@@ -727,9 +778,21 @@ export class SurveysService {
       return { data: [], total: 0, page, limit, totalPages: 0 };
     }
 
-    // Apply filters
-    if (filters.companyId) {
-      query.andWhere('work.companyId = :companyId', { companyId: filters.companyId });
+    // Apply location filters with OR logic between companyId and projectIds
+    const hasCompanyFilter = filters.companyId?.length;
+    const hasProjectIdsFilter = filters.projectIds?.length;
+    if (hasCompanyFilter || hasProjectIdsFilter) {
+      const locConditions: string[] = [];
+      const locParams: Record<string, any> = {};
+      if (hasCompanyFilter) {
+        locConditions.push('work.companyId IN (:...locCompanyIds)');
+        locParams.locCompanyIds = filters.companyId;
+      }
+      if (hasProjectIdsFilter) {
+        locConditions.push('work.projectId IN (:...locProjectIds)');
+        locParams.locProjectIds = filters.projectIds;
+      }
+      query.andWhere(`(${locConditions.join(' OR ')})`, locParams);
     }
 
     if (filters.projectId) {
@@ -781,10 +844,14 @@ export class SurveysService {
 
     const [surveys, total] = await query.skip(skip).take(limit).getManyAndCount();
 
+    const recordNumbersDb = [...new Set(surveys.map(s => s.work?.recordNumber).filter(Boolean))] as string[];
+    const actaMapDb = await this.getActaProjectCodeMap(recordNumbersDb);
+
     // Transform to include calculated fields
     const data = surveys.map((survey) => ({
       surveyId: survey.surveyId,
-      projectCode: survey.projectCode,
+      surveyNumber: survey.projectCode,
+      projectCode: actaMapDb.get(survey.work?.recordNumber || '') || null,
       status: survey.status,
 
       // Work data
@@ -872,6 +939,17 @@ export class SurveysService {
   // ============================================
   // PRIVATE HELPER METHODS
   // ============================================
+
+  private async getActaProjectCodeMap(recordNumbers: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (!recordNumbers.length) return map;
+    const actas = await this.workActaRepository.find({
+      where: { actaNumber: In(recordNumbers) },
+      select: ['actaNumber', 'projectCode'],
+    });
+    actas.forEach((a) => { if (a.projectCode) map.set(a.actaNumber, a.projectCode); });
+    return map;
+  }
 
   private async generateProjectCode(companyId: number, projectId?: number): Promise<string> {
     const abbreviation = await this.getAbbreviation(companyId, projectId);
@@ -979,6 +1057,7 @@ export class SurveysService {
         surveyId,
         expenseType: item.expenseType,
         quantity: item.quantity,
+        unitPrice: item.unitPrice ?? null,
         observations: item.observations,
       }),
     );
@@ -991,12 +1070,35 @@ export class SurveysService {
   // ============================================
 
   /**
-   * Get the companies and projects the current user has access to review
+   * Get the companies and projects the current user has access to review.
+   * Global reviewers (levantamientos:revisar / levantamientos:aprobar) see all companies.
    */
-  async getMyAccess(userId: number): Promise<{
+  async getMyAccess(
+    userId: number,
+    permissions: string[] = [],
+  ): Promise<{
     companies: { companyId: number; name: string }[];
     projects: { projectId: number; name: string; companyId: number }[];
+    isGlobalReviewer?: boolean;
   }> {
+    const isGlobalReviewer =
+      permissions.includes('levantamientos:revisar') ||
+      permissions.includes('levantamientos:aprobar') ||
+      permissions.includes('levantamientos:presupuesto') ||
+      permissions.includes('levantamientos:autorizar');
+
+    if (isGlobalReviewer) {
+      const [allCompanies, allProjects] = await Promise.all([
+        this.companyRepository.find({ select: ['companyId', 'name'], order: { name: 'ASC' } }),
+        this.projectRepository.find({ select: ['projectId', 'name', 'companyId'], order: { name: 'ASC' } }),
+      ]);
+      return {
+        companies: allCompanies.map((c) => ({ companyId: c.companyId, name: c.name })),
+        projects: allProjects.map((p) => ({ projectId: p.projectId, name: p.name, companyId: p.companyId })),
+        isGlobalReviewer: true,
+      };
+    }
+
     const accesses = await this.surveyReviewerAccessRepository.find({
       where: { userId },
       relations: ['company', 'project', 'project.company'],
@@ -1208,5 +1310,102 @@ export class SurveysService {
     }
 
     return Array.from(userMap.values());
+  }
+
+  // ============================================
+  // WORK ACTA WORKFLOW METHODS
+  // ============================================
+
+  async getWorkActa(actaNumber: string): Promise<WorkActa | null> {
+    return this.workActaRepository.findOne({ where: { actaNumber } });
+  }
+
+  async getWorkActas(actaNumbers: string[]): Promise<WorkActa[]> {
+    if (!actaNumbers.length) return [];
+    return this.workActaRepository.findBy({ actaNumber: In(actaNumbers) });
+  }
+
+  async submitActaForReview(actaNumber: string, userId: number): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (!rol?.startsWith('Director de Proyecto') && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo el Director de Proyecto puede enviar el acta a revisión');
+    }
+
+    let acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    if (!acta) {
+      acta = this.workActaRepository.create({
+        actaNumber,
+        status: ActaStatus.BORRADOR,
+        createdBy: userId,
+      });
+    }
+
+    if (acta.status !== ActaStatus.BORRADOR) {
+      throw new BadRequestException(
+        `El acta está en estado "${acta.status}" y no puede enviarse a revisión`,
+      );
+    }
+
+    acta.status = ActaStatus.EN_REVISION;
+    acta.createdBy = userId;
+    acta.rejectionComment = null;
+    return this.workActaRepository.save(acta);
+  }
+
+  async reviewActa(
+    actaNumber: string,
+    approved: boolean,
+    comment: string | undefined,
+    userId: number,
+  ): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo el Director Técnico puede revisar el acta');
+    }
+
+    const acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
+    if (acta.status !== ActaStatus.EN_REVISION) {
+      throw new BadRequestException('El acta no está en estado de revisión');
+    }
+
+    if (approved) {
+      acta.status = ActaStatus.EN_APROBACION;
+      acta.reviewedBy = userId;
+      acta.reviewedAt = new Date();
+      acta.rejectionComment = null;
+    } else {
+      acta.status = ActaStatus.BORRADOR;
+      acta.rejectionComment = comment || 'Sin comentarios';
+    }
+    return this.workActaRepository.save(acta);
+  }
+
+  async approveActa(
+    actaNumber: string,
+    projectCode: string,
+    userId: number,
+  ): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Gerencia de Proyectos' && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo la Gerencia de Proyectos puede aprobar el acta');
+    }
+
+    const acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
+    if (acta.status !== ActaStatus.EN_APROBACION) {
+      throw new BadRequestException('El acta no está pendiente de aprobación por Gerencia');
+    }
+
+    acta.status = ActaStatus.APROBADA;
+    acta.projectCode = projectCode;
+    acta.approvedBy = userId;
+    acta.approvedAt = new Date();
+    await this.workActaRepository.save(acta);
+
+    return acta;
   }
 }

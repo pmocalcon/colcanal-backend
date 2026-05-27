@@ -138,6 +138,12 @@ export class CreateSurveyTravelExpenseDto {
   @Type(() => Number)
   quantity: number;
 
+  @ApiProperty({ description: 'Unit price', required: false, example: 15000 })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  unitPrice?: number;
+
   @ApiProperty({ description: 'Observations', required: false })
   @IsOptional()
   @IsString()

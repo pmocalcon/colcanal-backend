@@ -98,6 +98,9 @@ export class Work {
   })
   filingNumber: string;
 
+  @Column({ name: "annual_plan", type: "int", nullable: true })
+  annualPlan: number | null;
+
   @Column({ name: "created_by" })
   createdBy: number;
 

@@ -5,7 +5,7 @@ import {
   IsEnum,
   IsDateString,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Type, Transform } from "class-transformer";
 import { ApiProperty } from "@nestjs/swagger";
 
 export enum SurveyStatusFilter {
@@ -23,13 +23,16 @@ export enum BlockStatusFilter {
 
 export class FilterSurveysDto {
   @ApiProperty({
-    description: "Filter by company ID",
+    description: "Filter by company ID or array of IDs",
     required: false,
   })
   @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  companyId?: number;
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    return value !== undefined && value !== null ? [Number(value)] : undefined;
+  })
+  @IsNumber({}, { each: true })
+  companyId?: number[];
 
   @ApiProperty({
     description: "Filter by project ID",
@@ -39,6 +42,18 @@ export class FilterSurveysDto {
   @IsNumber()
   @Type(() => Number)
   projectId?: number;
+
+  @ApiProperty({
+    description: "Filter by multiple project IDs (OR with companyId)",
+    required: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    return value !== undefined && value !== null ? [Number(value)] : undefined;
+  })
+  @IsNumber({}, { each: true })
+  projectIds?: number[];
 
   @ApiProperty({
     description: "Filter by work ID",

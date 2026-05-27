@@ -140,6 +140,17 @@ export class AuditController {
     return this.auditService.getAuditLogs(pageNum, limitNum, filters);
   }
 
+  @Get("matrix")
+  @ApiOperation({ summary: "Obtener matriz de estados de requisiciones" })
+  async getMatrix(
+    @Query("fromDate") fromDate?: string,
+    @Query("toDate") toDate?: string,
+    @Query("requisitionNumber") requisitionNumber?: string,
+    @Query("companyName") companyName?: string,
+  ) {
+    return this.auditService.getMatrix({ fromDate, toDate, requisitionNumber, companyName });
+  }
+
   @Get("requisition/:id")
   @ApiOperation({
     summary: "Obtener detalle completo de una requisición para auditoría",

@@ -2,12 +2,18 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RequisitionLog } from "../../database/entities/requisition-log.entity";
+import { Requisition } from "../../database/entities/requisition.entity";
+import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
 
 @Injectable()
 export class AuditService {
   constructor(
     @InjectRepository(RequisitionLog)
     private requisitionLogRepository: Repository<RequisitionLog>,
+    @InjectRepository(Requisition)
+    private requisitionRepository: Repository<Requisition>,
+    @InjectRepository(PurchaseOrder)
+    private purchaseOrderRepository: Repository<PurchaseOrder>,
   ) {}
 
   /**
@@ -235,12 +241,122 @@ export class AuditService {
   }
 
   /**
+   * Obtener matriz de estados de requisiciones
+   */
+  async getMatrix(filters?: {
+    fromDate?: string;
+    toDate?: string;
+    requisitionNumber?: string;
+    companyName?: string;
+  }) {
+    const ACTION_ORDER = [
+      'crear_requisicion',
+      'revisar_aprobar',
+      'revisar_rechazar',
+      'autorizar_aprobar',
+      'autorizar_rechazar',
+      'aprobar_gerencia',
+      'rechazar_gerencia',
+      'correccion_estado',
+      'gestionar_cotizacion',
+      'crear_ordenes_compra',
+      'aprobar_todas_ordenes_compra',
+      'registrar_recepcion',
+    ];
+
+    const qb = this.requisitionLogRepository
+      .createQueryBuilder('log')
+      .select('log.requisitionId', 'requisitionId')
+      .addSelect('log.action', 'action')
+      .addSelect('MIN(log.createdAt)', 'fecha')
+      .addSelect('requisition.requisitionNumber', 'requisitionNumber')
+      .addSelect('company.name', 'companyName')
+      .addSelect('status.name', 'statusName')
+      .addSelect('status.color', 'statusColor')
+      .leftJoin('log.requisition', 'requisition')
+      .leftJoin('requisition.operationCenter', 'operationCenter')
+      .leftJoin('operationCenter.company', 'company')
+      .leftJoin('requisition.status', 'status')
+      .groupBy('log.requisitionId')
+      .addGroupBy('log.action')
+      .addGroupBy('requisition.requisitionNumber')
+      .addGroupBy('company.name')
+      .addGroupBy('status.name')
+      .addGroupBy('status.color')
+      .orderBy('log.requisitionId', 'ASC');
+
+    if (filters?.requisitionNumber) {
+      qb.andWhere('requisition.requisitionNumber ILIKE :reqNum', {
+        reqNum: `%${filters.requisitionNumber}%`,
+      });
+    }
+    if (filters?.companyName) {
+      qb.andWhere('company.name ILIKE :companyName', {
+        companyName: `%${filters.companyName}%`,
+      });
+    }
+    if (filters?.fromDate) {
+      qb.andWhere('requisition.createdAt >= :fromDate', { fromDate: new Date(filters.fromDate) });
+    }
+    if (filters?.toDate) {
+      qb.andWhere('requisition.createdAt <= :toDate', {
+        toDate: new Date(`${filters.toDate}T23:59:59`),
+      });
+    }
+
+    const rawRows = await qb.getRawMany();
+
+    const map = new Map<number, {
+      requisitionId: number;
+      requisitionNumber: string;
+      companyName: string;
+      currentStatus: { name: string; color: string } | null;
+      events: Record<string, string>;
+      minDate: string;
+    }>();
+
+    for (const row of rawRows) {
+      const id = Number(row.requisitionId);
+      if (!map.has(id)) {
+        map.set(id, {
+          requisitionId: id,
+          requisitionNumber: row.requisitionNumber || `#${id}`,
+          companyName: row.companyName || '-',
+          currentStatus: row.statusName ? { name: row.statusName, color: row.statusColor || '#6b7280' } : null,
+          events: {},
+          minDate: row.fecha,
+        });
+      }
+      const entry = map.get(id)!;
+      if (row.action && row.fecha) {
+        entry.events[row.action] = row.fecha;
+        if (!entry.minDate || row.fecha < entry.minDate) entry.minDate = row.fecha;
+      }
+    }
+
+    const presentActions = new Set<string>();
+    for (const entry of map.values()) {
+      Object.keys(entry.events).forEach((a) => presentActions.add(a));
+    }
+    const actions = ACTION_ORDER.filter((a) => presentActions.has(a));
+
+    const rows = Array.from(map.values())
+      .sort((a, b) => new Date(a.minDate).getTime() - new Date(b.minDate).getTime())
+      .map(({ minDate, ...rest }) => rest);
+
+    return { actions, rows };
+  }
+
+  /**
    * Obtener estadísticas de auditoría
    */
   async getAuditStats() {
-    const totalLogs = await this.requisitionLogRepository.count();
+    const [totalLogs, totalRequisitions, totalPurchaseOrders] = await Promise.all([
+      this.requisitionLogRepository.count(),
+      this.requisitionRepository.count(),
+      this.purchaseOrderRepository.count(),
+    ]);
 
-    // Logs por acción
     const logsByAction = await this.requisitionLogRepository
       .createQueryBuilder("log")
       .select("log.action", "action")
@@ -248,7 +364,6 @@ export class AuditService {
       .groupBy("log.action")
       .getRawMany();
 
-    // Logs de los últimos 7 días
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -259,6 +374,8 @@ export class AuditService {
 
     return {
       totalLogs,
+      totalRequisitions,
+      totalPurchaseOrders,
       logsByAction,
       recentLogs,
     };

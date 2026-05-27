@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { DirectorBudgetStatus } from '../../../database/entities/director-budget.entity';
@@ -13,6 +13,11 @@ export class FilterDirectorBudgetsDto {
   @ApiProperty({ required: false, description: 'Comma-separated company IDs' })
   @IsOptional()
   companyId?: string;
+
+  @ApiProperty({ required: false, description: 'Department name (to include agrupado budgets)' })
+  @IsOptional()
+  @IsString()
+  departmentName?: string;
 
   @ApiProperty({ required: false, enum: DirectorBudgetStatus })
   @IsOptional()

@@ -26,8 +26,12 @@ import * as entities from "./entities";
           ? false
           : { rejectUnauthorized: false },
         extra: {
-          // Configurar zona horaria de Colombia en PostgreSQL
           timezone: "America/Bogota",
+          keepAlive: true,
+          keepAliveInitialDelayMillis: 10000,
+          max: 10,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 5000,
         },
       }),
     }),

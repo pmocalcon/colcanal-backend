@@ -9,6 +9,17 @@ import {
 import { Request, Response } from "express";
 import { QueryFailedError } from "typeorm";
 
+const HTTP_STATUS_TEXT: Record<number, string> = {
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  409: "Conflict",
+  422: "Unprocessable Entity",
+  500: "Internal Server Error",
+  503: "Service Unavailable",
+};
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -26,15 +37,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
+      const statusText = HTTP_STATUS_TEXT[status] ?? "Internal Server Error";
 
       if (typeof exceptionResponse === "string") {
         message = exceptionResponse;
+        error = statusText;
       } else if (typeof exceptionResponse === "object") {
         message =
           (exceptionResponse as any).message ||
           (exceptionResponse as any).error ||
           message;
-        error = (exceptionResponse as any).error || error;
+        error = (exceptionResponse as any).error || statusText;
       }
     }
     // Handle TypeORM database errors

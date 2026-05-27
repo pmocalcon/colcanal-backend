@@ -66,13 +66,13 @@ export class SurveysController {
   @ApiQuery({ name: 'createdBy', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of works' })
   async getWorks(
-    @Query('companyId') companyIdParam?: string,
+    @Query('companyId') companyIdParam?: string | string[],
     @Query('projectId') projectId?: number,
     @Query('createdBy') createdBy?: number,
   ) {
-    // Parse companyId: puede ser un solo ID o múltiples separados por coma
-    const companyIds = companyIdParam
-      ? companyIdParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+    const raw = Array.isArray(companyIdParam) ? companyIdParam : (companyIdParam ? [companyIdParam] : []);
+    const companyIds = raw.length
+      ? raw.flatMap(v => v.split(',')).map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
       : undefined;
 
     return this.surveysService.getWorks(companyIds, projectId, createdBy);
@@ -146,11 +146,14 @@ export class SurveysController {
   // ============================================
 
   @Get('my-access')
-  @Permissions('levantamientos:ver')
+  @Permissions('levantamientos:ver', 'levantamientos:revisar', 'levantamientos:aprobar', 'levantamientos:presupuesto', 'levantamientos:autorizar')
   @ApiOperation({ summary: 'Get companies and projects the current user can review' })
   @ApiResponse({ status: 200, description: 'User access list' })
-  async getMyAccess(@CurrentUser('userId') userId: number) {
-    return this.surveysService.getMyAccess(userId);
+  async getMyAccess(
+    @CurrentUser('userId') userId: number,
+    @CurrentUser('permissions') permissions: string[],
+  ) {
+    return this.surveysService.getMyAccess(userId, permissions ?? []);
   }
 
   @Get('user-access')
@@ -171,14 +174,15 @@ export class SurveysController {
   }
 
   @Get('database')
-  @Permissions('levantamientos:ver')
+  @Permissions('levantamientos:ver', 'levantamientos:revisar', 'levantamientos:aprobar', 'levantamientos:presupuesto')
   @ApiOperation({ summary: 'Get all surveys with full data for database view' })
   @ApiResponse({ status: 200, description: 'Full survey data with all related items' })
   async getSurveyDatabase(
     @Query() filters: FilterSurveysDto,
     @CurrentUser('userId') userId: number,
+    @CurrentUser('permissions') permissions: string[],
   ) {
-    return this.surveysService.getSurveyDatabase(filters, userId);
+    return this.surveysService.getSurveyDatabase(filters, userId, permissions ?? []);
   }
 
   @Get(':id')
@@ -254,7 +258,7 @@ export class SurveysController {
   }
 
   @Patch(':id/reopen')
-  @Permissions('levantamientos:reabrir')
+  @Permissions('levantamientos:revisar')
   @ApiOperation({ summary: 'Reopen a survey for editing (reset all block statuses)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Survey reopened for editing' })
@@ -333,5 +337,55 @@ export class SurveysController {
   async removeUserAccess(@Param('accessId', ParseIntPipe) accessId: number) {
     await this.surveysService.removeUserAccess(accessId);
     return { message: 'Access removed successfully' };
+  }
+
+  // ============================================
+  // WORK ACTA WORKFLOW ENDPOINTS
+  // ============================================
+
+  @Get('actas/:actaNumber')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Get acta workflow status' })
+  async getWorkActa(@Param('actaNumber') actaNumber: string) {
+    return this.surveysService.getWorkActa(actaNumber);
+  }
+
+  @Post('actas/bulk-status')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Get status for multiple actas' })
+  async getWorkActas(@Body() body: { actaNumbers: string[] }) {
+    return this.surveysService.getWorkActas(body.actaNumbers);
+  }
+
+  @Patch('actas/:actaNumber/submit')
+  @Permissions('levantamientos:crear')
+  @ApiOperation({ summary: 'Director de Proyecto submits acta for Director Técnico review' })
+  async submitActaForReview(
+    @Param('actaNumber') actaNumber: string,
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.submitActaForReview(actaNumber, userId);
+  }
+
+  @Patch('actas/:actaNumber/review')
+  @Permissions('levantamientos:revisar')
+  @ApiOperation({ summary: 'Director Técnico reviews (approves or rejects) an acta' })
+  async reviewActa(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { approved: boolean; comment?: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.reviewActa(actaNumber, body.approved, body.comment, userId);
+  }
+
+  @Patch('actas/:actaNumber/approve')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Gerencia de Proyectos approves acta and assigns project code' })
+  async approveActa(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { projectCode: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.approveActa(actaNumber, body.projectCode, userId);
   }
 }

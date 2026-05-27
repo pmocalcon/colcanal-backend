@@ -9,6 +9,7 @@ import { User } from "../../../database/entities/user.entity";
 export interface JwtPayload {
   sub: number;
   email: string;
+  permissions?: string[];
 }
 
 @Injectable()
@@ -36,6 +37,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, "jwt") {
       throw new UnauthorizedException("User not found or inactive");
     }
 
-    return user;
+    return { ...user, permissions: payload.permissions ?? [] };
   }
 }

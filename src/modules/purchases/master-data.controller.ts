@@ -30,6 +30,7 @@ import { Project } from "../../database/entities/project.entity";
 import { Material } from "../../database/entities/material.entity";
 import { MaterialGroup } from "../../database/entities/material-group.entity";
 import { MaterialCategory } from "../../database/entities/material-category.entity";
+import { MaterialPriceHistory } from "../../database/entities/material-price-history.entity";
 import { RequisitionStatus } from "../../database/entities/requisition-status.entity";
 import { OperationCenter } from "../../database/entities/operation-center.entity";
 import { ProjectCode } from "../../database/entities/project-code.entity";
@@ -55,6 +56,8 @@ export class MasterDataController {
     private readonly materialGroupRepository: Repository<MaterialGroup>,
     @InjectRepository(MaterialCategory)
     private readonly materialCategoryRepository: Repository<MaterialCategory>,
+    @InjectRepository(MaterialPriceHistory)
+    private readonly priceHistoryRepository: Repository<MaterialPriceHistory>,
     @InjectRepository(RequisitionStatus)
     private readonly statusRepository: Repository<RequisitionStatus>,
     @InjectRepository(OperationCenter)
@@ -1009,6 +1012,35 @@ export class MasterDataController {
       ),
       total: results.length,
     };
+  }
+
+  @Get("materials/last-prices")
+  @ApiOperation({
+    summary: "Obtener el último precio registrado por material",
+    description: "Retorna el último precio de orden de compra para una lista de IDs de materiales",
+  })
+  async getMaterialLastPrices(@Query("ids") ids: string) {
+    if (!ids) return { data: [] };
+    const materialIds = ids
+      .split(",")
+      .map((id) => parseInt(id.trim(), 10))
+      .filter((id) => !isNaN(id));
+    if (!materialIds.length) return { data: [] };
+
+    const results = await this.dataSource.query(
+      `SELECT DISTINCT ON (material_id)
+         material_id AS "materialId",
+         unit_price  AS "lastPrice"
+       FROM material_price_history
+       WHERE material_id = ANY($1)
+       ORDER BY material_id, created_at DESC`,
+      [materialIds],
+    );
+
+    return { data: results.map((r: { materialId: number; lastPrice: string }) => ({
+      materialId: r.materialId,
+      lastPrice: parseFloat(r.lastPrice),
+    })) };
   }
 
   @Get("materials/search")

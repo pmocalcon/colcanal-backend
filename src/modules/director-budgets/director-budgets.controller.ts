@@ -58,21 +58,21 @@ export class DirectorBudgetsController {
   }
 
   @Get()
-  @Permissions('levantamientos:ver')
+  @Permissions('levantamientos:ver', 'levantamientos:presupuesto', 'levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar')
   @ApiOperation({ summary: 'List director budgets' })
   async findAll(@Query() filters: FilterDirectorBudgetsDto) {
     return this.service.findAll(filters);
   }
 
   @Get(':id')
-  @Permissions('levantamientos:ver')
+  @Permissions('levantamientos:ver', 'levantamientos:presupuesto', 'levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar')
   @ApiOperation({ summary: 'Get a single director budget' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(id);
   }
 
   @Patch(':id/status')
-  @Permissions('levantamientos:crear')
+  @Permissions('levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar')
   @ApiOperation({ summary: 'Update budget status (draft → en_revision → final)' })
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,

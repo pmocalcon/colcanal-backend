@@ -5,7 +5,7 @@ export class AddDirectorBudgets1746700000000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE director_budgets (
+      CREATE TABLE IF NOT EXISTS director_budgets (
         budget_id       SERIAL PRIMARY KEY,
         work_id         INT REFERENCES works(work_id) ON DELETE SET NULL,
         department_name VARCHAR(100),
@@ -31,7 +31,7 @@ export class AddDirectorBudgets1746700000000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE TABLE director_budget_items (
+      CREATE TABLE IF NOT EXISTS director_budget_items (
         item_id         SERIAL PRIMARY KEY,
         budget_id       INT NOT NULL REFERENCES director_budgets(budget_id) ON DELETE CASCADE,
         item_order      INT NOT NULL DEFAULT 0,
@@ -47,13 +47,13 @@ export class AddDirectorBudgets1746700000000 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE INDEX idx_director_budgets_work ON director_budgets(work_id);
+      CREATE INDEX IF NOT EXISTS idx_director_budgets_work ON director_budgets(work_id);
     `);
     await queryRunner.query(`
-      CREATE INDEX idx_director_budgets_created_by ON director_budgets(created_by);
+      CREATE INDEX IF NOT EXISTS idx_director_budgets_created_by ON director_budgets(created_by);
     `);
     await queryRunner.query(`
-      CREATE INDEX idx_director_budget_items_budget ON director_budget_items(budget_id);
+      CREATE INDEX IF NOT EXISTS idx_director_budget_items_budget ON director_budget_items(budget_id);
     `);
   }
 

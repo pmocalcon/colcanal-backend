@@ -5,6 +5,7 @@ import { SurveysService } from './surveys.service';
 
 // Survey entities
 import { Work } from '../../database/entities/work.entity';
+import { WorkActa } from '../../database/entities/work-acta.entity';
 import { Survey } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -19,12 +20,14 @@ import { Project } from '../../database/entities/project.entity';
 import { User } from '../../database/entities/user.entity';
 import { Material } from '../../database/entities/material.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
+import { RoleGestion } from '../../database/entities/role-gestion.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       // Survey entities
       Work,
+      WorkActa,
       Survey,
       SurveyBudgetItem,
       SurveyInvestmentItem,
@@ -38,6 +41,7 @@ import { RolePermission } from '../../database/entities/role-permission.entity';
       User,
       Material,
       RolePermission,
+      RoleGestion,
     ]),
   ],
   controllers: [SurveysController],

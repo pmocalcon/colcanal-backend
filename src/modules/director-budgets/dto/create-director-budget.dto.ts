@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -54,6 +55,11 @@ export class CreateDirectorBudgetItemDto {
   @IsOptional()
   @IsNumber()
   ejecutado?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  hasIva?: boolean;
 }
 
 export class CreateDirectorBudgetDto {
@@ -75,7 +81,27 @@ export class CreateDirectorBudgetDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
+  companyName?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
   observaciones?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  fuenteFinanciacion?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  valorMinimoExcedentes?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  valorActualExcedentes?: number | null;
 
   @ApiProperty({ required: false })
   @IsOptional()
