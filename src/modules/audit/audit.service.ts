@@ -262,6 +262,7 @@ export class AuditService {
       'crear_ordenes_compra',
       'aprobar_todas_ordenes_compra',
       'registrar_recepcion',
+      'anular_requisicion',
     ];
 
     const qb = this.requisitionLogRepository
@@ -344,7 +345,65 @@ export class AuditService {
       .sort((a, b) => new Date(a.minDate).getTime() - new Date(b.minDate).getTime())
       .map(({ minDate, ...rest }) => rest);
 
-    return { actions, rows };
+    const requisitionIds = Array.from(map.keys());
+    let totalPurchaseOrders = 0;
+    let purchaseOrdersByMonth: { year: number; month: number; count: number }[] = [];
+    let totalVoidedRequisitions = 0;
+    let voidedRequisitionsByMonth: { year: number; month: number; count: number }[] = [];
+    if (requisitionIds.length > 0) {
+      const poResult = await this.purchaseOrderRepository.query(
+        `SELECT COUNT(*) as count FROM purchase_orders WHERE requisition_id = ANY($1::int[])`,
+        [requisitionIds],
+      );
+      totalPurchaseOrders = parseInt(poResult[0]?.count ?? '0');
+
+      const poByMonthResult = await this.purchaseOrderRepository.query(
+        `SELECT EXTRACT(YEAR FROM created_at)::int AS year, EXTRACT(MONTH FROM created_at)::int AS month, COUNT(*)::int AS count
+         FROM purchase_orders
+         WHERE requisition_id = ANY($1::int[])
+         GROUP BY year, month
+         ORDER BY year, month`,
+        [requisitionIds],
+      );
+      purchaseOrdersByMonth = poByMonthResult.map((r: any) => ({
+        year: r.year,
+        month: r.month,
+        count: r.count,
+      }));
+
+      const voidedResult = await this.requisitionLogRepository.query(
+        `SELECT COUNT(DISTINCT requisition_id)::int AS count
+         FROM requisition_logs
+         WHERE requisition_id = ANY($1::int[])
+           AND action = 'anular_requisicion'`,
+        [requisitionIds],
+      );
+      totalVoidedRequisitions = parseInt(voidedResult[0]?.count ?? '0');
+
+      const voidedByMonthResult = await this.requisitionLogRepository.query(
+        `SELECT EXTRACT(YEAR FROM created_at)::int AS year, EXTRACT(MONTH FROM created_at)::int AS month, COUNT(DISTINCT requisition_id)::int AS count
+         FROM requisition_logs
+         WHERE requisition_id = ANY($1::int[])
+           AND action = 'anular_requisicion'
+         GROUP BY year, month
+         ORDER BY year, month`,
+        [requisitionIds],
+      );
+      voidedRequisitionsByMonth = voidedByMonthResult.map((r: any) => ({
+        year: r.year,
+        month: r.month,
+        count: r.count,
+      }));
+    }
+
+    return {
+      actions,
+      rows,
+      totalPurchaseOrders,
+      purchaseOrdersByMonth,
+      totalVoidedRequisitions,
+      voidedRequisitionsByMonth,
+    };
   }
 
   /**

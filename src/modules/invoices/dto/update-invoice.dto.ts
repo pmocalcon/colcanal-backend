@@ -30,4 +30,8 @@ export class UpdateInvoiceDto {
   @Type(() => Number)
   @Min(0.01, { message: "La cantidad debe ser mayor a 0" })
   materialQuantity?: number;
+
+  @IsOptional()
+  @IsString({ message: "Las observaciones deben ser texto" })
+  observations?: string;
 }

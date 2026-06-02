@@ -94,7 +94,7 @@ export class InvoicesService {
 
   /**
    * Obtener todas las órdenes de compra disponibles para facturar
-   * IMPORTANTE: Solo muestra OCs aprobadas Y con recepción de materiales completa
+   * Muestra todas las OCs aprobadas por gerencia
    */
   async getPurchaseOrdersForInvoicing(page: number = 1, limit: number = 10) {
     const skip = (page - 1) * limit;
@@ -110,9 +110,6 @@ export class InvoicesService {
       .leftJoinAndSelect("po.invoices", "invoices")
       .leftJoinAndSelect("po.items", "items")
       .where("approvalStatus.code = :status", { status: "aprobada_gerencia" })
-      .andWhere("requisitionStatus.code = :requisitionStatus", {
-        requisitionStatus: "recepcion_completa",
-      })
       .skip(skip)
       .take(limit)
       .orderBy("po.createdAt", "DESC")
@@ -173,14 +170,6 @@ export class InvoicesService {
       );
     }
 
-    // NUEVA VALIDACIÓN: Verificar que la recepción de materiales esté completa
-    if (purchaseOrder.requisition?.status?.code !== "recepcion_completa") {
-      throw new BadRequestException(
-        "Solo se pueden registrar facturas después de que la recepción de materiales esté completa. " +
-          `Estado actual de la requisición: ${purchaseOrder.requisition?.status?.name || "desconocido"}`,
-      );
-    }
-
     // Verificar que el número de factura no exista
     const existingInvoice = await this.invoiceRepository.findOne({
       where: { invoiceNumber },
@@ -218,19 +207,6 @@ export class InvoicesService {
         ? Number(createInvoiceDto.materialQuantity)
         : totalQuantityFromPO;
 
-    // Calcular totales actuales
-    const currentInvoicedAmount =
-      Number(purchaseOrder.totalInvoicedAmount) || 0;
-
-    // Verificar que no exceda el total de la orden
-    const newTotalAmount = currentInvoicedAmount + finalAmount;
-
-    if (newTotalAmount > Number(purchaseOrder.totalAmount)) {
-      throw new BadRequestException(
-        `El monto total de las facturas ($${newTotalAmount}) excede el total de la orden de compra ($${purchaseOrder.totalAmount})`,
-      );
-    }
-
     // Crear la factura con valores por defecto de la OC
     const invoice = this.invoiceRepository.create({
       purchaseOrderId,
@@ -238,6 +214,7 @@ export class InvoicesService {
       issueDate: new Date(issueDate),
       amount: finalAmount,
       materialQuantity: finalMaterialQuantity,
+      observations: createInvoiceDto.observations ?? null,
       createdBy: userId,
     });
 
@@ -284,39 +261,6 @@ export class InvoicesService {
       if (existingInvoice) {
         throw new BadRequestException(
           `Ya existe una factura con el número ${updateInvoiceDto.invoiceNumber}`,
-        );
-      }
-    }
-
-    // Si se está actualizando el monto o cantidad, verificar que no exceda el total
-    if (
-      updateInvoiceDto.amount !== undefined ||
-      updateInvoiceDto.materialQuantity !== undefined
-    ) {
-      const newAmount =
-        updateInvoiceDto.amount !== undefined
-          ? Number(updateInvoiceDto.amount)
-          : Number(invoice.amount);
-      const newQuantity =
-        updateInvoiceDto.materialQuantity !== undefined
-          ? Number(updateInvoiceDto.materialQuantity)
-          : Number(invoice.materialQuantity);
-
-      // Calcular total sin esta factura
-      const otherInvoicesAmount = invoice.purchaseOrder.invoices
-        .filter((inv) => inv.invoiceId !== invoiceId)
-        .reduce((sum, inv) => sum + Number(inv.amount), 0);
-
-      const otherInvoicesQuantity = invoice.purchaseOrder.invoices
-        .filter((inv) => inv.invoiceId !== invoiceId)
-        .reduce((sum, inv) => sum + Number(inv.materialQuantity), 0);
-
-      const totalAmount = otherInvoicesAmount + newAmount;
-      const totalQuantity = otherInvoicesQuantity + newQuantity;
-
-      if (totalAmount > Number(invoice.purchaseOrder.totalAmount)) {
-        throw new BadRequestException(
-          `El monto total de las facturas ($${totalAmount}) excede el total de la orden de compra ($${invoice.purchaseOrder.totalAmount})`,
         );
       }
     }

@@ -727,7 +727,7 @@ export class PurchasesService {
 
   async getMyRequisitions(userId: number, filters: FilterRequisitionsDto) {
     const page = filters.page || 1;
-    const limit = filters.limit || 10;
+    const limit = filters.limit || 50;
     const projectId = filters.projectId;
     const { status, fromDate, toDate } = filters;
 
@@ -747,6 +747,9 @@ export class PurchasesService {
       .leftJoinAndSelect('logs.user', 'logUser')
       .leftJoinAndSelect('logUser.role', 'logUserRole')
       .where('requisition.createdBy = :userId', { userId })
+      .andWhere('requisitionStatus.code != :anuladaStatus', {
+        anuladaStatus: REQUISITION_STATUS.ANULADA,
+      })
       .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
@@ -778,6 +781,83 @@ export class PurchasesService {
     queryBuilder.skip(skip).take(limit);
 
     const [requisitions, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data: requisitions,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getAllRequisitions(filters: FilterRequisitionsDto) {
+    const page = filters.page || 1;
+    const limit = filters.limit || 200;
+    const projectId = filters.projectId;
+    const { status, fromDate, toDate } = filters;
+
+    // Step 1: paginate over IDs only (no joins) to avoid TypeORM one-to-many pagination bug.
+    // Include priority and createdAt in select so TypeORM's DISTINCT subquery can reference them.
+    const idQueryBuilder = this.requisitionRepository
+      .createQueryBuilder('requisition')
+      .select('requisition.requisitionId')
+      .addSelect('requisition.priority')
+      .addSelect('requisition.createdAt')
+      .leftJoin('requisition.status', 'requisitionStatus')
+      .where('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-10') })
+      .andWhere('requisitionStatus.code != :anuladaStatus', {
+        anuladaStatus: REQUISITION_STATUS.ANULADA,
+      })
+      .orderBy('requisition.priority', 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC');
+
+    if (status) {
+      idQueryBuilder.andWhere('requisitionStatus.code = :status', { status });
+    }
+
+    if (projectId) {
+      idQueryBuilder.andWhere('requisition.projectId = :projectId', { projectId });
+    }
+
+    if (fromDate && toDate) {
+      idQueryBuilder.andWhere(
+        'requisition.createdAt BETWEEN :fromDate AND :toDate',
+        { fromDate: new Date(fromDate), toDate: new Date(toDate) },
+      );
+    } else if (fromDate) {
+      idQueryBuilder.andWhere('requisition.createdAt >= :fromDate', { fromDate: new Date(fromDate) });
+    }
+
+    const skip = (page - 1) * limit;
+    const [idResults, total] = await idQueryBuilder.skip(skip).take(limit).getManyAndCount();
+    const ids = idResults.map((r) => r.requisitionId);
+
+    if (ids.length === 0) {
+      return { data: [], total, page, limit, totalPages: Math.ceil(total / limit) };
+    }
+
+    // Step 2: fetch full data for the paginated IDs (joins won't affect entity count)
+    const requisitions = await this.requisitionRepository
+      .createQueryBuilder('requisition')
+      .leftJoinAndSelect('requisition.company', 'company')
+      .leftJoinAndSelect('requisition.project', 'project')
+      .leftJoinAndSelect('requisition.operationCenter', 'operationCenter')
+      .leftJoinAndSelect('requisition.projectCode', 'projectCode')
+      .leftJoinAndSelect('requisition.creator', 'creator')
+      .leftJoinAndSelect('creator.role', 'role')
+      .leftJoinAndSelect('requisition.status', 'requisitionStatus')
+      .leftJoinAndSelect('requisition.items', 'items')
+      .leftJoinAndSelect('items.material', 'material')
+      .leftJoinAndSelect('material.materialGroup', 'materialGroup')
+      .leftJoinAndSelect('requisition.logs', 'logs')
+      .leftJoinAndSelect('logs.user', 'logUser')
+      .leftJoinAndSelect('logUser.role', 'logUserRole')
+      .whereInIds(ids)
+      .orderBy('requisition.priority', 'ASC')
+      .addOrderBy('requisition.createdAt', 'DESC')
+      .addOrderBy('logs.createdAt', 'DESC')
+      .getMany();
 
     return {
       data: requisitions,
@@ -1164,7 +1244,11 @@ export class PurchasesService {
       });
     }
 
-    queryBuilder.andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') });
+    queryBuilder
+      .andWhere('requisitionStatus.code != :anuladaStatus', {
+        anuladaStatus: REQUISITION_STATUS.ANULADA,
+      })
+      .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') });
 
     // Ordenar por prioridad (alta primero) y luego por fecha de creación
     queryBuilder
@@ -1951,6 +2035,86 @@ export class PurchasesService {
   }
 
   // ============================================
+  // ANULACIÓN DE REQUISICIONES (PMO)
+  // ============================================
+
+  async voidRequisitions(
+    ids: number[],
+    userId: number,
+    comments?: string,
+  ): Promise<{ voided: number[]; errors: { id: number; reason: string }[] }> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const roleName = user.role?.nombreRol?.toLowerCase() ?? '';
+    if (!['analista pmo', 'director pmo'].includes(roleName)) {
+      throw new ForbiddenException('Solo el rol PMO puede anular requisiciones');
+    }
+
+    const anulatedStatusId = await this.getStatusIdByCode(REQUISITION_STATUS.ANULADA);
+    const voided: number[] = [];
+    const errors: { id: number; reason: string }[] = [];
+
+    for (const id of ids) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        const requisition = await this.requisitionRepository.findOne({
+          where: { requisitionId: id },
+          relations: ['status'],
+        });
+
+        if (!requisition) {
+          errors.push({ id, reason: 'No encontrada' });
+          await queryRunner.rollbackTransaction();
+          await queryRunner.release();
+          continue;
+        }
+
+        if (requisition.status?.code === REQUISITION_STATUS.ANULADA) {
+          errors.push({ id, reason: 'Ya estaba anulada' });
+          await queryRunner.rollbackTransaction();
+          await queryRunner.release();
+          continue;
+        }
+
+        const previousStatus = requisition.status?.code ?? '';
+
+        await queryRunner.manager.update(Requisition, id, {
+          statusId: anulatedStatusId,
+        });
+
+        const log = queryRunner.manager.create(RequisitionLog, {
+          requisitionId: id,
+          userId,
+          action: 'anular_requisicion',
+          previousStatus,
+          newStatus: REQUISITION_STATUS.ANULADA,
+          comments: comments ?? 'Anulada por PMO',
+        });
+
+        await queryRunner.manager.save(log);
+        await queryRunner.commitTransaction();
+        voided.push(id);
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        errors.push({ id, reason: 'Error interno' });
+      } finally {
+        await queryRunner.release();
+      }
+    }
+
+    return { voided, errors };
+  }
+
+  // ============================================
   // MÉTODOS AUXILIARES
   // ============================================
 
@@ -2149,10 +2313,7 @@ export class PurchasesService {
       .leftJoinAndSelect('items.material', 'material')
       // Join with approvals to calculate SLA deadlines
       .leftJoinAndSelect('requisition.approvals', 'approvals')
-      .leftJoinAndSelect('approvals.user', 'approvalUser')
-      .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus')
-      // Join with logs to get transition dates (for cotizada status)
-      .leftJoinAndSelect('requisition.logs', 'logs');
+      .leftJoinAndSelect('approvals.newStatus', 'approvalNewStatus');
 
     // Query 1: Obtener TODAS las requisiciones pendientes de cotización (sin límite)
     // Ordenar por prioridad (alta primero) y luego por fecha
@@ -2206,20 +2367,10 @@ export class PurchasesService {
       let slaStartDate: Date | null = null;
 
       if (statusCode === 'cotizada' || statusCode === 'en_orden_compra') {
-        // Buscar cuando cambió a 'cotizada' - primero en approvals, luego en logs
         const cotizadaApproval = req.approvals?.find((a: any) =>
           a.newStatus?.code === 'cotizada'
         );
-
-        if (cotizadaApproval) {
-          slaStartDate = cotizadaApproval.createdAt;
-        } else {
-          // Buscar en logs el cambio a 'cotizada'
-          const cotizadaLog = req.logs?.find((l: any) => l.newStatus === 'cotizada');
-          if (cotizadaLog) {
-            slaStartDate = cotizadaLog.createdAt;
-          }
-        }
+        slaStartDate = cotizadaApproval?.createdAt ?? null;
       }
 
       // Si no encontró fecha para cotizada, o es otro estado, usar aprobación de Gerencia
@@ -3241,6 +3392,7 @@ export class PurchasesService {
 
       const previousStatus = requisition.status.code;
       const createdReceipts: MaterialReceipt[] = [];
+      const affectedPoIds = new Set<number>();
 
       // 3. Procesar cada ítem de recepción
       for (const itemDto of dto.items) {
@@ -3261,6 +3413,8 @@ export class PurchasesService {
             `El ítem ${itemDto.poItemId} no pertenece a esta requisición`,
           );
         }
+
+        affectedPoIds.add(poItem.purchaseOrderId);
 
         // Calcular cantidad ya recibida
         const totalReceived = poItem.receipts?.reduce(
@@ -3295,12 +3449,41 @@ export class PurchasesService {
         createdReceipts.push(savedReceipt);
       }
 
-      // 4. Verificar si todos los ítems están completos
+      // 4. Actualizar receptionStatus de cada OC afectada individualmente
+      for (const poId of affectedPoIds) {
+        const poItems = await queryRunner.manager.find(PurchaseOrderItem, {
+          where: { purchaseOrderId: poId },
+          relations: ['receipts'],
+        });
+
+        let allPoItemsComplete = true;
+        let anyPoItemReceived = false;
+        for (const item of poItems) {
+          const totalReceived = item.receipts?.reduce(
+            (sum, r) => sum + Number(r.quantityReceived), 0,
+          ) || 0;
+          if (totalReceived > 0) anyPoItemReceived = true;
+          if (totalReceived < Number(item.quantity)) allPoItemsComplete = false;
+        }
+
+        const poReceptionStatus = allPoItemsComplete
+          ? 'recepcion_completa'
+          : anyPoItemReceived
+          ? 'en_recepcion'
+          : 'pendiente_recepcion';
+
+        await queryRunner.manager.update(
+          PurchaseOrder,
+          { purchaseOrderId: poId },
+          { receptionStatus: poReceptionStatus },
+        );
+      }
+
+      // 5. Actualizar estado de requisición (basado en TODAS sus OCs)
       const allPOItems = (requisition as any).purchaseOrders?.flatMap((po: any) => po.items) || [];
 
       let allItemsComplete = true;
       for (const poItem of allPOItems) {
-        // Recargar ítems con receipts actualizados
         const itemWithReceipts = await queryRunner.manager.findOne(
           PurchaseOrderItem,
           {
@@ -3324,7 +3507,6 @@ export class PurchasesService {
         }
       }
 
-      // 5. Actualizar estado de requisición
       let newStatusCode: string;
       if (allItemsComplete) {
         newStatusCode = 'recepcion_completa';
@@ -3474,6 +3656,35 @@ export class PurchasesService {
         { statusId: newStatusId },
       );
 
+      // 7. Actualizar receptionStatus de la OC afectada
+      const affectedPoId = receipt.purchaseOrderItem.purchaseOrderId;
+      const poItemsForStatus = await queryRunner.manager.find(PurchaseOrderItem, {
+        where: { purchaseOrderId: affectedPoId },
+        relations: ['receipts'],
+      });
+
+      let allPoItemsComplete = true;
+      let anyPoItemReceived = false;
+      for (const item of poItemsForStatus) {
+        const totalReceived = item.receipts?.reduce(
+          (sum, r) => sum + Number(r.quantityReceived), 0,
+        ) || 0;
+        if (totalReceived > 0) anyPoItemReceived = true;
+        if (totalReceived < Number(item.quantity)) allPoItemsComplete = false;
+      }
+
+      const poReceptionStatus = allPoItemsComplete
+        ? 'recepcion_completa'
+        : anyPoItemReceived
+        ? 'en_recepcion'
+        : 'pendiente_recepcion';
+
+      await queryRunner.manager.update(
+        PurchaseOrder,
+        { purchaseOrderId: affectedPoId },
+        { receptionStatus: poReceptionStatus },
+      );
+
       await queryRunner.commitTransaction();
 
       // Retornar recepción actualizada
@@ -3573,6 +3784,9 @@ export class PurchasesService {
       where: { purchaseOrderId },
       relations: [
         'requisition',
+        'requisition.company',
+        'requisition.project',
+        'requisition.creator',
         'requisition.operationCenter',
         'requisition.operationCenter.company',
         'requisition.projectCode',

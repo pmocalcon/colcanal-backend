@@ -37,6 +37,7 @@ import { CreateMaterialReceiptDto } from "./dto/create-material-receipt.dto";
 import { UpdateMaterialReceiptDto } from "./dto/update-material-receipt.dto";
 import { ApprovePurchaseOrderDto } from "./dto/approve-purchase-order.dto";
 import { ValidateRequisitionDto } from "./dto/validate-requisition.dto";
+import { VoidRequisitionsDto } from "./dto/void-requisitions.dto";
 import { User } from "../../database/entities/user.entity";
 
 @ApiTags("Purchases - Requisitions")
@@ -279,6 +280,25 @@ export class PurchasesController {
     @Query() filters: FilterRequisitionsDto,
   ) {
     return this.purchasesService.getMyRequisitions(user.userId, filters);
+  }
+
+
+  @Get("all-requisitions")
+  @ApiOperation({ summary: "Obtener todas las requisiciones (analista PMO / director PMO)" })
+  async getAllRequisitions(
+    @Query() filters: FilterRequisitionsDto,
+  ) {
+    return this.purchasesService.getAllRequisitions(filters);
+  }
+
+  @Post("void-requisitions")
+  @ApiOperation({ summary: "Anular requisiciones (solo analista PMO / director PMO)" })
+  @HttpCode(HttpStatus.OK)
+  async voidRequisitions(
+    @GetUser() user: User,
+    @Body() dto: VoidRequisitionsDto,
+  ) {
+    return this.purchasesService.voidRequisitions(dto.ids, user.userId, dto.comments);
   }
 
   @Get("pending-actions")

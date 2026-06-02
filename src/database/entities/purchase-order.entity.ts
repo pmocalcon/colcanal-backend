@@ -91,6 +91,9 @@ export class PurchaseOrder {
   @Column({ name: 'invoice_status', type: 'varchar', length: 50, default: 'sin_factura' })
   invoiceStatus: string;
 
+  @Column({ name: 'reception_status', type: 'varchar', length: 50, default: 'pendiente_recepcion' })
+  receptionStatus: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

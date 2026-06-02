@@ -58,4 +58,12 @@ export class CreateInvoiceDto {
   @Type(() => Number)
   @Min(0.01, { message: "La cantidad debe ser mayor a 0" })
   materialQuantity?: number;
+
+  @ApiPropertyOptional({
+    description: "Observaciones de la factura",
+    example: "Factura con descuento acordado",
+  })
+  @IsOptional()
+  @IsString({ message: "Las observaciones deben ser texto" })
+  observations?: string;
 }

@@ -35,6 +35,9 @@ export class Invoice {
   })
   materialQuantity: number;
 
+  @Column({ type: "text", nullable: true })
+  observations: string | null;
+
   @Column({ name: "sent_to_accounting", default: false })
   sentToAccounting: boolean;
 

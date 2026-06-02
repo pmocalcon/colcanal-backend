@@ -287,7 +287,7 @@ export class SurveysService {
     return this.getSurvey(surveyId);
   }
 
-  async getSurvey(surveyId: number): Promise<Survey> {
+  async getSurvey(surveyId: number): Promise<any> {
     const survey = await this.surveyRepository.findOne({
       where: { surveyId },
       relations: [
@@ -310,7 +310,18 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    return survey;
+    const actaProjectCode = survey.work?.recordNumber
+      ? await this.workActaRepository.findOne({
+          where: { actaNumber: survey.work.recordNumber },
+          select: ['actaNumber', 'projectCode'],
+        }).then((a) => a?.projectCode ?? null)
+      : null;
+
+    return {
+      ...survey,
+      surveyNumber: survey.projectCode,
+      projectCode: actaProjectCode,
+    };
   }
 
   async getSurveys(filters: FilterSurveysDto): Promise<{ data: any[]; total: number; page: number; limit: number }> {
