@@ -317,10 +317,19 @@ export class SurveysService {
         }).then((a) => a?.projectCode ?? null)
       : null;
 
+    const project = survey.work?.project;
+    const company = survey.work?.company;
+    const ippConfig = {
+      baseYear: project?.ippBaseYear ?? company?.ippBaseYear ?? null,
+      baseMonth: project?.ippBaseMonth ?? company?.ippBaseMonth ?? null,
+      initialValue: project?.ippInitialValue ?? company?.ippInitialValue ?? null,
+    };
+
     return {
       ...survey,
       surveyNumber: survey.projectCode,
       projectCode: actaProjectCode,
+      ippConfig,
     };
   }
 
@@ -1092,13 +1101,21 @@ export class SurveysService {
     projects: { projectId: number; name: string; companyId: number }[];
     isGlobalReviewer?: boolean;
   }> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    const roleName = user?.role?.nombreRol || '';
+
     const isGlobalReviewer =
       permissions.includes('levantamientos:revisar') ||
       permissions.includes('levantamientos:aprobar') ||
       permissions.includes('levantamientos:presupuesto') ||
       permissions.includes('levantamientos:autorizar');
 
-    if (isGlobalReviewer) {
+    const hasOperationalSurveyAccess = roleName === 'Coordinador Operativo';
+
+    if (isGlobalReviewer || hasOperationalSurveyAccess) {
       const [allCompanies, allProjects] = await Promise.all([
         this.companyRepository.find({ select: ['companyId', 'name'], order: { name: 'ASC' } }),
         this.projectRepository.find({ select: ['projectId', 'name', 'companyId'], order: { name: 'ASC' } }),
@@ -1106,7 +1123,7 @@ export class SurveysService {
       return {
         companies: allCompanies.map((c) => ({ companyId: c.companyId, name: c.name })),
         projects: allProjects.map((p) => ({ projectId: p.projectId, name: p.name, companyId: p.companyId })),
-        isGlobalReviewer: true,
+        isGlobalReviewer,
       };
     }
 
