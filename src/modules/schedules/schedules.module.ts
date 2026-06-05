@@ -6,6 +6,7 @@ import { Schedule } from '../../database/entities/schedule.entity';
 import { ScheduleItem } from '../../database/entities/schedule-item.entity';
 import { ScheduleDailyPlan } from '../../database/entities/schedule-daily-plan.entity';
 import { ScheduleMaterialLog } from '../../database/entities/schedule-material-log.entity';
+import { ScheduleExecution } from '../../database/entities/schedule-execution.entity';
 import { Survey } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyMaterial } from '../../database/entities/survey-material.entity';
@@ -21,6 +22,7 @@ import { RoleGestion } from '../../database/entities/role-gestion.entity';
       ScheduleItem,
       ScheduleDailyPlan,
       ScheduleMaterialLog,
+      ScheduleExecution,
       Survey,
       SurveyBudgetItem,
       SurveyMaterial,

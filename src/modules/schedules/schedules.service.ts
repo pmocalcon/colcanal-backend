@@ -5,6 +5,7 @@ import { Schedule } from '../../database/entities/schedule.entity';
 import { ScheduleItem } from '../../database/entities/schedule-item.entity';
 import { ScheduleDailyPlan } from '../../database/entities/schedule-daily-plan.entity';
 import { ScheduleMaterialLog } from '../../database/entities/schedule-material-log.entity';
+import { ScheduleExecution } from '../../database/entities/schedule-execution.entity';
 import { Survey } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyMaterial } from '../../database/entities/survey-material.entity';
@@ -13,6 +14,7 @@ import { Ucap } from '../../database/entities/ucap.entity';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { UpsertDailyPlansDto } from './dto/upsert-daily-plans.dto';
 import { UpsertMaterialLogsDto } from './dto/material-log.dto';
+import { UpsertDailyExecutionDto, UpsertExecutionsDto } from './dto/execution.dto';
 
 export interface ScheduleUcapItem {
   itemId: number | null;
@@ -46,6 +48,8 @@ export class SchedulesService {
     private dailyPlanRepo: Repository<ScheduleDailyPlan>,
     @InjectRepository(ScheduleMaterialLog)
     private materialLogRepo: Repository<ScheduleMaterialLog>,
+    @InjectRepository(ScheduleExecution)
+    private executionRepo: Repository<ScheduleExecution>,
     @InjectRepository(Survey)
     private surveyRepo: Repository<Survey>,
     @InjectRepository(SurveyBudgetItem)
@@ -289,5 +293,79 @@ export class SchedulesService {
     const log = await this.materialLogRepo.findOne({ where: { logId, scheduleId } });
     if (!log) throw new NotFoundException(`Log ${logId} not found`);
     await this.materialLogRepo.remove(log);
+  }
+
+  // ── Ejecución diaria de UCAPs: actualiza SOLO executed_quantity en schedule_daily_plans,
+  //    sin pisar planned_quantity (que pertenece al Plan Diario UCAPs).
+  async upsertDailyExecution(scheduleId: number, dto: UpsertDailyExecutionDto) {
+    const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
+    if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
+
+    if (dto.items.length > 0) {
+      await this.dailyPlanRepo
+        .createQueryBuilder()
+        .insert()
+        .into(ScheduleDailyPlan)
+        .values(
+          dto.items.map((item) => ({
+            scheduleId,
+            ucapId: item.ucapId,
+            planDate: item.planDate,
+            executedQuantity: item.executedQuantity,
+          })),
+        )
+        .orUpdate(['executed_quantity'], ['schedule_id', 'ucap_id', 'plan_date'])
+        .execute();
+    }
+
+    return { scheduleId, ok: true };
+  }
+
+  // ── Ejecución de materiales / actividades (schedule_executions). Reemplazo total por tipo.
+  async getExecutions(scheduleId: number, execType: 'material' | 'activity') {
+    const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
+    if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
+
+    const rows = await this.executionRepo.find({
+      where: { scheduleId, execType },
+      order: { itemKey: 'ASC', executionDate: 'ASC' },
+    });
+
+    return {
+      scheduleId,
+      execType,
+      items: rows.map((r) => ({
+        itemKey: r.itemKey,
+        label: r.label,
+        unitOfMeasure: r.unitOfMeasure,
+        executionDate: r.executionDate,
+        quantity: Number(r.quantity),
+      })),
+    };
+  }
+
+  async upsertExecutions(scheduleId: number, dto: UpsertExecutionsDto) {
+    const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
+    if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
+
+    await this.executionRepo.delete({ scheduleId, execType: dto.execType });
+
+    if (dto.items.length > 0) {
+      await this.executionRepo.save(
+        dto.items.map((item) =>
+          this.executionRepo.create({
+            scheduleId,
+            execType: dto.execType,
+            itemKey: item.itemKey,
+            label: item.label ?? null,
+            unitOfMeasure: item.unitOfMeasure ?? null,
+            executionDate: item.executionDate ?? null,
+            quantity: item.quantity,
+          }),
+        ),
+      );
+    }
+
+    return this.getExecutions(scheduleId, dto.execType);
   }
 }

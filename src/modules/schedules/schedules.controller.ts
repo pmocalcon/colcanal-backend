@@ -4,6 +4,7 @@ import { SchedulesService } from './schedules.service';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { UpsertDailyPlansDto } from './dto/upsert-daily-plans.dto';
 import { UpsertMaterialLogsDto } from './dto/material-log.dto';
+import { UpsertDailyExecutionDto, UpsertExecutionsDto } from './dto/execution.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -87,5 +88,36 @@ export class SchedulesController {
     @Param('logId', ParseIntPipe) logId: number,
   ) {
     return this.schedulesService.deleteMaterialLog(scheduleId, logId);
+  }
+
+  @Put(':scheduleId/daily-execution')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Upsert daily executed quantities (Ejecución UCAPs)' })
+  async upsertDailyExecution(
+    @Param('scheduleId', ParseIntPipe) scheduleId: number,
+    @Body() dto: UpsertDailyExecutionDto,
+  ) {
+    return this.schedulesService.upsertDailyExecution(scheduleId, dto);
+  }
+
+  @Get(':scheduleId/executions')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Get execution records (materiales/actividades)' })
+  @ApiQuery({ name: 'type', enum: ['material', 'activity'] })
+  async getExecutions(
+    @Param('scheduleId', ParseIntPipe) scheduleId: number,
+    @Query('type') type: 'material' | 'activity',
+  ) {
+    return this.schedulesService.getExecutions(scheduleId, type);
+  }
+
+  @Put(':scheduleId/executions')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Save execution records (full replace by type)' })
+  async upsertExecutions(
+    @Param('scheduleId', ParseIntPipe) scheduleId: number,
+    @Body() dto: UpsertExecutionsDto,
+  ) {
+    return this.schedulesService.upsertExecutions(scheduleId, dto);
   }
 }

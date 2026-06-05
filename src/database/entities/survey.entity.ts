@@ -130,6 +130,9 @@ export class Survey {
   @Column({ name: 'travel_expenses_comments', type: 'text', nullable: true })
   travelExpensesComments?: string;
 
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description: string | null;
+
   @Column({ name: 'sketch_url', type: 'varchar', length: 500, nullable: true })
   sketchUrl: string;
 

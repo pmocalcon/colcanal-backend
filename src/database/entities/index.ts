@@ -60,3 +60,4 @@ export { Schedule } from './schedule.entity';
 export { ScheduleItem } from './schedule-item.entity';
 export { ScheduleDailyPlan } from './schedule-daily-plan.entity';
 export { ScheduleMaterialLog } from './schedule-material-log.entity';
+export { ScheduleExecution } from './schedule-execution.entity';

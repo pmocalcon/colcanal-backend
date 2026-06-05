@@ -234,6 +234,14 @@ export class CreateSurveyDto {
   requiresCivilWork?: boolean;
 
   @ApiProperty({
+    description: 'General description of the survey / work',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiProperty({
     description: 'SharePoint URL for sketch image',
     example: 'https://company.sharepoint.com/sites/docs/croquis/sketch-001.png',
     required: false,

@@ -204,6 +204,7 @@ export class SurveysService {
       requiresRetieCertification: createSurveyDto.requiresRetieCertification || false,
       requiresRetilapCertification: createSurveyDto.requiresRetilapCertification || false,
       requiresCivilWork: createSurveyDto.requiresCivilWork || false,
+      description: createSurveyDto.description ?? null,
       sketchUrl: createSurveyDto.sketchUrl,
       mapUrl: createSurveyDto.mapUrl,
       status: SurveyStatus.PENDING,
@@ -258,6 +259,7 @@ export class SurveysService {
     if (updateSurveyDto.requiresRetilapCertification !== undefined) survey.requiresRetilapCertification = updateSurveyDto.requiresRetilapCertification;
     if (updateSurveyDto.requiresCivilWork !== undefined) survey.requiresCivilWork = updateSurveyDto.requiresCivilWork;
     if (updateSurveyDto.previousMonthIpp !== undefined) survey.previousMonthIpp = updateSurveyDto.previousMonthIpp;
+    if (updateSurveyDto.description !== undefined) survey.description = updateSurveyDto.description ?? null;
     if (updateSurveyDto.sketchUrl !== undefined) survey.sketchUrl = updateSurveyDto.sketchUrl;
     if (updateSurveyDto.mapUrl !== undefined) survey.mapUrl = updateSurveyDto.mapUrl;
 
