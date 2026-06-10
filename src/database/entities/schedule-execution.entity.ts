@@ -35,6 +35,9 @@ export class ScheduleExecution {
   @Column({ name: 'quantity', type: 'decimal', precision: 10, scale: 2, default: 0 })
   quantity: number;
 
+  @Column({ name: 'unit_price', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  unitPrice: number | null;
+
   @ManyToOne(() => Schedule, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'schedule_id' })
   schedule: Schedule;

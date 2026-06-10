@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Unique,
 } from 'typeorm';
 
 export enum ActaStatus {
@@ -13,12 +14,18 @@ export enum ActaStatus {
   APROBADA = 'aprobada',
 }
 
+// El número de acta (ej. "01-2026") se reutiliza entre municipios; la identidad real
+// del acta es (empresa, número), no solo el número.
 @Entity('work_actas')
+@Unique(['companyId', 'actaNumber'])
 export class WorkActa {
   @PrimaryGeneratedColumn({ name: 'acta_id' })
   actaId: number;
 
-  @Column({ name: 'acta_number', type: 'varchar', length: 100, unique: true })
+  @Column({ name: 'company_id', type: 'int' })
+  companyId: number;
+
+  @Column({ name: 'acta_number', type: 'varchar', length: 100 })
   actaNumber: string;
 
   @Column({ type: 'varchar', length: 50, default: ActaStatus.BORRADOR })

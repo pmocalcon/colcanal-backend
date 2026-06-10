@@ -41,6 +41,11 @@ export class ExecutionItemDto {
   @IsNumber()
   @Min(0)
   quantity: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  unitPrice?: number | null;
 }
 
 export class UpsertExecutionsDto {

@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
 import { WorkActa, ActaStatus } from '../../database/entities/work-acta.entity';
@@ -312,12 +312,18 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    const actaProjectCode = survey.work?.recordNumber
-      ? await this.workActaRepository.findOne({
-          where: { actaNumber: survey.work.recordNumber },
-          select: ['actaNumber', 'projectCode'],
-        }).then((a) => a?.projectCode ?? null)
-      : null;
+    const actaProjectCode =
+      survey.work?.recordNumber && survey.work?.companyId != null
+        ? await this.workActaRepository
+            .findOne({
+              where: {
+                companyId: survey.work.companyId,
+                actaNumber: survey.work.recordNumber,
+              },
+              select: ['actaNumber', 'projectCode'],
+            })
+            .then((a) => a?.projectCode ?? null)
+        : null;
 
     const project = survey.work?.project;
     const company = survey.work?.company;
@@ -400,13 +406,18 @@ export class SurveysService {
 
     const [surveys, total] = await query.skip(skip).take(limit).getManyAndCount();
 
-    const recordNumbers = [...new Set(surveys.map(s => s.work?.recordNumber).filter(Boolean))] as string[];
-    const actaMap = await this.getActaProjectCodeMap(recordNumbers);
+    const actaPairs = surveys
+      .filter((s) => s.work?.companyId != null && s.work?.recordNumber)
+      .map((s) => ({ companyId: s.work!.companyId, actaNumber: s.work!.recordNumber }));
+    const actaMap = await this.getActaProjectCodeMap(actaPairs);
 
     const data = surveys.map((survey) => ({
       ...survey,
       surveyNumber: survey.projectCode,
-      projectCode: actaMap.get(survey.work?.recordNumber || '') || null,
+      projectCode:
+        survey.work?.companyId != null && survey.work?.recordNumber
+          ? actaMap.get(`${survey.work.companyId}|${survey.work.recordNumber}`) || null
+          : null,
     }));
 
     return { data, total, page, limit };
@@ -866,14 +877,19 @@ export class SurveysService {
 
     const [surveys, total] = await query.skip(skip).take(limit).getManyAndCount();
 
-    const recordNumbersDb = [...new Set(surveys.map(s => s.work?.recordNumber).filter(Boolean))] as string[];
-    const actaMapDb = await this.getActaProjectCodeMap(recordNumbersDb);
+    const actaPairsDb = surveys
+      .filter((s) => s.work?.companyId != null && s.work?.recordNumber)
+      .map((s) => ({ companyId: s.work!.companyId, actaNumber: s.work!.recordNumber }));
+    const actaMapDb = await this.getActaProjectCodeMap(actaPairsDb);
 
     // Transform to include calculated fields
     const data = surveys.map((survey) => ({
       surveyId: survey.surveyId,
       surveyNumber: survey.projectCode,
-      projectCode: actaMapDb.get(survey.work?.recordNumber || '') || null,
+      projectCode:
+        survey.work?.companyId != null && survey.work?.recordNumber
+          ? actaMapDb.get(`${survey.work.companyId}|${survey.work.recordNumber}`) || null
+          : null,
       status: survey.status,
 
       // Work data
@@ -962,14 +978,39 @@ export class SurveysService {
   // PRIVATE HELPER METHODS
   // ============================================
 
-  private async getActaProjectCodeMap(recordNumbers: string[]): Promise<Map<string, string>> {
+  /**
+   * Mapa de código de contabilidad por acta, con clave compuesta `${companyId}|${actaNumber}`.
+   * El número de acta se reutiliza entre municipios, así que se debe consultar por empresa+número.
+   */
+  private async getActaProjectCodeMap(
+    pairs: Array<{ companyId: number; actaNumber: string }>,
+  ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
-    if (!recordNumbers.length) return map;
-    const actas = await this.workActaRepository.find({
-      where: { actaNumber: In(recordNumbers) },
-      select: ['actaNumber', 'projectCode'],
+    const uniquePairs = new Map<string, { companyId: number; actaNumber: string }>();
+    for (const p of pairs) {
+      if (p.companyId == null || !p.actaNumber) continue;
+      uniquePairs.set(`${p.companyId}|${p.actaNumber}`, p);
+    }
+    if (uniquePairs.size === 0) return map;
+
+    const qb = this.workActaRepository
+      .createQueryBuilder('acta')
+      .select(['acta.companyId', 'acta.actaNumber', 'acta.projectCode']);
+    const ors: string[] = [];
+    const params: Record<string, number | string> = {};
+    let i = 0;
+    for (const p of uniquePairs.values()) {
+      ors.push(`(acta.companyId = :c${i} AND acta.actaNumber = :a${i})`);
+      params[`c${i}`] = p.companyId;
+      params[`a${i}`] = p.actaNumber;
+      i++;
+    }
+    qb.where(`(${ors.join(' OR ')})`, params);
+
+    const actas = await qb.getMany();
+    actas.forEach((a) => {
+      if (a.projectCode) map.set(`${a.companyId}|${a.actaNumber}`, a.projectCode);
     });
-    actas.forEach((a) => { if (a.projectCode) map.set(a.actaNumber, a.projectCode); });
     return map;
   }
 
@@ -977,9 +1018,17 @@ export class SurveysService {
     const abbreviation = await this.getAbbreviation(companyId, projectId);
     const year = new Date().getFullYear().toString().slice(-2);
 
-    // Count existing surveys for this company/project this year
+    // Take the HIGHEST existing sequence (not the count) for this company/project
+    // this year and add 1. Using MAX instead of COUNT keeps the sequence monotonic:
+    // it never reuses the number of a survey that was deleted, which would otherwise
+    // produce duplicate project codes (there is no unique constraint to catch it).
+    // The sequence is the first 4 digits after the dash: `${abbr}-SSSSYY`.
     const query = this.surveyRepository.createQueryBuilder('survey')
       .innerJoin('survey.work', 'work')
+      .select(
+        `COALESCE(MAX(CAST(SUBSTRING(SPLIT_PART(survey.project_code, '-', 2) FROM 1 FOR 4) AS INTEGER)), 0)`,
+        'maxSeq',
+      )
       .where('work.companyId = :companyId', { companyId })
       .andWhere('survey.projectCode LIKE :pattern', { pattern: `${abbreviation}-%${year}` });
 
@@ -987,8 +1036,9 @@ export class SurveysService {
       query.andWhere('work.projectId = :projectId', { projectId });
     }
 
-    const count = await query.getCount();
-    const sequence = (count + 1).toString().padStart(4, '0');
+    const raw = await query.getRawOne<{ maxSeq: string | number }>();
+    const maxSeq = Number(raw?.maxSeq ?? 0);
+    const sequence = (maxSeq + 1).toString().padStart(4, '0');
 
     return `${abbreviation}-${sequence}${year}`;
   }
@@ -1346,25 +1396,35 @@ export class SurveysService {
   // WORK ACTA WORKFLOW METHODS
   // ============================================
 
-  async getWorkActa(actaNumber: string): Promise<WorkActa | null> {
-    return this.workActaRepository.findOne({ where: { actaNumber } });
+  async getWorkActa(companyId: number, actaNumber: string): Promise<WorkActa | null> {
+    return this.workActaRepository.findOne({ where: { companyId, actaNumber } });
   }
 
-  async getWorkActas(actaNumbers: string[]): Promise<WorkActa[]> {
-    if (!actaNumbers.length) return [];
-    return this.workActaRepository.findBy({ actaNumber: In(actaNumbers) });
+  async getWorkActas(pairs: Array<{ companyId: number; actaNumber: string }>): Promise<WorkActa[]> {
+    const valid = pairs.filter((p) => p.companyId != null && p.actaNumber);
+    if (!valid.length) return [];
+    const qb = this.workActaRepository.createQueryBuilder('acta');
+    const ors: string[] = [];
+    const params: Record<string, number | string> = {};
+    valid.forEach((p, i) => {
+      ors.push(`(acta.companyId = :c${i} AND acta.actaNumber = :a${i})`);
+      params[`c${i}`] = p.companyId;
+      params[`a${i}`] = p.actaNumber;
+    });
+    return qb.where(`(${ors.join(' OR ')})`, params).getMany();
   }
 
-  async submitActaForReview(actaNumber: string, userId: number): Promise<WorkActa> {
+  async submitActaForReview(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     const rol = user?.role?.nombreRol;
     if (!rol?.startsWith('Director de Proyecto') && rol !== 'Analista PMO') {
       throw new ForbiddenException('Solo el Director de Proyecto puede enviar el acta a revisión');
     }
 
-    let acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
     if (!acta) {
       acta = this.workActaRepository.create({
+        companyId,
         actaNumber,
         status: ActaStatus.BORRADOR,
         createdBy: userId,
@@ -1384,6 +1444,7 @@ export class SurveysService {
   }
 
   async reviewActa(
+    companyId: number,
     actaNumber: string,
     approved: boolean,
     comment: string | undefined,
@@ -1395,7 +1456,7 @@ export class SurveysService {
       throw new ForbiddenException('Solo el Director Técnico puede revisar el acta');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
     if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
     if (acta.status !== ActaStatus.EN_REVISION) {
       throw new BadRequestException('El acta no está en estado de revisión');
@@ -1414,6 +1475,7 @@ export class SurveysService {
   }
 
   async approveActa(
+    companyId: number,
     actaNumber: string,
     projectCode: string,
     userId: number,
@@ -1424,7 +1486,7 @@ export class SurveysService {
       throw new ForbiddenException('Solo la Gerencia de Proyectos puede aprobar el acta');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { actaNumber } });
+    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
     if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
     if (acta.status !== ActaStatus.EN_APROBACION) {
       throw new BadRequestException('El acta no está pendiente de aprobación por Gerencia');

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, IsNull } from 'typeorm';
 import { Schedule } from '../../database/entities/schedule.entity';
 import { ScheduleItem } from '../../database/entities/schedule-item.entity';
 import { ScheduleDailyPlan } from '../../database/entities/schedule-daily-plan.entity';
@@ -11,6 +11,11 @@ import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.ent
 import { SurveyMaterial } from '../../database/entities/survey-material.entity';
 import { Work } from '../../database/entities/work.entity';
 import { Ucap } from '../../database/entities/ucap.entity';
+import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
+import { Requisition } from '../../database/entities/requisition.entity';
+import { RequisitionItem } from '../../database/entities/requisition-item.entity';
+import { PurchaseOrderItem } from '../../database/entities/purchase-order-item.entity';
+import { ProjectCode } from '../../database/entities/project-code.entity';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { UpsertDailyPlansDto } from './dto/upsert-daily-plans.dto';
 import { UpsertMaterialLogsDto } from './dto/material-log.dto';
@@ -21,6 +26,7 @@ export interface ScheduleUcapItem {
   ucapId: number;
   ucapCode: string;
   ucapDescription: string;
+  unitValue: number;
   plannedQuantity: number;
   executedQuantity: number;
   ucapStartDate: string | null;
@@ -34,6 +40,7 @@ export interface ScheduleDetail {
   endDate: string | null;
   contractualStart: string | null;
   contractualEnd: string | null;
+  ippFactor: number;
   items: ScheduleUcapItem[];
 }
 
@@ -60,10 +67,20 @@ export class SchedulesService {
     private ucapRepo: Repository<Ucap>,
     @InjectRepository(SurveyMaterial)
     private surveyMaterialRepo: Repository<SurveyMaterial>,
+    @InjectRepository(DirectorBudgetItem)
+    private directorBudgetItemRepo: Repository<DirectorBudgetItem>,
+    @InjectRepository(Requisition)
+    private requisitionRepo: Repository<Requisition>,
+    @InjectRepository(RequisitionItem)
+    private requisitionItemRepo: Repository<RequisitionItem>,
+    @InjectRepository(PurchaseOrderItem)
+    private purchaseOrderItemRepo: Repository<PurchaseOrderItem>,
+    @InjectRepository(ProjectCode)
+    private projectCodeRepo: Repository<ProjectCode>,
   ) {}
 
   async getOrCreateSchedule(workId: number): Promise<ScheduleDetail> {
-    const work = await this.workRepo.findOne({ where: { workId } });
+    const work = await this.workRepo.findOne({ where: { workId }, relations: ['company'] });
     if (!work) throw new NotFoundException(`Work ${workId} not found`);
 
     let schedule = await this.scheduleRepo.findOne({ where: { workId } });
@@ -107,6 +124,7 @@ export class SchedulesService {
           ucapId,
           ucapCode: ucap.code,
           ucapDescription: ucap.description,
+          unitValue: Number(ucap.roundedValue) || 0,
           plannedQuantity,
           executedQuantity: si ? Number(si.executedQuantity) : 0,
           ucapStartDate: si?.ucapStartDate ?? null,
@@ -118,6 +136,15 @@ export class SchedulesService {
     // Sort by ucap code
     items.sort((a, b) => a.ucapCode.localeCompare(b.ucapCode));
 
+    // IPP factor: (previousMonthIpp of latest approved survey) / (company ippInitialValue)
+    const latestSurvey = await this.surveyRepo.findOne({
+      where: { workId, status: 'approved' as any },
+      order: { surveyDate: 'DESC' },
+    });
+    const ippMes = Number(latestSurvey?.previousMonthIpp) || 0;
+    const ippInicial = Number(work.company?.ippInitialValue) || 0;
+    const ippFactor = ippMes > 0 && ippInicial > 0 ? ippMes / ippInicial : 1;
+
     return {
       scheduleId: schedule.scheduleId,
       workId: schedule.workId,
@@ -125,6 +152,7 @@ export class SchedulesService {
       endDate: schedule.endDate,
       contractualStart: schedule.contractualStart,
       contractualEnd: schedule.contractualEnd,
+      ippFactor,
       items,
     };
   }
@@ -237,11 +265,29 @@ export class SchedulesService {
       }
     }
 
+    // Unit prices from director budget items (most recent budget wins per code)
+    const budgetItems = await this.directorBudgetItemRepo
+      .createQueryBuilder('dbi')
+      .innerJoin('dbi.budget', 'budget')
+      .where('budget.workId = :workId', { workId })
+      .andWhere('dbi.codigo IS NOT NULL')
+      .andWhere('dbi.vrUnitario IS NOT NULL')
+      .orderBy('budget.budgetId', 'DESC')
+      .getMany();
+
+    const priceByCode = new Map<string, number>();
+    for (const bi of budgetItems) {
+      if (bi.codigo && !priceByCode.has(bi.codigo)) {
+        priceByCode.set(bi.codigo, Number(bi.vrUnitario) || 0);
+      }
+    }
+
     return Array.from(byCode.entries()).map(([materialCode, data]) => ({
       materialCode,
       materialDescription: data.description,
       unitOfMeasure: data.unitOfMeasure,
       totalQuantity: data.totalQuantity,
+      unitValue: priceByCode.get(materialCode) ?? 0,
     }));
   }
 
@@ -340,6 +386,7 @@ export class SchedulesService {
         unitOfMeasure: r.unitOfMeasure,
         executionDate: r.executionDate,
         quantity: Number(r.quantity),
+        unitPrice: r.unitPrice != null ? Number(r.unitPrice) : null,
       })),
     };
   }
@@ -361,11 +408,87 @@ export class SchedulesService {
             unitOfMeasure: item.unitOfMeasure ?? null,
             executionDate: item.executionDate ?? null,
             quantity: item.quantity,
+            unitPrice: item.unitPrice ?? null,
           }),
         ),
       );
     }
 
     return this.getExecutions(scheduleId, dto.execType);
+  }
+
+  // ── Comparación Presupuesto vs Órdenes de Compra por material
+  async getWorkPurchaseComparison(workId: number) {
+    const work = await this.workRepo.findOne({ where: { workId } });
+    if (!work) throw new NotFoundException(`Work ${workId} not found`);
+
+    // Find the project code for this work via (companyId, projectId)
+    const projectCode = await this.projectCodeRepo.findOne({
+      where: {
+        companyId: work.companyId,
+        projectId: work.projectId != null ? work.projectId : IsNull(),
+      },
+    });
+    if (!projectCode) return [];
+
+    // Requisition items for this work (via projectCodeId FK)
+    const reqItems = await this.requisitionItemRepo
+      .createQueryBuilder('ri')
+      .innerJoin('ri.requisition', 'req')
+      .innerJoinAndSelect('ri.material', 'material')
+      .where('req.projectCodeId = :pcId', { pcId: projectCode.codeId })
+      .getMany();
+
+    if (reqItems.length === 0) return [];
+
+    // Aggregate requisitioned qty by material code
+    const reqByCode = new Map<string, { description: string; qty: number; itemIds: number[] }>();
+    for (const ri of reqItems) {
+      const code = ri.material.code;
+      const existing = reqByCode.get(code);
+      if (existing) {
+        existing.qty += Number(ri.quantity);
+        existing.itemIds.push(ri.itemId);
+      } else {
+        reqByCode.set(code, { description: ri.material.description, qty: Number(ri.quantity), itemIds: [ri.itemId] });
+      }
+    }
+
+    // Purchase order items for those requisition items
+    const reqItemIds = reqItems.map((ri) => ri.itemId);
+    const poItems = reqItemIds.length > 0
+      ? await this.purchaseOrderItemRepo
+          .createQueryBuilder('poi')
+          .where('poi.requisitionItemId IN (:...ids)', { ids: reqItemIds })
+          .getMany()
+      : [];
+
+    // Map PO totals back to material code
+    const reqItemCodeMap = new Map(reqItems.map((ri) => [ri.itemId, ri.material.code]));
+    const poByCode = new Map<string, { qty: number; value: number }>();
+    for (const poi of poItems) {
+      const code = reqItemCodeMap.get(poi.requisitionItemId);
+      if (!code) continue;
+      const existing = poByCode.get(code);
+      const qty = Number(poi.quantity);
+      const value = Number(poi.subtotal); // base value without IVA
+      if (existing) {
+        existing.qty += qty;
+        existing.value += value;
+      } else {
+        poByCode.set(code, { qty, value });
+      }
+    }
+
+    return Array.from(reqByCode.entries()).map(([materialCode, data]) => {
+      const po = poByCode.get(materialCode);
+      return {
+        materialCode,
+        materialDescription: data.description,
+        requisitionedQty: data.qty,
+        orderedQty: po?.qty ?? 0,
+        orderedValue: po?.value ?? 0,
+      };
+    });
   }
 }

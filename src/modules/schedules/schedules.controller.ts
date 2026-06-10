@@ -23,6 +23,13 @@ export class SchedulesController {
     return this.schedulesService.getSurveyMaterials(workId);
   }
 
+  @Get('work/:workId/purchase-comparison')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Compare budget vs purchase orders per material for a work' })
+  async getWorkPurchaseComparison(@Param('workId', ParseIntPipe) workId: number) {
+    return this.schedulesService.getWorkPurchaseComparison(workId);
+  }
+
   @Get('work/:workId')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get or create schedule for a work' })
