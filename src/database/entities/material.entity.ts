@@ -24,6 +24,12 @@ export class Material {
   @Column({ name: "group_id" })
   groupId: number;
 
+  // Borrado lógico: al "eliminar" un material que ya se usó en levantamientos/
+  // requisiciones se desactiva (isActive=false) en vez de borrarse, para no
+  // romper los registros históricos que lo referencian.
+  @Column({ name: "is_active", type: "boolean", default: true })
+  isActive: boolean;
+
   @ManyToOne(() => MaterialGroup, (materialGroup) => materialGroup.materials)
   @JoinColumn({ name: "group_id" })
   materialGroup: MaterialGroup;

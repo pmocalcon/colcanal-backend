@@ -556,8 +556,20 @@ export class MasterDataController {
       },
     },
   })
-  async getMaterials(@Query("groupId") groupId?: string) {
-    const where = groupId ? { groupId: parseInt(groupId) } : {};
+  async getMaterials(
+    @Query("groupId") groupId?: string,
+    @Query("status") status?: string,
+  ) {
+    // status: 'active' (por defecto) | 'inactive' (desactivados) | 'all'
+    const where: { isActive?: boolean; groupId?: number } = {};
+    if (status === "inactive") {
+      where.isActive = false;
+    } else if (status !== "all") {
+      where.isActive = true;
+    }
+    if (groupId) {
+      where.groupId = parseInt(groupId);
+    }
 
     const materials = await this.materialRepository.find({
       where,
@@ -955,10 +967,39 @@ export class MasterDataController {
       throw new NotFoundException(`Material con ID ${id} no encontrado`);
     }
 
-    await this.materialRepository.remove(material);
+    // Borrado lógico: el material puede estar referenciado en levantamientos,
+    // requisiciones o presupuestos reales, así que se desactiva en vez de
+    // borrarse físicamente (evita romper esos registros históricos).
+    material.isActive = false;
+    await this.materialRepository.save(material);
 
     return {
       message: `Material "${material.code} - ${material.description}" eliminado exitosamente`,
+    };
+  }
+
+  @Patch("materials/:id/reactivate")
+  @ApiOperation({
+    summary: "Reactivar un material desactivado",
+    description: "Vuelve a marcar como activo un material previamente desactivado",
+  })
+  @ApiParam({ name: "id", description: "ID del material" })
+  @ApiResponse({ status: 200, description: "Material reactivado exitosamente" })
+  @ApiResponse({ status: 404, description: "Material no encontrado" })
+  async reactivateMaterial(@Param("id", ParseIntPipe) id: number) {
+    const material = await this.materialRepository.findOne({
+      where: { materialId: id },
+    });
+
+    if (!material) {
+      throw new NotFoundException(`Material con ID ${id} no encontrado`);
+    }
+
+    material.isActive = true;
+    await this.materialRepository.save(material);
+
+    return {
+      message: `Material "${material.code} - ${material.description}" reactivado exitosamente`,
     };
   }
 
@@ -1074,7 +1115,8 @@ export class MasterDataController {
              ) as similarity_score
       FROM materials m
       JOIN material_groups g ON m.group_id = g.group_id
-      WHERE (
+      WHERE m.is_active = true
+      AND (
         similarity(LOWER(m.code), LOWER($1)) > 0.1
         OR similarity(LOWER(m.description), LOWER($1)) > 0.1
         OR LOWER(m.code) LIKE LOWER($2)

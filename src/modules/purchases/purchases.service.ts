@@ -2053,8 +2053,10 @@ export class PurchasesService {
     }
 
     const roleName = user.role?.nombreRol?.toLowerCase() ?? '';
-    if (!['analista pmo', 'director pmo'].includes(roleName)) {
-      throw new ForbiddenException('Solo el rol PMO puede anular requisiciones');
+    if (!['analista pmo', 'director pmo', 'compras'].includes(roleName)) {
+      throw new ForbiddenException(
+        'Solo los roles PMO o Compras pueden anular requisiciones',
+      );
     }
 
     const anulatedStatusId = await this.getStatusIdByCode(REQUISITION_STATUS.ANULADA);

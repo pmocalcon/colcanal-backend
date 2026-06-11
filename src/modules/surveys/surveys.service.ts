@@ -1167,7 +1167,20 @@ export class SurveysService {
 
     const hasOperationalSurveyAccess = roleName === 'Coordinador Operativo';
 
-    if (isGlobalReviewer || hasOperationalSurveyAccess) {
+    // El Director de Proyecto tiene "Revisar" sobre su propio departamento, lo
+    // que lo marcaría como revisor global. Cargamos sus accesos primero: si
+    // tiene accesos explícitos asignados se respetan (queda acotado a su
+    // departamento); solo si no tiene ninguno se cae al comportamiento global.
+    const isProjectDirector = roleName.startsWith('Director de Proyecto');
+
+    const accesses = await this.surveyReviewerAccessRepository.find({
+      where: { userId },
+      relations: ['company', 'project', 'project.company'],
+    });
+
+    const scopedByAccess = isProjectDirector && accesses.length > 0;
+
+    if (!scopedByAccess && (isGlobalReviewer || hasOperationalSurveyAccess)) {
       const [allCompanies, allProjects] = await Promise.all([
         this.companyRepository.find({ select: ['companyId', 'name'], order: { name: 'ASC' } }),
         this.projectRepository.find({ select: ['projectId', 'name', 'companyId'], order: { name: 'ASC' } }),
@@ -1178,11 +1191,6 @@ export class SurveysService {
         isGlobalReviewer,
       };
     }
-
-    const accesses = await this.surveyReviewerAccessRepository.find({
-      where: { userId },
-      relations: ['company', 'project', 'project.company'],
-    });
 
     const companies: { companyId: number; name: string }[] = [];
     const projects: { projectId: number; name: string; companyId: number }[] = [];
