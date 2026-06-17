@@ -62,6 +62,30 @@ export class UsersService {
     return users.map((user) => this.sanitizeUser(user));
   }
 
+  // Lista de usuarios activos (para poblar selects); accesible a cualquier usuario autenticado.
+  async findAllActive() {
+    const users = await this.userRepository.find({
+      where: { estado: true },
+      relations: ["role"],
+      order: { nombre: "ASC" },
+    });
+    return users.map((user) => this.sanitizeUser(user));
+  }
+
+  // Usuarios activos filtrados por nombres de rol (case-insensitive). Para selects como "Revisor designado".
+  async findActiveByRoleNames(roleNames: string[]) {
+    if (!roleNames?.length) return [];
+    const wanted = new Set(roleNames.map((r) => r.toLowerCase().trim()));
+    const users = await this.userRepository.find({
+      where: { estado: true },
+      relations: ["role"],
+      order: { nombre: "ASC" },
+    });
+    return users
+      .filter((u) => u.role && wanted.has(u.role.nombreRol.toLowerCase().trim()))
+      .map((user) => this.sanitizeUser(user));
+  }
+
   async findOne(userId: number) {
     const user = await this.userRepository.findOne({
       where: { userId },

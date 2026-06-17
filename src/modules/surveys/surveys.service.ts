@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -33,9 +34,12 @@ import {
   UpdateUcapDto,
 } from './dto';
 import { BlockStatus } from '../../database/entities/survey.entity';
+import { NotificationsService, WorksNotificationData } from '../notifications/notifications.service';
 
 @Injectable()
 export class SurveysService {
+  private readonly logger = new Logger(SurveysService.name);
+
   constructor(
     @InjectRepository(Work)
     private workRepository: Repository<Work>,
@@ -61,7 +65,245 @@ export class SurveysService {
     private surveyReviewerAccessRepository: Repository<SurveyReviewerAccess>,
     @InjectRepository(WorkActa)
     private workActaRepository: Repository<WorkActa>,
+    private notificationsService: NotificationsService,
   ) {}
+
+  // ============================================
+  // NOTIFICATION HELPERS
+  // ============================================
+
+  private getNotificationEmail(user?: User | null): string | null {
+    return user?.emailNotificacion || user?.email || null;
+  }
+
+  private getUserDisplayName(user?: User | null): string {
+    if (!user) return 'Usuario';
+    const lastName = (user as any).apellido ? ` ${(user as any).apellido}` : '';
+    return `${user.nombre || 'Usuario'}${lastName}`.trim();
+  }
+
+  private buildFrontendUrl(path: string): string | undefined {
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || process.env.CLIENT_URL;
+    if (!baseUrl) return undefined;
+    return `${baseUrl.replace(/\/$/, '')}${path}`;
+  }
+
+  private getSurveyBlockLabel(block: SurveyBlock): string {
+    switch (block) {
+      case SurveyBlock.BUDGET:
+        return 'Presupuesto';
+      case SurveyBlock.INVESTMENT:
+        return 'Inversion';
+      case SurveyBlock.MATERIALS:
+        return 'Materiales';
+      case SurveyBlock.TRAVEL_EXPENSES:
+        return 'Costos de viaje';
+      default:
+        return 'Bloque';
+    }
+  }
+
+  private async findActiveUsersByRoleNames(roleNames: string[]): Promise<User[]> {
+    const normalizedRoles = roleNames.map((role) => role.toLowerCase());
+    const users = await this.userRepository.find({
+      where: { estado: true },
+      relations: ['role'],
+    });
+
+    return users.filter((user) =>
+      normalizedRoles.includes(user.role?.nombreRol?.toLowerCase() || ''),
+    );
+  }
+
+  private async notifyUniqueUsers(
+    users: User[],
+    sender: (email: string, name: string, user: User) => Promise<boolean>,
+  ): Promise<void> {
+    const sentEmails = new Set<string>();
+
+    for (const user of users) {
+      const email = this.getNotificationEmail(user);
+      if (!email || sentEmails.has(email.toLowerCase())) continue;
+
+      sentEmails.add(email.toLowerCase());
+      await sender(email, this.getUserDisplayName(user), user);
+    }
+  }
+
+  private buildSurveyNotificationData(
+    survey: any,
+    actor?: User | null,
+    extra?: Partial<WorksNotificationData>,
+  ): WorksNotificationData {
+    return {
+      entityType: 'levantamiento',
+      identifier: survey.projectCode || survey.surveyNumber || `#${survey.surveyId}`,
+      workName: survey.work?.name,
+      companyName: survey.work?.company?.name,
+      projectName: survey.work?.project?.name,
+      createdBy: this.getUserDisplayName(survey.creator),
+      actorName: actor ? this.getUserDisplayName(actor) : undefined,
+      actionUrl: this.buildFrontendUrl(`/dashboard/levantamiento-obras/levantamientos/revisar/${survey.surveyId}`),
+      ...extra,
+    };
+  }
+
+  private async buildActaNotificationData(
+    acta: WorkActa,
+    actor?: User | null,
+    extra?: Partial<WorksNotificationData>,
+  ): Promise<WorksNotificationData> {
+    const [company, works, creator] = await Promise.all([
+      this.companyRepository.findOne({ where: { companyId: acta.companyId } }),
+      this.workRepository.find({
+        where: { companyId: acta.companyId, recordNumber: acta.actaNumber },
+        relations: ['project', 'creator'],
+      }),
+      acta.createdBy
+        ? this.userRepository.findOne({ where: { userId: acta.createdBy } })
+        : Promise.resolve(null),
+    ]);
+
+    const firstWork = works[0];
+
+    return {
+      entityType: 'acta',
+      identifier: acta.actaNumber,
+      workName: firstWork?.name,
+      companyName: company?.name,
+      projectName: firstWork?.project?.name,
+      createdBy: this.getUserDisplayName(creator || firstWork?.creator),
+      actorName: actor ? this.getUserDisplayName(actor) : undefined,
+      worksCount: works.length || undefined,
+      projectCode: acta.projectCode || undefined,
+      actionUrl: this.buildFrontendUrl(`/dashboard/levantamiento-obras/acta/${encodeURIComponent(acta.actaNumber)}`),
+      ...extra,
+    };
+  }
+
+  private async sendSurveyNotification(
+    type: 'submitted_for_review' | 'reviewed' | 'block_reviewed' | 'approved_all' | 'reopened',
+    survey: any,
+    options?: {
+      actor?: User | null;
+      approved?: boolean;
+      blockName?: string;
+      comments?: string;
+    },
+  ): Promise<void> {
+    try {
+      const actor = options?.actor;
+      const data = this.buildSurveyNotificationData(survey, actor, {
+        blockName: options?.blockName,
+        comments: options?.comments,
+      });
+
+      if (type === 'submitted_for_review') {
+        const assignedReviewer = survey.assignedReviewer
+          || (survey.assignedReviewerId
+            ? await this.userRepository.findOne({ where: { userId: survey.assignedReviewerId } })
+            : null);
+        const reviewers = assignedReviewer
+          ? [assignedReviewer]
+          : await this.findActiveUsersByRoleNames(['Director Técnico', 'Analista PMO']);
+
+        await this.notifyUniqueUsers(reviewers, (email, name) =>
+          this.notificationsService.notifySurveySubmittedForReview(email, name, data),
+        );
+        return;
+      }
+
+      const creator = survey.creator
+        || (survey.createdBy
+          ? await this.userRepository.findOne({ where: { userId: survey.createdBy } })
+          : null);
+      const creatorEmail = this.getNotificationEmail(creator);
+      if (!creator || !creatorEmail) return;
+
+      if (type === 'reviewed') {
+        await this.notificationsService.notifySurveyReviewed(
+          creatorEmail,
+          this.getUserDisplayName(creator),
+          { ...data, approved: Boolean(options?.approved) },
+        );
+      } else if (type === 'block_reviewed') {
+        await this.notificationsService.notifySurveyBlockReviewed(
+          creatorEmail,
+          this.getUserDisplayName(creator),
+          { ...data, approved: Boolean(options?.approved) },
+        );
+      } else if (type === 'approved_all') {
+        await this.notificationsService.notifySurveyReviewed(
+          creatorEmail,
+          this.getUserDisplayName(creator),
+          { ...data, approved: true },
+        );
+      } else if (type === 'reopened') {
+        await this.notificationsService.notifySurveyReopened(
+          creatorEmail,
+          this.getUserDisplayName(creator),
+          data,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`No se pudo enviar notificacion de levantamiento: ${error.message}`);
+    }
+  }
+
+  private async sendActaNotification(
+    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved',
+    acta: WorkActa,
+    options?: {
+      actor?: User | null;
+      approved?: boolean;
+      comments?: string;
+    },
+  ): Promise<void> {
+    try {
+      const data = await this.buildActaNotificationData(acta, options?.actor, {
+        comments: options?.comments,
+      });
+
+      if (type === 'submitted_for_review') {
+        const reviewers = await this.findActiveUsersByRoleNames(['Director Técnico', 'Analista PMO']);
+        await this.notifyUniqueUsers(reviewers, (email, name) =>
+          this.notificationsService.notifyActaSubmittedForReview(email, name, data),
+        );
+        return;
+      }
+
+      if (type === 'for_approval') {
+        const approvers = await this.findActiveUsersByRoleNames(['Gerencia de Proyectos', 'Analista PMO']);
+        await this.notifyUniqueUsers(approvers, (email, name) =>
+          this.notificationsService.notifyActaForApproval(email, name, data),
+        );
+        return;
+      }
+
+      const recipients: User[] = [];
+      if (acta.createdBy) {
+        const creator = await this.userRepository.findOne({ where: { userId: acta.createdBy } });
+        if (creator) recipients.push(creator);
+      }
+      if (type === 'approved' && acta.reviewedBy) {
+        const reviewer = await this.userRepository.findOne({ where: { userId: acta.reviewedBy } });
+        if (reviewer) recipients.push(reviewer);
+      }
+
+      await this.notifyUniqueUsers(recipients, (email, name) => {
+        if (type === 'reviewed') {
+          return this.notificationsService.notifyActaReviewed(email, name, {
+            ...data,
+            approved: Boolean(options?.approved),
+          });
+        }
+
+        return this.notificationsService.notifyActaApproved(email, name, data);
+      });
+    } catch (error) {
+      this.logger.warn(`No se pudo enviar notificacion de acta: ${error.message}`);
+    }
+  }
 
   // ============================================
   // WORK (OBRA) METHODS
@@ -187,7 +429,7 @@ export class SurveysService {
     // Generate project code
     const projectCode = await this.generateProjectCode(work.companyId, work.projectId);
 
-    // Get Director Técnico as assigned reviewer
+    // Revisor designado: el que venga del formulario; si no, el Director Técnico por defecto.
     const technicalDirector = await this.userRepository.findOne({
       where: { cargo: 'Director Técnico', estado: true },
     });
@@ -198,7 +440,7 @@ export class SurveysService {
       requestDate: createSurveyDto.requestDate ? new Date(createSurveyDto.requestDate) : undefined,
       surveyDate: createSurveyDto.surveyDate ? new Date(createSurveyDto.surveyDate) : undefined,
       receivedBy: createSurveyDto.receivedBy,
-      assignedReviewerId: technicalDirector?.userId,
+      assignedReviewerId: createSurveyDto.assignedReviewerId ?? technicalDirector?.userId,
       previousMonthIpp: createSurveyDto.previousMonthIpp,
       requiresPhotometricStudies: createSurveyDto.requiresPhotometricStudies || false,
       requiresRetieCertification: createSurveyDto.requiresRetieCertification || false,
@@ -254,6 +496,7 @@ export class SurveysService {
     if (updateSurveyDto.requestDate) survey.requestDate = new Date(updateSurveyDto.requestDate);
     if (updateSurveyDto.surveyDate) survey.surveyDate = new Date(updateSurveyDto.surveyDate);
     if (updateSurveyDto.receivedBy !== undefined) survey.receivedBy = updateSurveyDto.receivedBy;
+    if (updateSurveyDto.assignedReviewerId !== undefined) survey.assignedReviewerId = updateSurveyDto.assignedReviewerId;
     if (updateSurveyDto.requiresPhotometricStudies !== undefined) survey.requiresPhotometricStudies = updateSurveyDto.requiresPhotometricStudies;
     if (updateSurveyDto.requiresRetieCertification !== undefined) survey.requiresRetieCertification = updateSurveyDto.requiresRetieCertification;
     if (updateSurveyDto.requiresRetilapCertification !== undefined) survey.requiresRetilapCertification = updateSurveyDto.requiresRetilapCertification;
@@ -455,7 +698,15 @@ export class SurveysService {
 
     await this.surveyRepository.save(survey);
 
-    return this.getSurvey(surveyId);
+    const fullSurvey = await this.getSurvey(surveyId);
+    const actor = await this.userRepository.findOne({ where: { userId } });
+    this.sendSurveyNotification('reviewed', fullSurvey, {
+      actor,
+      approved: reviewDto.action === ReviewAction.APPROVE,
+      comments: reviewDto.rejectionComments,
+    }).catch(() => {});
+
+    return fullSurvey;
   }
 
   async submitForReview(surveyId: number, userId: number): Promise<Survey> {
@@ -474,7 +725,11 @@ export class SurveysService {
     survey.status = SurveyStatus.IN_REVIEW;
     await this.surveyRepository.save(survey);
 
-    return this.getSurvey(surveyId);
+    const fullSurvey = await this.getSurvey(surveyId);
+    const actor = await this.userRepository.findOne({ where: { userId } });
+    this.sendSurveyNotification('submitted_for_review', fullSurvey, { actor }).catch(() => {});
+
+    return fullSurvey;
   }
 
   async getSurveysForReview(): Promise<Survey[]> {
@@ -629,7 +884,16 @@ export class SurveysService {
 
     await this.surveyRepository.save(survey);
 
-    return this.getSurvey(surveyId);
+    const fullSurvey = await this.getSurvey(surveyId);
+    const actor = await this.userRepository.findOne({ where: { userId } });
+    this.sendSurveyNotification('block_reviewed', fullSurvey, {
+      actor,
+      approved: newStatus === BlockStatus.APPROVED,
+      blockName: this.getSurveyBlockLabel(reviewBlockDto.block),
+      comments: reviewBlockDto.comments,
+    }).catch(() => {});
+
+    return fullSurvey;
   }
 
   async approveAllBlocks(surveyId: number, userId: number): Promise<Survey> {
@@ -674,7 +938,11 @@ export class SurveysService {
 
     await this.surveyRepository.save(survey);
 
-    return this.getSurvey(surveyId);
+    const fullSurvey = await this.getSurvey(surveyId);
+    const actor = await this.userRepository.findOne({ where: { userId } });
+    this.sendSurveyNotification('approved_all', fullSurvey, { actor }).catch(() => {});
+
+    return fullSurvey;
   }
 
   async reopenForEditing(
@@ -730,7 +998,14 @@ export class SurveysService {
 
     await this.surveyRepository.save(survey);
 
-    return this.getSurvey(surveyId);
+    const fullSurvey = await this.getSurvey(surveyId);
+    const actor = await this.userRepository.findOne({ where: { userId } });
+    this.sendSurveyNotification('reopened', fullSurvey, {
+      actor,
+      comments: reason,
+    }).catch(() => {});
+
+    return fullSurvey;
   }
 
   private updateGlobalStatus(survey: Survey): void {
@@ -1448,7 +1723,10 @@ export class SurveysService {
     acta.status = ActaStatus.EN_REVISION;
     acta.createdBy = userId;
     acta.rejectionComment = null;
-    return this.workActaRepository.save(acta);
+    const savedActa = await this.workActaRepository.save(acta);
+    this.sendActaNotification('submitted_for_review', savedActa, { actor: user }).catch(() => {});
+
+    return savedActa;
   }
 
   async reviewActa(
@@ -1479,7 +1757,19 @@ export class SurveysService {
       acta.status = ActaStatus.BORRADOR;
       acta.rejectionComment = comment || 'Sin comentarios';
     }
-    return this.workActaRepository.save(acta);
+
+    const savedActa = await this.workActaRepository.save(acta);
+    this.sendActaNotification('reviewed', savedActa, {
+      actor: user,
+      approved,
+      comments: approved ? undefined : savedActa.rejectionComment || undefined,
+    }).catch(() => {});
+
+    if (approved) {
+      this.sendActaNotification('for_approval', savedActa, { actor: user }).catch(() => {});
+    }
+
+    return savedActa;
   }
 
   async approveActa(
@@ -1505,6 +1795,8 @@ export class SurveysService {
     acta.approvedBy = userId;
     acta.approvedAt = new Date();
     await this.workActaRepository.save(acta);
+
+    this.sendActaNotification('approved', acta, { actor: user }).catch(() => {});
 
     return acta;
   }

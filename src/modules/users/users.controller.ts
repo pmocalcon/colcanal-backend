@@ -107,6 +107,27 @@ export class UsersController {
     return this.usersService.findAll(includeInactive === "true");
   }
 
+  // Endpoints "public": requieren sesión (JWT) pero NO rol de administrador.
+  // Sirven para poblar selects (p. ej. "Revisor designado") desde cualquier rol.
+  @Get("public/active")
+  @ApiOperation({ summary: "Listar usuarios activos (cualquier usuario autenticado)" })
+  @ApiResponse({ status: 200, description: "Lista de usuarios activos" })
+  async findPublicActive() {
+    return this.usersService.findAllActive();
+  }
+
+  @Get("public/by-roles")
+  @ApiOperation({ summary: "Listar usuarios activos por nombres de rol (cualquier usuario autenticado)" })
+  @ApiQuery({ name: "roles", required: true, description: "Nombres de rol separados por coma" })
+  @ApiResponse({ status: 200, description: "Lista de usuarios activos con esos roles" })
+  async findPublicByRoles(@Query("roles") roles?: string) {
+    const names = (roles || "")
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
+    return this.usersService.findActiveByRoleNames(names);
+  }
+
   @Get("roles")
   @ApiOperation({ summary: "Listar todos los roles disponibles" })
   @ApiResponse({ status: 200, description: "Lista de roles con sus permisos" })

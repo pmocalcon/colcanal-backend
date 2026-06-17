@@ -19,6 +19,22 @@ export interface RequisitionNotificationData {
   actionUrl?: string;
 }
 
+export interface WorksNotificationData {
+  entityType: "levantamiento" | "acta";
+  identifier: string;
+  workName?: string;
+  companyName?: string;
+  projectName?: string;
+  municipality?: string;
+  actorName?: string;
+  createdBy?: string;
+  blockName?: string;
+  worksCount?: number;
+  projectCode?: string;
+  comments?: string;
+  actionUrl?: string;
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -411,6 +427,256 @@ export class NotificationsService {
       subject: `💰 Requisición ${data.requisitionNumber} lista para cotizar${data.priority === "alta" ? " [URGENTE]" : ""}`,
       html,
     });
+  }
+
+  // ============================================
+  // NOTIFICACIONES DE OBRAS / LEVANTAMIENTOS
+  // ============================================
+
+  private escapeHtml(value?: string | number | null): string {
+    if (value === undefined || value === null) return "";
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  private buildWorksRows(data: WorksNotificationData): string {
+    const rows: Array<[string, string | number | undefined]> = [
+      [data.entityType === "acta" ? "Acta" : "Levantamiento", data.identifier],
+      ["Obra", data.workName],
+      ["Empresa", data.companyName],
+      ["Proyecto", data.projectName],
+      ["Municipio", data.municipality],
+      ["Bloque", data.blockName],
+      ["Obras asociadas", data.worksCount],
+      ["Codigo de proyecto", data.projectCode],
+      ["Creado por", data.createdBy],
+      ["Accion realizada por", data.actorName],
+    ];
+
+    return rows
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .map(
+        ([label, value]) => `
+          <div class="info-row">
+            <span class="label">${this.escapeHtml(label)}:</span>
+            <span>${this.escapeHtml(value)}</span>
+          </div>
+        `,
+      )
+      .join("");
+  }
+
+  private async sendWorksWorkflowNotification(
+    recipientEmail: string,
+    recipientName: string,
+    subject: string,
+    title: string,
+    message: string,
+    data: WorksNotificationData,
+    accentColor: string,
+    actionLabel?: string,
+  ): Promise<boolean> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 640px; margin: 0 auto; padding: 20px; }
+          .header { background-color: ${accentColor}; padding: 20px; text-align: center; }
+          .header h1 { margin: 0; color: white; font-size: 24px; }
+          .content { padding: 20px; background-color: #f9f9f9; }
+          .info-box { background-color: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+          .info-row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid #eee; }
+          .label { font-weight: bold; color: #666; }
+          .comments { background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #ffc107; }
+          .btn { display: inline-block; padding: 12px 24px; background-color: ${accentColor}; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 15px; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>${this.escapeHtml(title)}</h1>
+          </div>
+          <div class="content">
+            <p>Hola <strong>${this.escapeHtml(recipientName)}</strong>,</p>
+            <p>${this.escapeHtml(message)}</p>
+
+            <div class="info-box">
+              ${this.buildWorksRows(data)}
+            </div>
+
+            ${
+              data.comments
+                ? `
+            <div class="comments">
+              <strong>Comentarios:</strong>
+              <p>${this.escapeHtml(data.comments)}</p>
+            </div>
+            `
+                : ""
+            }
+
+            ${data.actionUrl && actionLabel ? `<a href="${this.escapeHtml(data.actionUrl)}" class="btn">${this.escapeHtml(actionLabel)}</a>` : ""}
+          </div>
+          <div class="footer">
+            <p>Sistema de Gestion Empresarial - Canalcongroup</p>
+            <p>Este es un correo automatico, por favor no responda a este mensaje.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail({
+      to: recipientEmail,
+      subject,
+      html,
+    });
+  }
+
+  async notifySurveySubmittedForReview(
+    reviewerEmail: string,
+    reviewerName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      reviewerEmail,
+      reviewerName,
+      `Levantamiento ${data.identifier} pendiente de revision`,
+      "Levantamiento pendiente de revision",
+      "Se envio un levantamiento para tu revision.",
+      data,
+      "#f59e0b",
+      "Revisar levantamiento",
+    );
+  }
+
+  async notifySurveyReviewed(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData & { approved: boolean },
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Levantamiento ${data.identifier} ${data.approved ? "aprobado" : "rechazado"}`,
+      `Levantamiento ${data.approved ? "aprobado" : "rechazado"}`,
+      `Tu levantamiento fue ${data.approved ? "aprobado" : "rechazado"}.`,
+      data,
+      data.approved ? "#16a34a" : "#dc2626",
+      "Ver levantamiento",
+    );
+  }
+
+  async notifySurveyBlockReviewed(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData & { approved: boolean },
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Bloque ${data.blockName || ""} del levantamiento ${data.identifier} ${data.approved ? "aprobado" : "rechazado"}`,
+      `Bloque ${data.approved ? "aprobado" : "rechazado"}`,
+      `Se ${data.approved ? "aprobo" : "rechazo"} un bloque de tu levantamiento.`,
+      data,
+      data.approved ? "#16a34a" : "#dc2626",
+      "Ver levantamiento",
+    );
+  }
+
+  async notifySurveyReopened(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Levantamiento ${data.identifier} reabierto para edicion`,
+      "Levantamiento reabierto",
+      "Tu levantamiento fue reabierto para edicion.",
+      data,
+      "#f59e0b",
+      "Editar levantamiento",
+    );
+  }
+
+  async notifyActaSubmittedForReview(
+    reviewerEmail: string,
+    reviewerName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      reviewerEmail,
+      reviewerName,
+      `Acta ${data.identifier} pendiente de revision tecnica`,
+      "Acta pendiente de revision tecnica",
+      "Se envio un acta para revision tecnica.",
+      data,
+      "#f59e0b",
+      "Ver acta",
+    );
+  }
+
+  async notifyActaReviewed(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData & { approved: boolean },
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Acta ${data.identifier} ${data.approved ? "revisada" : "devuelta"}`,
+      `Acta ${data.approved ? "revisada" : "devuelta"}`,
+      data.approved
+        ? "El acta fue revisada y enviada a aprobacion de Gerencia de Proyectos."
+        : "El acta fue devuelta a borrador para correccion.",
+      data,
+      data.approved ? "#2563eb" : "#dc2626",
+      "Ver acta",
+    );
+  }
+
+  async notifyActaForApproval(
+    approverEmail: string,
+    approverName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      approverEmail,
+      approverName,
+      `Acta ${data.identifier} pendiente de aprobacion`,
+      "Acta pendiente de aprobacion",
+      "Un acta revisada requiere aprobacion de Gerencia de Proyectos.",
+      data,
+      "#2563eb",
+      "Aprobar acta",
+    );
+  }
+
+  async notifyActaApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Acta ${data.identifier} aprobada`,
+      "Acta aprobada",
+      "El acta fue aprobada por Gerencia de Proyectos.",
+      data,
+      "#16a34a",
+      "Ver acta",
+    );
   }
 
   // ============================================

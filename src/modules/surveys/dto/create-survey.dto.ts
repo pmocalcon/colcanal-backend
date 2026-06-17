@@ -160,6 +160,16 @@ export class CreateSurveyDto {
   workId: number;
 
   @ApiProperty({
+    description: 'Revisor designado (ID de usuario). Si se omite, se usa el Director Técnico por defecto.',
+    example: 6,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  assignedReviewerId?: number;
+
+  @ApiProperty({
     description: 'Request date',
     example: '2025-11-04',
     required: false,

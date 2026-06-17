@@ -21,9 +21,11 @@ import { User } from '../../database/entities/user.entity';
 import { Material } from '../../database/entities/material.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
+    NotificationsModule,
     TypeOrmModule.forFeature([
       // Survey entities
       Work,

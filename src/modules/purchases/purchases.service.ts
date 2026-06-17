@@ -2294,10 +2294,11 @@ export class PurchasesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Validar que el usuario es del rol Compras
-    if (user.role.nombreRol !== 'Compras') {
+    // Validar que el usuario sea Compras o Director Financiero y Administrativo
+    const rolesCotizacion = ['Compras', 'Director Financiero y Administrativo'];
+    if (!rolesCotizacion.includes(user.role.nombreRol)) {
       throw new ForbiddenException(
-        'Solo el rol Compras puede gestionar cotizaciones',
+        'Solo Compras o el Director Financiero pueden gestionar cotizaciones',
       );
     }
 
@@ -2457,10 +2458,11 @@ export class PurchasesService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Validar que el usuario es del rol Compras
-    if (user.role.nombreRol !== 'Compras') {
+    // Validar que el usuario sea Compras o Director Financiero y Administrativo
+    const rolesCotizacion = ['Compras', 'Director Financiero y Administrativo'];
+    if (!rolesCotizacion.includes(user.role.nombreRol)) {
       throw new ForbiddenException(
-        'Solo el rol Compras puede gestionar cotizaciones',
+        'Solo Compras o el Director Financiero pueden gestionar cotizaciones',
       );
     }
 
@@ -4334,9 +4336,9 @@ export class PurchasesService {
         relations: ['role'],
       });
 
-      if (!user || user.role.nombreRol !== 'Compras') {
+      if (!user || !['Compras', 'Director Financiero y Administrativo'].includes(user.role.nombreRol)) {
         throw new ForbiddenException(
-          'Solo el rol Compras puede reenviar órdenes de compra',
+          'Solo Compras o el Director Financiero pueden reenviar órdenes de compra',
         );
       }
 
