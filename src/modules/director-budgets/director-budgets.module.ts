@@ -5,6 +5,7 @@ import { DirectorBudgetsService } from './director-budgets.service';
 import { DirectorBudget } from '../../database/entities/director-budget.entity';
 import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
 import { Work } from '../../database/entities/work.entity';
+import { User } from '../../database/entities/user.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
 
@@ -14,6 +15,7 @@ import { RoleGestion } from '../../database/entities/role-gestion.entity';
       DirectorBudget,
       DirectorBudgetItem,
       Work,
+      User,
       RolePermission,
       RoleGestion,
     ]),

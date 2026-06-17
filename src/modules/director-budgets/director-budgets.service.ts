@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { DirectorBudget, DirectorBudgetStatus } from '../../database/entities/director-budget.entity';
 import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
 import { Work } from '../../database/entities/work.entity';
+import { User } from '../../database/entities/user.entity';
 import {
   CreateDirectorBudgetDto,
   UpdateDirectorBudgetDto,
@@ -30,7 +31,12 @@ export class DirectorBudgetsService {
     private readonly itemRepo: Repository<DirectorBudgetItem>,
     @InjectRepository(Work)
     private readonly workRepo: Repository<Work>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
+
+  /** Rol único autorizado a aprobar/rechazar el presupuesto del Director. */
+  private readonly BUDGET_APPROVER_ROLE = 'Director Financiero y Administrativo';
 
   private buildBudgetEntity(dto: CreateDirectorBudgetDto, resolvedCompanyName?: string): Partial<DirectorBudget> {
     return {
@@ -198,6 +204,7 @@ export class DirectorBudgetsService {
   async updateStatus(
     budgetId: number,
     newStatus: DirectorBudgetStatus,
+    userId: number,
   ): Promise<DirectorBudget> {
     const budget = await this.budgetRepo.findOne({ where: { budgetId } });
     if (!budget) throw new NotFoundException('Presupuesto no encontrado');
@@ -212,6 +219,19 @@ export class DirectorBudgetsService {
       throw new BadRequestException(
         `No se puede cambiar de '${budget.status}' a '${newStatus}'`,
       );
+    }
+
+    // Aprobar (en_revision → final) y rechazar (en_revision → draft) solo los hace
+    // la Directora Financiera. Enviar a revisión (draft → en_revision) queda abierto.
+    const isApproval = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.FINAL;
+    const isRejection = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.DRAFT;
+    if (isApproval || isRejection) {
+      const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
+      if (user?.role?.nombreRol !== this.BUDGET_APPROVER_ROLE) {
+        throw new ForbiddenException(
+          'Solo la Directora Financiera (Director Financiero y Administrativo) puede aprobar o rechazar el presupuesto',
+        );
+      }
     }
 
     budget.status = newStatus;

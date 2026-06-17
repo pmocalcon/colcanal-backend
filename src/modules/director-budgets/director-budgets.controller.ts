@@ -72,12 +72,13 @@ export class DirectorBudgetsController {
   }
 
   @Patch(':id/status')
-  @Permissions('levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar')
-  @ApiOperation({ summary: 'Update budget status (draft → en_revision → final)' })
+  @Permissions('levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar', 'levantamientos:presupuesto')
+  @ApiOperation({ summary: 'Update budget status (draft → en_revision → final). Aprobar/rechazar: solo Directora Financiera' })
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBudgetStatusDto,
+    @CurrentUser('userId') userId: number,
   ) {
-    return this.service.updateStatus(id, dto.status);
+    return this.service.updateStatus(id, dto.status, userId);
   }
 }
