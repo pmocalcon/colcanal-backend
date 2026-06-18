@@ -35,8 +35,8 @@ export class DirectorBudgetsService {
     private readonly userRepo: Repository<User>,
   ) {}
 
-  /** Rol único autorizado a aprobar/rechazar el presupuesto del Director. */
-  private readonly BUDGET_APPROVER_ROLE = 'Director Financiero y Administrativo';
+  /** Rol único autorizado a aprobar/rechazar el presupuesto del Director (Gerencia). */
+  private readonly BUDGET_APPROVER_ROLE = 'Gerencia';
 
   private buildBudgetEntity(dto: CreateDirectorBudgetDto, resolvedCompanyName?: string): Partial<DirectorBudget> {
     return {
@@ -222,14 +222,14 @@ export class DirectorBudgetsService {
     }
 
     // Aprobar (en_revision → final) y rechazar (en_revision → draft) solo los hace
-    // la Directora Financiera. Enviar a revisión (draft → en_revision) queda abierto.
+    // Gerencia. Enviar a revisión (draft → en_revision) queda abierto.
     const isApproval = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.FINAL;
     const isRejection = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.DRAFT;
     if (isApproval || isRejection) {
       const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
       if (user?.role?.nombreRol !== this.BUDGET_APPROVER_ROLE) {
         throw new ForbiddenException(
-          'Solo la Directora Financiera (Director Financiero y Administrativo) puede aprobar o rechazar el presupuesto',
+          'Solo Gerencia puede aprobar o rechazar el presupuesto',
         );
       }
     }
