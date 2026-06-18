@@ -48,6 +48,7 @@ export class DirectorBudgetsService {
       fuenteFinanciacion: dto.fuenteFinanciacion,
       valorMinimoExcedentes: n(dto.valorMinimoExcedentes) as number,
       valorActualExcedentes: n(dto.valorActualExcedentes) as number,
+      saldoDisponible: n(dto.saldoDisponible) as number,
       manoDeObra: n(dto.manoDeObra) as number,
       manoDeObraEj: n(dto.manoDeObraEj) as number,
       materialesInventario: n(dto.materialesInventario) as number,

@@ -106,6 +106,11 @@ export class CreateDirectorBudgetDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsNumber()
+  saldoDisponible?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
   manoDeObra?: number | null;
 
   @ApiProperty({ required: false })

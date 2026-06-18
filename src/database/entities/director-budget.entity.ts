@@ -47,6 +47,9 @@ export class DirectorBudget {
   @Column({ name: 'valor_actual_excedentes', type: 'decimal', precision: 15, scale: 2, nullable: true })
   valorActualExcedentes: number;
 
+  @Column({ name: 'saldo_disponible', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  saldoDisponible: number;
+
   @Column({ name: 'mano_de_obra', type: 'decimal', precision: 15, scale: 2, nullable: true })
   manoDeObra: number;
 
