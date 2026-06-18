@@ -26,12 +26,10 @@ export class SurveyTravelExpense {
   @Column({ name: "survey_id" })
   surveyId: number;
 
-  @Column({
-    name: "expense_type",
-    type: "enum",
-    enum: TravelExpenseType,
-  })
-  expenseType: TravelExpenseType;
+  // varchar (no enum): admite los tipos fijos (TravelExpenseType) y también
+  // descripciones libres para las líneas personalizadas ("Agregar línea").
+  @Column({ name: "expense_type", type: "varchar", length: 150 })
+  expenseType: string;
 
   @Column({ type: "decimal", precision: 10, scale: 2, default: 0 })
   quantity: number;

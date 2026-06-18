@@ -7,7 +7,6 @@ import {
   IsDateString,
   ValidateNested,
   MaxLength,
-  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -126,12 +125,12 @@ export enum TravelExpenseTypeDto {
 
 export class CreateSurveyTravelExpenseDto {
   @ApiProperty({
-    description: 'Expense type',
-    enum: TravelExpenseTypeDto,
+    description: 'Expense type: un valor fijo (tolls, parking, ...) o una descripción personalizada',
     example: 'tolls',
   })
-  @IsEnum(TravelExpenseTypeDto)
-  expenseType: TravelExpenseTypeDto;
+  @IsString()
+  @MaxLength(150)
+  expenseType: string;
 
   @ApiProperty({ description: 'Quantity', example: 2 })
   @IsNumber()
