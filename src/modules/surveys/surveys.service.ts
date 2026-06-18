@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
-import { WorkActa, ActaStatus } from '../../database/entities/work-acta.entity';
+import { WorkActa, ActaStatus, ActaBudgetStatus } from '../../database/entities/work-acta.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -251,7 +251,7 @@ export class SurveysService {
   }
 
   private async sendActaNotification(
-    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved',
+    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'sent_to_budget',
     acta: WorkActa,
     options?: {
       actor?: User | null;
@@ -276,6 +276,14 @@ export class SurveysService {
         const approvers = await this.findActiveUsersByRoleNames(['Gerencia de Proyectos', 'Analista PMO']);
         await this.notifyUniqueUsers(approvers, (email, name) =>
           this.notificationsService.notifyActaForApproval(email, name, data),
+        );
+        return;
+      }
+
+      if (type === 'sent_to_budget') {
+        const financieros = await this.findActiveUsersByRoleNames(['Director Financiero y Administrativo']);
+        await this.notifyUniqueUsers(financieros, (email, name) =>
+          this.notificationsService.notifyActaSentToBudget(email, name, data),
         );
         return;
       }
@@ -1799,5 +1807,38 @@ export class SurveysService {
     this.sendActaNotification('approved', acta, { actor: user }).catch(() => {});
 
     return acta;
+  }
+
+  /**
+   * El Director Técnico envía el acta a presupuesto: marca el estado de presupuesto
+   * en 'en_revision' y notifica por correo a la Directora Financiera.
+   */
+  async sendActaToBudget(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo el Director Técnico puede enviar el acta a presupuesto');
+    }
+
+    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    if (!acta) {
+      acta = this.workActaRepository.create({
+        companyId,
+        actaNumber,
+        status: ActaStatus.BORRADOR,
+        createdBy: userId,
+      });
+    }
+
+    if (acta.presupuestoStatus === ActaBudgetStatus.EN_REVISION) {
+      throw new BadRequestException('El acta ya fue enviada a presupuesto y está en revisión');
+    }
+
+    acta.presupuestoStatus = ActaBudgetStatus.EN_REVISION;
+    const savedActa = await this.workActaRepository.save(acta);
+
+    this.sendActaNotification('sent_to_budget', savedActa, { actor: user }).catch(() => {});
+
+    return savedActa;
   }
 }

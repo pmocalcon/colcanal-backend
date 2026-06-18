@@ -662,6 +662,23 @@ export class NotificationsService {
     );
   }
 
+  async notifyActaSentToBudget(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Acta ${data.identifier} enviada a presupuesto`,
+      "Acta enviada a presupuesto",
+      "Un acta fue enviada a presupuesto y requiere su revision/aprobacion.",
+      data,
+      "#7c3aed",
+      "Ver presupuesto",
+    );
+  }
+
   async notifyActaApproved(
     recipientEmail: string,
     recipientName: string,

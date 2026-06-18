@@ -14,6 +14,14 @@ export enum ActaStatus {
   APROBADA = 'aprobada',
 }
 
+// Estado del presupuesto del acta (eje financiero, lo gestiona la Directora Financiera).
+export enum ActaBudgetStatus {
+  PENDIENTE = 'pendiente',
+  EN_REVISION = 'en_revision',
+  APROBADO = 'aprobado',
+  RECHAZADO = 'rechazado',
+}
+
 // El número de acta (ej. "01-2026") se reutiliza entre municipios; la identidad real
 // del acta es (empresa, número), no solo el número.
 @Entity('work_actas')
@@ -30,6 +38,9 @@ export class WorkActa {
 
   @Column({ type: 'varchar', length: 50, default: ActaStatus.BORRADOR })
   status: ActaStatus;
+
+  @Column({ name: 'presupuesto_status', type: 'varchar', length: 20, default: ActaBudgetStatus.PENDIENTE })
+  presupuestoStatus: ActaBudgetStatus;
 
   @Column({ name: 'project_code', type: 'varchar', length: 100, nullable: true })
   projectCode: string | null;

@@ -394,4 +394,15 @@ export class SurveysController {
   ) {
     return this.surveysService.approveActa(body.companyId, actaNumber, body.projectCode, userId);
   }
+
+  @Patch('actas/:actaNumber/send-to-budget')
+  @Permissions('levantamientos:revisar')
+  @ApiOperation({ summary: 'Director Técnico envía el acta a presupuesto (notifica a la Directora Financiera)' })
+  async sendActaToBudget(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { companyId: number },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.sendActaToBudget(body.companyId, actaNumber, userId);
+  }
 }
