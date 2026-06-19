@@ -105,6 +105,11 @@ export class CreateDirectorBudgetDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @IsString()
+  valorActualExcedentesTexto?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsNumber()
   saldoDisponible?: number | null;
 

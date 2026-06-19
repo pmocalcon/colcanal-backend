@@ -48,6 +48,7 @@ export class DirectorBudgetsService {
       fuenteFinanciacion: dto.fuenteFinanciacion,
       valorMinimoExcedentes: n(dto.valorMinimoExcedentes) as number,
       valorActualExcedentes: n(dto.valorActualExcedentes) as number,
+      valorActualExcedentesTexto: dto.valorActualExcedentesTexto,
       saldoDisponible: n(dto.saldoDisponible) as number,
       manoDeObra: n(dto.manoDeObra) as number,
       manoDeObraEj: n(dto.manoDeObraEj) as number,
@@ -224,15 +225,16 @@ export class DirectorBudgetsService {
       );
     }
 
-    // Aprobar (en_revision → final) y rechazar (en_revision → draft) solo los hace
-    // Gerencia. Enviar a revisión (draft → en_revision) queda abierto.
+    // Aprobar (en_revision → final) y rechazar (en_revision → draft) los hacen
+    // Gerencia y Analista PMO. Enviar a revisión (draft → en_revision) queda abierto.
     const isApproval = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.FINAL;
     const isRejection = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.DRAFT;
     if (isApproval || isRejection) {
       const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
-      if (user?.role?.nombreRol !== this.BUDGET_APPROVER_ROLE) {
+      const rol = user?.role?.nombreRol;
+      if (rol !== this.BUDGET_APPROVER_ROLE && rol !== 'Analista PMO') {
         throw new ForbiddenException(
-          'Solo Gerencia puede aprobar o rechazar el presupuesto',
+          'Solo Gerencia o Analista PMO pueden aprobar o rechazar el presupuesto',
         );
       }
     }
@@ -251,22 +253,28 @@ export class DirectorBudgetsService {
     userId: number,
     otrosCostos: number | null,
     otrosCostosEj: number | null,
+    leg: number | null = null,
+    legEj: number | null = null,
   ): Promise<DirectorBudget> {
     const budget = await this.budgetRepo.findOne({ where: { budgetId } });
     if (!budget) throw new NotFoundException('Presupuesto no encontrado');
     if (budget.status !== DirectorBudgetStatus.EN_REVISION) {
       throw new BadRequestException(
-        'Solo se puede ajustar Otros Costos mientras el presupuesto está en revisión',
+        'Solo se pueden ajustar Otros Costos y Costos L.N.A mientras el presupuesto está en revisión',
       );
     }
     const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
     const rol = user?.role?.nombreRol;
     if (rol !== this.BUDGET_APPROVER_ROLE && rol !== 'Analista PMO') {
-      throw new ForbiddenException('Solo Gerencia puede ajustar Otros Costos al autorizar');
+      throw new ForbiddenException(
+        'Solo Gerencia puede ajustar Otros Costos y Costos L.N.A al autorizar',
+      );
     }
 
     budget.otrosCostos = n(otrosCostos) as number;
     budget.otrosCostosEj = n(otrosCostosEj) as number;
+    budget.leg = n(leg) as number;
+    budget.legEj = n(legEj) as number;
     await this.budgetRepo.save(budget);
     return this.findOne(budgetId);
   }

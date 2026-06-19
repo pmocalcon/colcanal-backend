@@ -47,6 +47,9 @@ export class DirectorBudget {
   @Column({ name: 'valor_actual_excedentes', type: 'decimal', precision: 15, scale: 2, nullable: true })
   valorActualExcedentes: number;
 
+  @Column({ name: 'valor_actual_excedentes_texto', type: 'varchar', length: 255, nullable: true })
+  valorActualExcedentesTexto: string;
+
   @Column({ name: 'saldo_disponible', type: 'decimal', precision: 15, scale: 2, nullable: true })
   saldoDisponible: number;
 

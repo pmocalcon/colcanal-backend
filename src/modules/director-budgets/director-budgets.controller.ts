@@ -84,10 +84,15 @@ export class DirectorBudgetsController {
 
   @Patch(':id/otros-costos')
   @Permissions('levantamientos:aprobar', 'levantamientos:autorizar', 'levantamientos:revisar', 'levantamientos:presupuesto')
-  @ApiOperation({ summary: 'Gerencia ajusta Otros Costos al autorizar (presupuesto en revisión)' })
+  @ApiOperation({ summary: 'Gerencia ajusta Otros Costos y Costos L.N.A al autorizar (presupuesto en revisión)' })
   async updateOtrosCostos(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { otrosCostos?: number | null; otrosCostosEj?: number | null },
+    @Body() body: {
+      otrosCostos?: number | null;
+      otrosCostosEj?: number | null;
+      leg?: number | null;
+      legEj?: number | null;
+    },
     @CurrentUser('userId') userId: number,
   ) {
     return this.service.updateOtrosCostos(
@@ -95,6 +100,8 @@ export class DirectorBudgetsController {
       userId,
       body.otrosCostos ?? null,
       body.otrosCostosEj ?? null,
+      body.leg ?? null,
+      body.legEj ?? null,
     );
   }
 }
