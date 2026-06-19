@@ -301,6 +301,29 @@ export class PurchasesController {
     return this.purchasesService.voidRequisitions(dto.ids, user.userId, dto.comments);
   }
 
+  // Nota: ruta estática antes de '@Get(":id")' para que no la capture como id.
+  @Get("pending-void")
+  @ApiOperation({ summary: "Solicitudes de anulación pendientes (Directora Financiera)" })
+  async getPendingVoidRequests() {
+    return this.purchasesService.getPendingVoidRequests();
+  }
+
+  @Patch(":id/review-void")
+  @ApiOperation({ summary: "Directora Financiera aprueba/rechaza una solicitud de anulación" })
+  @HttpCode(HttpStatus.OK)
+  async reviewVoidRequest(
+    @Param("id") id: string,
+    @GetUser() user: User,
+    @Body() body: { decision: "aprobado" | "rechazado"; motivo?: string },
+  ) {
+    return this.purchasesService.reviewVoidRequest(
+      Number(id),
+      user.userId,
+      body.decision,
+      body.motivo,
+    );
+  }
+
   @Get("pending-actions")
   @ApiOperation({
     summary: "Obtener requisiciones pendientes de acción",

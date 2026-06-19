@@ -84,4 +84,25 @@ export class FilterRequisitionsDto {
   @Type(() => Number)
   @IsNumber()
   projectId?: number;
+
+  @ApiProperty({
+    description: 'Filtrar por empresa específica.',
+    example: 1,
+    type: Number,
+    required: false,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  companyId?: number;
+
+  @ApiProperty({
+    description: 'Búsqueda global por número de requisición (coincidencia parcial).',
+    example: 'C&C-069',
+    type: String,
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

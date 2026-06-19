@@ -19,6 +19,7 @@ export const REQUISITION_STATUS = {
   EN_ORDEN_COMPRA: "en_orden_compra",
   PENDIENTE_RECEPCION: "pendiente_recepcion",
   COMPLETADA: "completada",
+  PENDIENTE_ANULACION: "pendiente_anulacion",
   ANULADA: "anulada",
 } as const;
 

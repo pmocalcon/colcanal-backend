@@ -430,6 +430,100 @@ export class NotificationsService {
   }
 
   // ============================================
+  // NOTIFICACIONES DE ANULACIÓN DE REQUISICIÓN
+  // ============================================
+
+  private buildVoidEmail(
+    recipientName: string,
+    title: string,
+    headerColor: string,
+    bodyHtml: string,
+  ): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: ${headerColor}; padding: 20px; text-align: center; }
+          .header h1 { margin: 0; color: white; font-size: 22px; }
+          .content { padding: 20px; background-color: #f9f9f9; }
+          .comments { background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #ffc107; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1>${this.escapeHtml(title)}</h1></div>
+          <div class="content">
+            <p>Hola <strong>${this.escapeHtml(recipientName)}</strong>,</p>
+            ${bodyHtml}
+          </div>
+          <div class="footer"><p>Sistema de Gestión Empresarial - Canalcongroup</p></div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  async notifyVoidRequested(
+    recipientEmail: string,
+    recipientName: string,
+    data: { requisitionNumber: string; requesterName?: string; motivo?: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      recipientName,
+      "🗑️ Solicitud de anulación de requisición",
+      "#7c3aed",
+      `<p>${this.escapeHtml(data.requesterName ?? "Compras")} solicitó anular la requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong> y requiere su aprobación.</p>
+       ${data.motivo ? `<div class="comments"><strong>Motivo:</strong><p>${this.escapeHtml(data.motivo)}</p></div>` : ""}`,
+    );
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `🗑️ Solicitud de anulación — Requisición ${data.requisitionNumber}`,
+      html,
+    });
+  }
+
+  async notifyVoidApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: { requisitionNumber: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      recipientName,
+      "✅ Anulación aprobada",
+      "#16a34a",
+      `<p>La Directora Financiera <strong>aprobó</strong> la anulación de la requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong>. La requisición quedó anulada.</p>`,
+    );
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `✅ Anulación aprobada — Requisición ${data.requisitionNumber}`,
+      html,
+    });
+  }
+
+  async notifyVoidRejected(
+    recipientEmail: string,
+    recipientName: string,
+    data: { requisitionNumber: string; motivo?: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      recipientName,
+      "❌ Anulación rechazada",
+      "#dc2626",
+      `<p>La Directora Financiera <strong>rechazó</strong> la solicitud de anulación de la requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong>. La requisición NO fue anulada y volvió a su estado anterior.</p>
+       ${data.motivo ? `<div class="comments"><strong>Motivo del rechazo:</strong><p>${this.escapeHtml(data.motivo)}</p></div>` : ""}`,
+    );
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `❌ Anulación rechazada — Requisición ${data.requisitionNumber}`,
+      html,
+    });
+  }
+
+  // ============================================
   // NOTIFICACIONES DE OBRAS / LEVANTAMIENTOS
   // ============================================
 

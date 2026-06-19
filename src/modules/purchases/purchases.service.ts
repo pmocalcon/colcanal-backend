@@ -729,7 +729,7 @@ export class PurchasesService {
     const page = filters.page || 1;
     const limit = filters.limit || 50;
     const projectId = filters.projectId;
-    const { status, fromDate, toDate } = filters;
+    const { status, fromDate, toDate, companyId, search } = filters;
 
     const queryBuilder = this.requisitionRepository
       .createQueryBuilder('requisition')
@@ -766,6 +766,16 @@ export class PurchasesService {
       });
     }
 
+    if (companyId) {
+      queryBuilder.andWhere('requisition.companyId = :companyId', { companyId });
+    }
+
+    if (search && search.trim()) {
+      queryBuilder.andWhere('requisition.requisitionNumber ILIKE :search', {
+        search: `%${search.trim()}%`,
+      });
+    }
+
     if (fromDate && toDate) {
       queryBuilder.andWhere(
         'requisition.createdAt BETWEEN :fromDate AND :toDate',
@@ -795,7 +805,7 @@ export class PurchasesService {
     const page = filters.page || 1;
     const limit = filters.limit || 200;
     const projectId = filters.projectId;
-    const { status, fromDate, toDate } = filters;
+    const { status, fromDate, toDate, companyId, search } = filters;
 
     // Step 1: paginate over IDs only (no joins) to avoid TypeORM one-to-many pagination bug.
     // Include priority and createdAt in select so TypeORM's DISTINCT subquery can reference them.
@@ -818,6 +828,16 @@ export class PurchasesService {
 
     if (projectId) {
       idQueryBuilder.andWhere('requisition.projectId = :projectId', { projectId });
+    }
+
+    if (companyId) {
+      idQueryBuilder.andWhere('requisition.companyId = :companyId', { companyId });
+    }
+
+    if (search && search.trim()) {
+      idQueryBuilder.andWhere('requisition.requisitionNumber ILIKE :search', {
+        search: `%${search.trim()}%`,
+      });
     }
 
     if (fromDate && toDate) {
@@ -2042,7 +2062,11 @@ export class PurchasesService {
     ids: number[],
     userId: number,
     comments?: string,
-  ): Promise<{ voided: number[]; errors: { id: number; reason: string }[] }> {
+  ): Promise<{
+    voided: number[];
+    requested: number[];
+    errors: { id: number; reason: string }[];
+  }> {
     const user = await this.userRepository.findOne({
       where: { userId },
       relations: ['role'],
@@ -2059,9 +2083,19 @@ export class PurchasesService {
       );
     }
 
+    // El rol Compras NO anula directo: crea una solicitud que la Directora
+    // Financiera aprueba/rechaza. Los roles PMO sí anulan directo.
+    const isCompras = roleName === 'compras';
+
     const anulatedStatusId = await this.getStatusIdByCode(REQUISITION_STATUS.ANULADA);
+    const pendingVoidStatusId = isCompras
+      ? await this.getStatusIdByCode(REQUISITION_STATUS.PENDIENTE_ANULACION)
+      : 0;
+
     const voided: number[] = [];
+    const requested: number[] = [];
     const errors: { id: number; reason: string }[] = [];
+    const requestedInfo: { requisitionNumber: string; motivo?: string }[] = [];
 
     for (const id of ids) {
       const queryRunner = this.dataSource.createQueryRunner();
@@ -2087,24 +2121,49 @@ export class PurchasesService {
           continue;
         }
 
+        if (requisition.status?.code === REQUISITION_STATUS.PENDIENTE_ANULACION) {
+          errors.push({ id, reason: 'Ya tiene una solicitud de anulación' });
+          await queryRunner.rollbackTransaction();
+          await queryRunner.release();
+          continue;
+        }
+
         const previousStatus = requisition.status?.code ?? '';
 
-        await queryRunner.manager.update(Requisition, id, {
-          statusId: anulatedStatusId,
-        });
-
-        const log = queryRunner.manager.create(RequisitionLog, {
-          requisitionId: id,
-          userId,
-          action: 'anular_requisicion',
-          previousStatus,
-          newStatus: REQUISITION_STATUS.ANULADA,
-          comments: comments ?? 'Anulada por PMO',
-        });
-
-        await queryRunner.manager.save(log);
-        await queryRunner.commitTransaction();
-        voided.push(id);
+        if (isCompras) {
+          // Solicitud de anulación → pendiente de aprobación
+          await queryRunner.manager.update(Requisition, id, {
+            statusId: pendingVoidStatusId,
+          });
+          const log = queryRunner.manager.create(RequisitionLog, {
+            requisitionId: id,
+            userId,
+            action: 'solicitar_anulacion',
+            previousStatus,
+            newStatus: REQUISITION_STATUS.PENDIENTE_ANULACION,
+            comments: comments ?? undefined,
+          });
+          await queryRunner.manager.save(log);
+          await queryRunner.commitTransaction();
+          requested.push(id);
+          requestedInfo.push({ requisitionNumber: requisition.requisitionNumber, motivo: comments });
+        } else {
+          // PMO: anulación directa
+          await queryRunner.manager.update(Requisition, id, {
+            statusId: anulatedStatusId,
+          });
+          const log = queryRunner.manager.create(RequisitionLog, {
+            requisitionId: id,
+            userId,
+            action: 'anular_requisicion',
+            previousStatus,
+            newStatus: REQUISITION_STATUS.ANULADA,
+            comments: comments ?? 'Anulada por PMO',
+          });
+          await queryRunner.manager.save(log);
+          await queryRunner.commitTransaction();
+          voided.push(id);
+        }
       } catch (error) {
         await queryRunner.rollbackTransaction();
         errors.push({ id, reason: 'Error interno' });
@@ -2113,7 +2172,163 @@ export class PurchasesService {
       }
     }
 
-    return { voided, errors };
+    // Notificar a la Directora Financiera las solicitudes de anulación
+    if (requestedInfo.length > 0) {
+      const financieras = await this.userRepository.find({
+        where: { estado: true },
+        relations: ['role'],
+      });
+      const recipients = financieras.filter(
+        (u) => u.role?.nombreRol === 'Director Financiero y Administrativo',
+      );
+      for (const r of recipients) {
+        const email = r.emailNotificacion || r.email;
+        for (const info of requestedInfo) {
+          this.notificationsService
+            .notifyVoidRequested(email, r.nombre, {
+              requisitionNumber: info.requisitionNumber,
+              requesterName: user.nombre,
+              motivo: info.motivo,
+            })
+            .catch(() => {});
+        }
+      }
+    }
+
+    return { voided, requested, errors };
+  }
+
+  /**
+   * Solicitudes de anulación pendientes (bandeja de la Directora Financiera).
+   */
+  async getPendingVoidRequests(): Promise<
+    Array<{
+      requisitionId: number;
+      requisitionNumber: string;
+      companyName: string | null;
+      projectName: string | null;
+      requestedByName: string | null;
+      motivo: string | null;
+      requestedAt: Date | null;
+    }>
+  > {
+    const requisitions = await this.requisitionRepository.find({
+      where: { status: { code: REQUISITION_STATUS.PENDIENTE_ANULACION } },
+      relations: ['status', 'company', 'project', 'logs', 'logs.user'],
+    });
+
+    return requisitions.map((req) => {
+      const reqLog = (req.logs ?? [])
+        .filter((l) => l.action === 'solicitar_anulacion')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      return {
+        requisitionId: req.requisitionId,
+        requisitionNumber: req.requisitionNumber,
+        companyName: req.company?.name ?? null,
+        projectName: req.project?.name ?? null,
+        requestedByName: reqLog?.user?.nombre ?? null,
+        motivo: reqLog?.comments ?? null,
+        requestedAt: reqLog?.createdAt ?? null,
+      };
+    });
+  }
+
+  /**
+   * La Directora Financiera aprueba (→ anulada) o rechaza (→ estado anterior)
+   * una solicitud de anulación. El rechazo exige motivo. Notifica al solicitante.
+   */
+  async reviewVoidRequest(
+    requisitionId: number,
+    userId: number,
+    decision: 'aprobado' | 'rechazado',
+    motivo?: string,
+  ): Promise<{ requisitionId: number; newStatus: string }> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    const roleName = user?.role?.nombreRol?.toLowerCase() ?? '';
+    if (!['director financiero y administrativo', 'analista pmo'].includes(roleName)) {
+      throw new ForbiddenException(
+        'Solo la Directora Financiera puede aprobar o rechazar la anulación',
+      );
+    }
+
+    const requisition = await this.requisitionRepository.findOne({
+      where: { requisitionId },
+      relations: ['status', 'logs', 'logs.user', 'creator'],
+    });
+    if (!requisition) {
+      throw new NotFoundException('Requisición no encontrada');
+    }
+    if (requisition.status?.code !== REQUISITION_STATUS.PENDIENTE_ANULACION) {
+      throw new BadRequestException('La requisición no tiene una solicitud de anulación pendiente');
+    }
+
+    const reqLog = (requisition.logs ?? [])
+      .filter((l) => l.action === 'solicitar_anulacion')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    const previousStatus = reqLog?.previousStatus || REQUISITION_STATUS.PENDIENTE;
+    const requester = reqLog?.user;
+
+    let newStatusCode: string;
+    if (decision === 'rechazado') {
+      if (!motivo || !motivo.trim()) {
+        throw new BadRequestException('Debe indicar el motivo del rechazo de la anulación');
+      }
+      newStatusCode = previousStatus;
+    } else {
+      newStatusCode = REQUISITION_STATUS.ANULADA;
+    }
+    const newStatusId = await this.getStatusIdByCode(newStatusCode);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.manager.update(Requisition, requisitionId, { statusId: newStatusId });
+      const log = queryRunner.manager.create(RequisitionLog, {
+        requisitionId,
+        userId,
+        action: decision === 'aprobado' ? 'aprobar_anulacion' : 'rechazar_anulacion',
+        previousStatus: REQUISITION_STATUS.PENDIENTE_ANULACION,
+        newStatus: newStatusCode,
+        comments: decision === 'rechazado' ? motivo!.trim() : (motivo?.trim() || 'Anulación aprobada'),
+      });
+      await queryRunner.manager.save(log);
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+
+    // Notificar siempre al solicitante (Compras). Al creador de la requisición
+    // solo cuando efectivamente se anula (aprobada). Deduplicar si coinciden.
+    const recipients = [
+      requester,
+      decision === 'aprobado' ? requisition.creator : null,
+    ].filter(
+      (u, i, arr): u is User => !!u && arr.findIndex((x) => x?.userId === u.userId) === i,
+    );
+    for (const r of recipients) {
+      const email = r.emailNotificacion || r.email;
+      if (decision === 'aprobado') {
+        this.notificationsService
+          .notifyVoidApproved(email, r.nombre, { requisitionNumber: requisition.requisitionNumber })
+          .catch(() => {});
+      } else {
+        this.notificationsService
+          .notifyVoidRejected(email, r.nombre, {
+            requisitionNumber: requisition.requisitionNumber,
+            motivo: motivo!.trim(),
+          })
+          .catch(() => {});
+      }
+    }
+
+    return { requisitionId, newStatus: newStatusCode };
   }
 
   // ============================================
