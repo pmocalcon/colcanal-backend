@@ -168,6 +168,16 @@ export class CreateDirectorBudgetDto {
   @IsNumber()
   retPctEj?: number | null;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  estampillaPct?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  estampillaPctEj?: number | null;
+
   @ApiProperty({ required: false, enum: DirectorBudgetStatus })
   @IsOptional()
   @IsEnum(DirectorBudgetStatus)

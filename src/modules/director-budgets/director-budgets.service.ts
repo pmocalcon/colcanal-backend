@@ -61,6 +61,8 @@ export class DirectorBudgetsService {
       legEj: n(dto.legEj) as number,
       retPct: n(dto.retPct) as number,
       retPctEj: n(dto.retPctEj) as number,
+      estampillaPct: n(dto.estampillaPct) as number,
+      estampillaPctEj: n(dto.estampillaPctEj) as number,
       status: dto.status,
     };
   }
@@ -236,6 +238,35 @@ export class DirectorBudgetsService {
     }
 
     budget.status = newStatus;
+    await this.budgetRepo.save(budget);
+    return this.findOne(budgetId);
+  }
+
+  /**
+   * Gerencia ajusta SOLO "Otros Costos" mientras autoriza un presupuesto en
+   * revisión (el resto de la planilla queda bloqueada en el frontend).
+   */
+  async updateOtrosCostos(
+    budgetId: number,
+    userId: number,
+    otrosCostos: number | null,
+    otrosCostosEj: number | null,
+  ): Promise<DirectorBudget> {
+    const budget = await this.budgetRepo.findOne({ where: { budgetId } });
+    if (!budget) throw new NotFoundException('Presupuesto no encontrado');
+    if (budget.status !== DirectorBudgetStatus.EN_REVISION) {
+      throw new BadRequestException(
+        'Solo se puede ajustar Otros Costos mientras el presupuesto está en revisión',
+      );
+    }
+    const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== this.BUDGET_APPROVER_ROLE && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo Gerencia puede ajustar Otros Costos al autorizar');
+    }
+
+    budget.otrosCostos = n(otrosCostos) as number;
+    budget.otrosCostosEj = n(otrosCostosEj) as number;
     await this.budgetRepo.save(budget);
     return this.findOne(budgetId);
   }

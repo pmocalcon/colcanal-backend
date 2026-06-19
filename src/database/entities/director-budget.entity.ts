@@ -86,6 +86,12 @@ export class DirectorBudget {
   @Column({ name: 'ret_pct_ej', type: 'decimal', precision: 5, scale: 2, nullable: true })
   retPctEj: number;
 
+  @Column({ name: 'estampilla_pct', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  estampillaPct: number;
+
+  @Column({ name: 'estampilla_pct_ej', type: 'decimal', precision: 5, scale: 2, nullable: true })
+  estampillaPctEj: number;
+
   @Column({
     type: 'varchar',
     length: 20,

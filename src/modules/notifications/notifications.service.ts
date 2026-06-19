@@ -790,6 +790,40 @@ export class NotificationsService {
     );
   }
 
+  async notifyActaBudgetApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Presupuesto del acta ${data.identifier} aprobado`,
+      "Presupuesto del acta aprobado",
+      "La Directora Financiera aprobó el presupuesto del acta.",
+      data,
+      "#16a34a",
+      "Ver acta",
+    );
+  }
+
+  async notifyActaBudgetRejected(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Presupuesto del acta ${data.identifier} rechazado`,
+      "Presupuesto del acta rechazado",
+      "La Directora Financiera rechazó el presupuesto del acta. Revise el motivo y vuelva a enviarlo a presupuesto.",
+      data,
+      "#dc2626",
+      "Ver acta",
+    );
+  }
+
   // ============================================
   // VERIFICACIÓN DE CONFIGURACIÓN
   // ============================================

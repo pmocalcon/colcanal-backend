@@ -251,7 +251,7 @@ export class SurveysService {
   }
 
   private async sendActaNotification(
-    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'sent_to_budget',
+    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'sent_to_budget' | 'budget_approved' | 'budget_rejected',
     acta: WorkActa,
     options?: {
       actor?: User | null;
@@ -284,6 +284,17 @@ export class SurveysService {
         const financieros = await this.findActiveUsersByRoleNames(['Director Financiero y Administrativo']);
         await this.notifyUniqueUsers(financieros, (email, name) =>
           this.notificationsService.notifyActaSentToBudget(email, name, data),
+        );
+        return;
+      }
+
+      if (type === 'budget_approved' || type === 'budget_rejected') {
+        // Cierra el ciclo: avisa al Director Técnico (quien envió el acta a presupuesto).
+        const tecnicos = await this.findActiveUsersByRoleNames(['Director Técnico']);
+        await this.notifyUniqueUsers(tecnicos, (email, name) =>
+          type === 'budget_approved'
+            ? this.notificationsService.notifyActaBudgetApproved(email, name, data)
+            : this.notificationsService.notifyActaBudgetRejected(email, name, data),
         );
         return;
       }
@@ -1835,10 +1846,96 @@ export class SurveysService {
     }
 
     acta.presupuestoStatus = ActaBudgetStatus.EN_REVISION;
+    acta.presupuestoRechazoMotivo = null;
     const savedActa = await this.workActaRepository.save(acta);
 
     this.sendActaNotification('sent_to_budget', savedActa, { actor: user }).catch(() => {});
 
     return savedActa;
+  }
+
+  /**
+   * La Directora Financiera aprueba o rechaza el presupuesto del acta
+   * (presupuesto_status: en_revision → aprobado | rechazado). El rechazo exige motivo.
+   * Notifica al Director Técnico el resultado.
+   */
+  async reviewActaBudget(
+    companyId: number,
+    actaNumber: string,
+    userId: number,
+    decision: 'aprobado' | 'rechazado',
+    motivo?: string,
+  ): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Director Financiero y Administrativo' && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo la Directora Financiera puede aprobar o rechazar el presupuesto del acta');
+    }
+
+    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    if (!acta) {
+      throw new NotFoundException('Acta no encontrada');
+    }
+    if (acta.presupuestoStatus !== ActaBudgetStatus.EN_REVISION) {
+      throw new BadRequestException('El presupuesto del acta no está en revisión');
+    }
+
+    if (decision === 'rechazado') {
+      if (!motivo || !motivo.trim()) {
+        throw new BadRequestException('Debe indicar el motivo del rechazo');
+      }
+      acta.presupuestoStatus = ActaBudgetStatus.RECHAZADO;
+      acta.presupuestoRechazoMotivo = motivo.trim();
+    } else {
+      acta.presupuestoStatus = ActaBudgetStatus.APROBADO;
+      acta.presupuestoRechazoMotivo = null;
+    }
+
+    const savedActa = await this.workActaRepository.save(acta);
+
+    this.sendActaNotification(
+      decision === 'aprobado' ? 'budget_approved' : 'budget_rejected',
+      savedActa,
+      { actor: user, comments: decision === 'rechazado' ? motivo?.trim() : undefined },
+    ).catch(() => {});
+
+    return savedActa;
+  }
+
+  /**
+   * Actas con presupuesto en revisión (bandeja de la Directora Financiera).
+   * Devuelve datos mínimos para listar: empresa, número, # obras y fecha.
+   */
+  async getActasPendingBudget(): Promise<
+    Array<{
+      companyId: number;
+      actaNumber: string;
+      companyName: string | null;
+      worksCount: number;
+      updatedAt: Date;
+    }>
+  > {
+    const actas = await this.workActaRepository.find({
+      where: { presupuestoStatus: ActaBudgetStatus.EN_REVISION },
+      order: { updatedAt: 'DESC' },
+    });
+    if (actas.length === 0) return [];
+
+    const companyIds = Array.from(new Set(actas.map((a) => a.companyId)));
+    const companies = await this.companyRepository.findByIds(companyIds);
+    const companyName = new Map(companies.map((c) => [c.companyId, c.name]));
+
+    const result = await Promise.all(
+      actas.map(async (a) => ({
+        companyId: a.companyId,
+        actaNumber: a.actaNumber,
+        companyName: companyName.get(a.companyId) ?? null,
+        worksCount: await this.workRepository.count({
+          where: { companyId: a.companyId, recordNumber: a.actaNumber },
+        }),
+        updatedAt: a.updatedAt,
+      })),
+    );
+    return result;
   }
 }

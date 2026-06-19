@@ -343,6 +343,15 @@ export class SurveysController {
   // WORK ACTA WORKFLOW ENDPOINTS
   // ============================================
 
+  // Nota: esta ruta estática debe ir ANTES de 'actas/:actaNumber' para que
+  // Nest no interprete "pending-budget" como un actaNumber.
+  @Get('actas/pending-budget')
+  @Permissions('levantamientos:revisar', 'levantamientos:presupuesto')
+  @ApiOperation({ summary: 'Actas con presupuesto en revisión (bandeja Directora Financiera)' })
+  async getActasPendingBudget() {
+    return this.surveysService.getActasPendingBudget();
+  }
+
   @Get('actas/:actaNumber')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get acta workflow status' })
@@ -404,5 +413,22 @@ export class SurveysController {
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.sendActaToBudget(body.companyId, actaNumber, userId);
+  }
+
+  @Patch('actas/:actaNumber/review-budget')
+  @Permissions('levantamientos:revisar', 'levantamientos:presupuesto')
+  @ApiOperation({ summary: 'Directora Financiera aprueba/rechaza el presupuesto del acta (notifica al Director Técnico)' })
+  async reviewActaBudget(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { companyId: number; decision: 'aprobado' | 'rechazado'; motivo?: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.reviewActaBudget(
+      body.companyId,
+      actaNumber,
+      userId,
+      body.decision,
+      body.motivo,
+    );
   }
 }

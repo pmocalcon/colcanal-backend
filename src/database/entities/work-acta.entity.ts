@@ -42,6 +42,10 @@ export class WorkActa {
   @Column({ name: 'presupuesto_status', type: 'varchar', length: 20, default: ActaBudgetStatus.PENDIENTE })
   presupuestoStatus: ActaBudgetStatus;
 
+  // Motivo cuando la Directora Financiera rechaza el presupuesto del acta.
+  @Column({ name: 'presupuesto_rechazo_motivo', type: 'text', nullable: true })
+  presupuestoRechazoMotivo: string | null;
+
   @Column({ name: 'project_code', type: 'varchar', length: 100, nullable: true })
   projectCode: string | null;
 
