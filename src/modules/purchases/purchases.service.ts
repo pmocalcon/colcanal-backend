@@ -4427,13 +4427,60 @@ export class PurchasesService {
 
       await queryRunner.commitTransaction();
 
-      // 10. Retornar orden actualizada
+      // 10. Si la OC quedó aprobada, notificar a Compras y a la Directora Financiera.
+      //     Fuera de la transacción: un fallo de correo no debe afectar la aprobación.
+      if (allApproved) {
+        this.notifyPurchaseOrderApproved(
+          purchaseOrder.purchaseOrderNumber,
+          purchaseOrder.requisitionId,
+          user.nombre,
+        ).catch((err) =>
+          this.logger.error(`Error notificando OC aprobada: ${err.message}`),
+        );
+      }
+
+      // 11. Retornar orden actualizada
       return this.getPurchaseOrderById(purchaseOrderId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  /**
+   * Notifica por correo a Compras (Aurora) y a la Directora Financiera (Daniela)
+   * cuando una orden de compra es aprobada por Gerencia. Se resuelven por rol para
+   * que, si cambia la persona, le llegue a quien ocupe el cargo.
+   */
+  private async notifyPurchaseOrderApproved(
+    purchaseOrderNumber: string,
+    requisitionId: number,
+    approverName: string,
+  ): Promise<void> {
+    const RECIPIENT_ROLES = ['Compras', 'Director Financiero y Administrativo'];
+    const activeUsers = await this.userRepository.find({
+      where: { estado: true },
+      relations: ['role'],
+    });
+    const recipients = activeUsers.filter((u) =>
+      RECIPIENT_ROLES.includes(u.role?.nombreRol),
+    );
+    if (recipients.length === 0) return;
+
+    const requisition = await this.requisitionRepository.findOne({
+      where: { requisitionId },
+    });
+
+    for (const r of recipients) {
+      const email = r.emailNotificacion || r.email;
+      if (!email) continue;
+      await this.notificationsService.notifyPurchaseOrderApproved(email, r.nombre, {
+        purchaseOrderNumber,
+        requisitionNumber: requisition?.requisitionNumber,
+        approverName,
+      });
     }
   }
 

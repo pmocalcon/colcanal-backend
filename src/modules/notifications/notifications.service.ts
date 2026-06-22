@@ -524,6 +524,33 @@ export class NotificationsService {
   }
 
   // ============================================
+  // NOTIFICACIONES DE ÓRDENES DE COMPRA
+  // ============================================
+
+  async notifyPurchaseOrderApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: { purchaseOrderNumber: string; requisitionNumber?: string; approverName?: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      recipientName,
+      "✅ Orden de compra aprobada",
+      "#16a34a",
+      `<p>La Gerencia <strong>aprobó</strong> la orden de compra <strong>${this.escapeHtml(data.purchaseOrderNumber)}</strong>${
+        data.requisitionNumber
+          ? ` de la requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong>`
+          : ""
+      }.</p>
+       ${data.approverName ? `<p>Aprobada por: <strong>${this.escapeHtml(data.approverName)}</strong></p>` : ""}`,
+    );
+    return this.sendEmail({
+      to: recipientEmail,
+      subject: `✅ Orden de compra aprobada — ${data.purchaseOrderNumber}`,
+      html,
+    });
+  }
+
+  // ============================================
   // NOTIFICACIONES DE OBRAS / LEVANTAMIENTOS
   // ============================================
 
