@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, IsNull } from 'typeorm';
 import { Schedule } from '../../database/entities/schedule.entity';
@@ -46,6 +46,8 @@ export interface ScheduleDetail {
 
 @Injectable()
 export class SchedulesService {
+  private readonly logger = new Logger(SchedulesService.name);
+
   constructor(
     @InjectRepository(Schedule)
     private scheduleRepo: Repository<Schedule>,
@@ -99,6 +101,7 @@ export class SchedulesService {
 
     const ucapMap = new Map<number, { ucap: Ucap; plannedQuantity: number }>();
     for (const item of budgetItems) {
+      if (!item.ucap) continue;
       const existing = ucapMap.get(item.ucapId);
       if (existing) {
         existing.plannedQuantity += Number(item.quantity);
@@ -122,8 +125,8 @@ export class SchedulesService {
         return {
           itemId: si?.itemId ?? null,
           ucapId,
-          ucapCode: ucap.code,
-          ucapDescription: ucap.description,
+          ucapCode: ucap.code ?? String(ucapId),
+          ucapDescription: ucap.description ?? '',
           unitValue: Number(ucap.roundedValue) || 0,
           plannedQuantity,
           executedQuantity: si ? Number(si.executedQuantity) : 0,
@@ -134,14 +137,27 @@ export class SchedulesService {
     );
 
     // Sort by ucap code
-    items.sort((a, b) => a.ucapCode.localeCompare(b.ucapCode));
+    items.sort((a, b) => a.ucapCode.localeCompare(b.ucapCode, 'es'));
 
     // IPP factor: (previousMonthIpp of latest approved survey) / (company ippInitialValue)
-    const latestSurvey = await this.surveyRepo.findOne({
-      where: { workId, status: 'approved' as any },
-      order: { surveyDate: 'DESC' },
-    });
-    const ippMes = Number(latestSurvey?.previousMonthIpp) || 0;
+    let ippMes = 0;
+    try {
+      const latestSurvey = await this.surveyRepo
+        .createQueryBuilder('survey')
+        .select('survey.previousMonthIpp', 'previousMonthIpp')
+        .where('survey.workId = :workId', { workId })
+        .andWhere('survey.status = :status', { status: 'approved' })
+        .orderBy('survey.surveyDate', 'DESC')
+        .limit(1)
+        .getRawOne<{ previousMonthIpp: string | number | null }>();
+
+      ippMes = Number(latestSurvey?.previousMonthIpp) || 0;
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo consultar el IPP del levantamiento aprobado para la obra ${workId}. Se usara factor 1.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
     const ippInicial = Number(work.company?.ippInitialValue) || 0;
     const ippFactor = ippMes > 0 && ippInicial > 0 ? ippMes / ippInicial : 1;
 
@@ -190,18 +206,39 @@ export class SchedulesService {
   }
 
   async getDailyPlans(scheduleId: number, from: string, to: string) {
-    const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
-    if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
+    const normalizedFrom = /^\d{4}-\d{2}-\d{2}$/.test(from ?? '') ? from : null;
+    const normalizedTo = /^\d{4}-\d{2}-\d{2}$/.test(to ?? '') ? to : null;
 
-    const plans = await this.dailyPlanRepo.find({
-      where: { scheduleId, planDate: Between(from, to) },
-      order: { planDate: 'ASC', ucapId: 'ASC' },
-    });
+    if (!normalizedFrom || !normalizedTo) {
+      return {
+        scheduleId,
+        from: normalizedFrom,
+        to: normalizedTo,
+        plans: [],
+      };
+    }
+
+    let plans: ScheduleDailyPlan[] = [];
+    try {
+      const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
+      if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
+
+      plans = await this.dailyPlanRepo.find({
+        where: { scheduleId, planDate: Between(normalizedFrom, normalizedTo) },
+        order: { planDate: 'ASC', ucapId: 'ASC' },
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.warn(
+        `No se pudieron consultar los planes diarios del cronograma ${scheduleId}. Se devolvera una lista vacia.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
 
     return {
       scheduleId,
-      from,
-      to,
+      from: normalizedFrom,
+      to: normalizedTo,
       plans: plans.map((p) => ({
         planId: p.planId,
         ucapId: p.ucapId,
@@ -216,9 +253,19 @@ export class SchedulesService {
     const schedule = await this.scheduleRepo.findOne({ where: { scheduleId } });
     if (!schedule) throw new NotFoundException(`Schedule ${scheduleId} not found`);
 
-    if (dto.items.length > 0) {
+    const items = dto.items ?? [];
+    if (items.length === 0) {
+      return {
+        scheduleId,
+        from: null,
+        to: null,
+        plans: [],
+      };
+    }
+
+    if (items.length > 0) {
       await this.dailyPlanRepo.upsert(
-        dto.items.map((item) => ({
+        items.map((item) => ({
           scheduleId,
           ucapId: item.ucapId,
           planDate: item.planDate,
@@ -229,66 +276,83 @@ export class SchedulesService {
       );
     }
 
-    const dates = dto.items.map((i) => i.planDate);
+    const dates = items.map((i) => i.planDate);
     const from = dates.reduce((a, b) => (a < b ? a : b));
     const to = dates.reduce((a, b) => (a > b ? a : b));
     return this.getDailyPlans(scheduleId, from, to);
   }
 
   async getSurveyMaterials(workId: number) {
-    const work = await this.workRepo.findOne({ where: { workId } });
+    let work: Work | null = null;
+    try {
+      work = await this.workRepo.findOne({ where: { workId } });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo validar la obra ${workId} para consultar materiales. Se devolvera una lista vacia.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
     if (!work) throw new NotFoundException(`Work ${workId} not found`);
 
-    const materials = await this.surveyMaterialRepo
-      .createQueryBuilder('sm')
-      .innerJoin('sm.survey', 'survey')
-      .leftJoinAndSelect('sm.material', 'material')
-      .where('survey.workId = :workId', { workId })
-      .andWhere('(sm.materialCode IS NOT NULL OR sm.materialId IS NOT NULL)')
-      .orderBy('sm.materialCode', 'ASC')
-      .getMany();
+    try {
+      const materials = await this.surveyMaterialRepo
+        .createQueryBuilder('sm')
+        .innerJoin('sm.survey', 'survey')
+        .leftJoinAndSelect('sm.material', 'material')
+        .where('survey.workId = :workId', { workId })
+        .andWhere('(sm.materialCode IS NOT NULL OR sm.materialId IS NOT NULL)')
+        .orderBy('sm.materialCode', 'ASC')
+        .getMany();
 
-    const byCode = new Map<string, { description: string | null; unitOfMeasure: string | null; totalQuantity: number }>();
-    for (const m of materials) {
-      const effectiveCode = m.materialCode ?? m.material?.code ?? null;
-      if (!effectiveCode) continue;
-      const effectiveDescription = m.description ?? m.material?.description ?? null;
-      const existing = byCode.get(effectiveCode);
-      if (existing) {
-        existing.totalQuantity += Number(m.quantity);
-      } else {
-        byCode.set(effectiveCode, {
-          description: effectiveDescription,
-          unitOfMeasure: m.unitOfMeasure ?? null,
-          totalQuantity: Number(m.quantity),
-        });
+      const byCode = new Map<string, { description: string | null; unitOfMeasure: string | null; totalQuantity: number }>();
+      for (const m of materials) {
+        const effectiveCode = m.materialCode ?? m.material?.code ?? null;
+        if (!effectiveCode) continue;
+        const effectiveDescription = m.description ?? m.material?.description ?? null;
+        const existing = byCode.get(effectiveCode);
+        if (existing) {
+          existing.totalQuantity += Number(m.quantity);
+        } else {
+          byCode.set(effectiveCode, {
+            description: effectiveDescription,
+            unitOfMeasure: m.unitOfMeasure ?? null,
+            totalQuantity: Number(m.quantity),
+          });
+        }
       }
-    }
 
-    // Unit prices from director budget items (most recent budget wins per code)
-    const budgetItems = await this.directorBudgetItemRepo
-      .createQueryBuilder('dbi')
-      .innerJoin('dbi.budget', 'budget')
-      .where('budget.workId = :workId', { workId })
-      .andWhere('dbi.codigo IS NOT NULL')
-      .andWhere('dbi.vrUnitario IS NOT NULL')
-      .orderBy('budget.budgetId', 'DESC')
-      .getMany();
+      // Unit prices from director budget items (most recent budget wins per code)
+      const budgetItems = await this.directorBudgetItemRepo
+        .createQueryBuilder('dbi')
+        .innerJoin('dbi.budget', 'budget')
+        .where('budget.workId = :workId', { workId })
+        .andWhere('dbi.codigo IS NOT NULL')
+        .andWhere('dbi.vrUnitario IS NOT NULL')
+        .orderBy('budget.budgetId', 'DESC')
+        .getMany();
 
-    const priceByCode = new Map<string, number>();
-    for (const bi of budgetItems) {
-      if (bi.codigo && !priceByCode.has(bi.codigo)) {
-        priceByCode.set(bi.codigo, Number(bi.vrUnitario) || 0);
+      const priceByCode = new Map<string, number>();
+      for (const bi of budgetItems) {
+        if (bi.codigo && !priceByCode.has(bi.codigo)) {
+          priceByCode.set(bi.codigo, Number(bi.vrUnitario) || 0);
+        }
       }
-    }
 
-    return Array.from(byCode.entries()).map(([materialCode, data]) => ({
-      materialCode,
-      materialDescription: data.description,
-      unitOfMeasure: data.unitOfMeasure,
-      totalQuantity: data.totalQuantity,
-      unitValue: priceByCode.get(materialCode) ?? 0,
-    }));
+      return Array.from(byCode.entries()).map(([materialCode, data]) => ({
+        materialCode,
+        materialDescription: data.description,
+        unitOfMeasure: data.unitOfMeasure,
+        totalQuantity: data.totalQuantity,
+        unitValue: priceByCode.get(materialCode) ?? 0,
+      }));
+    } catch (error) {
+      this.logger.warn(
+        `No se pudieron consultar los materiales de la obra ${workId}. Se devolvera una lista vacia.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
   }
 
   async getMaterialLogs(scheduleId: number) {
