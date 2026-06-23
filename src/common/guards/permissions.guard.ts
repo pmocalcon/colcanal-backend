@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext } from "@nestjs/common";
+import { Injectable, CanActivate, ExecutionContext, Logger } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
@@ -30,6 +30,10 @@ const PERMISO_ACTIONS: Record<number, string[]> = {
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
+  private readonly logger = new Logger(PermissionsGuard.name);
+  private readonly permissionCache = new Map<number, { permissions: string[]; expiresAt: number }>();
+  private readonly cacheTtlMs = 5 * 60 * 1000;
+
   constructor(
     private reflector: Reflector,
     @InjectRepository(RolePermission)
@@ -56,10 +60,37 @@ export class PermissionsGuard implements CanActivate {
 
     const rolId = user.role.rolId;
 
-    const [rolePermisos, roleGestiones] = await Promise.all([
-      this.rolePermissionRepository.find({ where: { rolId }, relations: ['permission'] }),
-      this.roleGestionRepository.find({ where: { rolId }, relations: ['gestion'] }),
-    ]);
+    const permissions = await this.getPermissionsForRole(rolId);
+
+    return requiredPermissions.some((permission) =>
+      permissions.includes(permission),
+    );
+  }
+
+  private async getPermissionsForRole(rolId: number): Promise<string[]> {
+    const now = Date.now();
+    const cached = this.permissionCache.get(rolId);
+    if (cached && cached.expiresAt > now) {
+      return cached.permissions;
+    }
+
+    let rolePermisos: RolePermission[];
+    let roleGestiones: RoleGestion[];
+    try {
+      [rolePermisos, roleGestiones] = await Promise.all([
+        this.rolePermissionRepository.find({ where: { rolId }, relations: ['permission'] }),
+        this.roleGestionRepository.find({ where: { rolId }, relations: ['gestion'] }),
+      ]);
+    } catch (error) {
+      if (cached) {
+        this.logger.warn(
+          `No se pudieron refrescar permisos del rol ${rolId}. Se usara cache anterior.`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        return cached.permissions;
+      }
+      throw error;
+    }
 
     const permisoIds = new Set(rolePermisos.map((rp) => rp.permisoId));
     const permissions: string[] = [];
@@ -82,8 +113,11 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
-    return requiredPermissions.some((permission) =>
-      permissions.includes(permission),
-    );
+    this.permissionCache.set(rolId, {
+      permissions,
+      expiresAt: now + this.cacheTtlMs,
+    });
+
+    return permissions;
   }
 }
