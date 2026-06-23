@@ -91,13 +91,23 @@ export class SchedulesService {
       schedule = await this.scheduleRepo.save(schedule);
     }
 
-    // Aggregate planned quantities by ucap_id across all surveys of this work
-    const budgetItems = await this.budgetItemRepo
-      .createQueryBuilder('bi')
-      .innerJoin('bi.survey', 'survey')
-      .innerJoinAndSelect('bi.ucap', 'ucap')
-      .where('survey.workId = :workId', { workId })
-      .getMany();
+    // Aggregate planned quantities by ucap_id across all surveys of this work.
+    // If this auxiliary query fails, keep the schedule available with empty items
+    // instead of breaking the whole acta view.
+    let budgetItems: SurveyBudgetItem[] = [];
+    try {
+      budgetItems = await this.budgetItemRepo
+        .createQueryBuilder('bi')
+        .innerJoin('bi.survey', 'survey')
+        .innerJoinAndSelect('bi.ucap', 'ucap')
+        .where('survey.workId = :workId', { workId })
+        .getMany();
+    } catch (error) {
+      this.logger.warn(
+        `No se pudieron consultar las UCAPs presupuestadas de la obra ${workId}. Se devolvera cronograma sin items.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
 
     const ucapMap = new Map<number, { ucap: Ucap; plannedQuantity: number }>();
     for (const item of budgetItems) {
@@ -483,76 +493,93 @@ export class SchedulesService {
 
   // ── Comparación Presupuesto vs Órdenes de Compra por material
   async getWorkPurchaseComparison(workId: number) {
-    const work = await this.workRepo.findOne({ where: { workId } });
+    let work: Work | null = null;
+    try {
+      work = await this.workRepo.findOne({ where: { workId } });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo validar la obra ${workId} para comparar compras. Se devolvera una lista vacia.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
     if (!work) throw new NotFoundException(`Work ${workId} not found`);
 
-    // Find the project code for this work via (companyId, projectId)
-    const projectCode = await this.projectCodeRepo.findOne({
-      where: {
-        companyId: work.companyId,
-        projectId: work.projectId != null ? work.projectId : IsNull(),
-      },
-    });
-    if (!projectCode) return [];
+    try {
+      const projectCode = await this.projectCodeRepo.findOne({
+        where: {
+          companyId: work.companyId,
+          projectId: work.projectId != null ? work.projectId : IsNull(),
+        },
+      });
+      if (!projectCode) return [];
 
-    // Requisition items for this work (via projectCodeId FK)
-    const reqItems = await this.requisitionItemRepo
-      .createQueryBuilder('ri')
-      .innerJoin('ri.requisition', 'req')
-      .innerJoinAndSelect('ri.material', 'material')
-      .where('req.projectCodeId = :pcId', { pcId: projectCode.codeId })
-      .getMany();
+      const reqItems = await this.requisitionItemRepo
+        .createQueryBuilder('ri')
+        .innerJoin('ri.requisition', 'req')
+        .innerJoinAndSelect('ri.material', 'material')
+        .where('req.projectCodeId = :pcId', { pcId: projectCode.codeId })
+        .getMany();
 
-    if (reqItems.length === 0) return [];
+      if (reqItems.length === 0) return [];
 
-    // Aggregate requisitioned qty by material code
-    const reqByCode = new Map<string, { description: string; qty: number; itemIds: number[] }>();
-    for (const ri of reqItems) {
-      const code = ri.material.code;
-      const existing = reqByCode.get(code);
-      if (existing) {
-        existing.qty += Number(ri.quantity);
-        existing.itemIds.push(ri.itemId);
-      } else {
-        reqByCode.set(code, { description: ri.material.description, qty: Number(ri.quantity), itemIds: [ri.itemId] });
+      const reqByCode = new Map<string, { description: string; qty: number; itemIds: number[] }>();
+      for (const ri of reqItems) {
+        const code = ri.material?.code;
+        if (!code) continue;
+        const existing = reqByCode.get(code);
+        if (existing) {
+          existing.qty += Number(ri.quantity);
+          existing.itemIds.push(ri.itemId);
+        } else {
+          reqByCode.set(code, {
+            description: ri.material?.description ?? '',
+            qty: Number(ri.quantity),
+            itemIds: [ri.itemId],
+          });
+        }
       }
-    }
 
-    // Purchase order items for those requisition items
-    const reqItemIds = reqItems.map((ri) => ri.itemId);
-    const poItems = reqItemIds.length > 0
-      ? await this.purchaseOrderItemRepo
-          .createQueryBuilder('poi')
-          .where('poi.requisitionItemId IN (:...ids)', { ids: reqItemIds })
-          .getMany()
-      : [];
+      const reqItemIds = Array.from(reqByCode.values()).flatMap((item) => item.itemIds);
+      const poItems = reqItemIds.length > 0
+        ? await this.purchaseOrderItemRepo
+            .createQueryBuilder('poi')
+            .where('poi.requisitionItemId IN (:...ids)', { ids: reqItemIds })
+            .getMany()
+        : [];
 
-    // Map PO totals back to material code
-    const reqItemCodeMap = new Map(reqItems.map((ri) => [ri.itemId, ri.material.code]));
-    const poByCode = new Map<string, { qty: number; value: number }>();
-    for (const poi of poItems) {
-      const code = reqItemCodeMap.get(poi.requisitionItemId);
-      if (!code) continue;
-      const existing = poByCode.get(code);
-      const qty = Number(poi.quantity);
-      const value = Number(poi.subtotal); // base value without IVA
-      if (existing) {
-        existing.qty += qty;
-        existing.value += value;
-      } else {
-        poByCode.set(code, { qty, value });
+      const reqItemCodeMap = new Map(reqItems.map((ri) => [ri.itemId, ri.material?.code ?? null]));
+      const poByCode = new Map<string, { qty: number; value: number }>();
+      for (const poi of poItems) {
+        const code = reqItemCodeMap.get(poi.requisitionItemId);
+        if (!code) continue;
+        const existing = poByCode.get(code);
+        const qty = Number(poi.quantity);
+        const value = Number(poi.subtotal);
+        if (existing) {
+          existing.qty += qty;
+          existing.value += value;
+        } else {
+          poByCode.set(code, { qty, value });
+        }
       }
-    }
 
-    return Array.from(reqByCode.entries()).map(([materialCode, data]) => {
-      const po = poByCode.get(materialCode);
-      return {
-        materialCode,
-        materialDescription: data.description,
-        requisitionedQty: data.qty,
-        orderedQty: po?.qty ?? 0,
-        orderedValue: po?.value ?? 0,
-      };
-    });
+      return Array.from(reqByCode.entries()).map(([materialCode, data]) => {
+        const po = poByCode.get(materialCode);
+        return {
+          materialCode,
+          materialDescription: data.description,
+          requisitionedQty: data.qty,
+          orderedQty: po?.qty ?? 0,
+          orderedValue: po?.value ?? 0,
+        };
+      });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo comparar presupuesto vs ordenes de compra de la obra ${workId}. Se devolvera una lista vacia.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
   }
 }
