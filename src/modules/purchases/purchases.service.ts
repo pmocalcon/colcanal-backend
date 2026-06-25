@@ -1484,14 +1484,6 @@ export class PurchasesService {
     }
     await this.validatePermission(user.role.rolId, PERMISSION_IDS.REVISAR, 'revisar requisiciones');
 
-    // Los "Director de Proyecto" SOLO validan; la revisión la hace el Director Técnico.
-    // (REVISAR es una acción global; por eso se restringe aquí y no a nivel de permiso.)
-    if (user.role.nombreRol?.startsWith('Director de Proyecto')) {
-      throw new ForbiddenException(
-        'El Director de Proyecto solo valida la requisición; la revisión la realiza el Director Técnico',
-      );
-    }
-
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
       relations: ['creator', 'status'],
@@ -1499,6 +1491,21 @@ export class PurchasesService {
 
     if (!requisition) {
       throw new NotFoundException('Requisición no encontrada');
+    }
+
+    // El "Director de Proyecto" SOLO valida las requisiciones con obra especial
+    // (Modernización, Expansión, etc.); esas las revisa luego el Director Técnico.
+    // Las de obra "Otros"/sin obra especial SÍ las revisa/aprueba el Director de Proyecto
+    // y pasan a Gerencia de Proyectos (autorización). REVISAR es una acción global; por
+    // eso se restringe aquí y no a nivel de permiso.
+    if (user.role.nombreRol?.startsWith('Director de Proyecto')) {
+      const obraRequiresValidation =
+        !!requisition.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(requisition.obra.trim());
+      if (obraRequiresValidation) {
+        throw new ForbiddenException(
+          'El Director de Proyecto solo valida la requisición; la revisión la realiza el Director Técnico',
+        );
+      }
     }
 
     // Validar que el usuario es autorizador del creador
