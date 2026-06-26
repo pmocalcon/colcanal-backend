@@ -41,8 +41,41 @@ export class NotificationsService {
   private transporter: nodemailer.Transporter;
   private isConfigured = false;
 
+  // Microsoft Graph (envío OAuth2 app-only). Si está configurado tiene prioridad sobre SMTP.
+  private graphConfigured = false;
+  private graphTenantId?: string;
+  private graphClientId?: string;
+  private graphClientSecret?: string;
+  private graphSender?: string;
+  private graphToken?: { accessToken: string; expiresAt: number };
+
   constructor(private configService: ConfigService) {
+    this.initializeGraph();
     this.initializeTransporter();
+  }
+
+  private initializeGraph() {
+    this.graphTenantId = this.configService.get<string>("GRAPH_TENANT_ID");
+    this.graphClientId = this.configService.get<string>("GRAPH_CLIENT_ID");
+    this.graphClientSecret = this.configService.get<string>(
+      "GRAPH_CLIENT_SECRET",
+    );
+    this.graphSender =
+      this.configService.get<string>("GRAPH_SENDER") ||
+      this.configService.get<string>("SMTP_FROM") ||
+      this.configService.get<string>("SMTP_USER");
+
+    if (
+      this.graphTenantId &&
+      this.graphClientId &&
+      this.graphClientSecret &&
+      this.graphSender
+    ) {
+      this.graphConfigured = true;
+      this.logger.log(
+        `Servicio de correo (Microsoft Graph) configurado: ${this.graphSender}`,
+      );
+    }
   }
 
   private initializeTransporter() {
@@ -52,12 +85,14 @@ export class NotificationsService {
     const smtpPass = this.configService.get<string>("SMTP_PASS");
 
     if (!smtpHost || !smtpUser || !smtpPass) {
-      this.logger.warn(
-        "SMTP no configurado. Las notificaciones por correo están deshabilitadas.",
-      );
-      this.logger.warn(
-        "Configure las variables: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS",
-      );
+      if (!this.graphConfigured) {
+        this.logger.warn(
+          "Sin proveedor de correo configurado. Las notificaciones están deshabilitadas.",
+        );
+        this.logger.warn(
+          "Configure Microsoft Graph (GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_SENDER) o SMTP (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS).",
+        );
+      }
       return;
     }
 
@@ -72,13 +107,105 @@ export class NotificationsService {
     });
 
     this.isConfigured = true;
-    this.logger.log(`Servicio de correo configurado: ${smtpUser}`);
+    this.logger.log(`Servicio de correo (SMTP) configurado: ${smtpUser}`);
+  }
+
+  /**
+   * Obtiene (y cachea) un token de acceso app-only para Microsoft Graph
+   * mediante el flujo client credentials.
+   */
+  private async getGraphToken(): Promise<string> {
+    const now = Date.now();
+    if (this.graphToken && this.graphToken.expiresAt > now + 60_000) {
+      return this.graphToken.accessToken;
+    }
+
+    const url = `https://login.microsoftonline.com/${this.graphTenantId}/oauth2/v2.0/token`;
+    const body = new URLSearchParams({
+      client_id: this.graphClientId!,
+      client_secret: this.graphClientSecret!,
+      scope: "https://graph.microsoft.com/.default",
+      grant_type: "client_credentials",
+    });
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(`No se pudo obtener token de Graph (${res.status}): ${detail}`);
+    }
+
+    const json: any = await res.json();
+    this.graphToken = {
+      accessToken: json.access_token,
+      expiresAt: now + Number(json.expires_in || 3600) * 1000,
+    };
+    return this.graphToken.accessToken;
+  }
+
+  private async sendViaGraph(
+    notification: EmailNotification,
+  ): Promise<boolean> {
+    try {
+      const token = await this.getGraphToken();
+      const recipients = notification.to
+        .split(/[;,]/)
+        .map((address) => address.trim())
+        .filter(Boolean)
+        .map((address) => ({ emailAddress: { address } }));
+
+      const message: any = {
+        subject: notification.subject,
+        body: { contentType: "HTML", content: notification.html },
+        toRecipients: recipients,
+      };
+
+      const res = await fetch(
+        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(
+          this.graphSender!,
+        )}/sendMail`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ message, saveToSentItems: false }),
+        },
+      );
+
+      if (res.status === 202) {
+        this.logger.log(
+          `Correo enviado (Graph) a: ${notification.to} - Asunto: ${notification.subject}`,
+        );
+        return true;
+      }
+
+      const detail = await res.text();
+      this.logger.error(
+        `Error enviando correo (Graph) a ${notification.to}: ${res.status} ${detail}`,
+      );
+      return false;
+    } catch (error) {
+      this.logger.error(
+        `Error enviando correo (Graph) a ${notification.to}: ${error.message}`,
+      );
+      return false;
+    }
   }
 
   async sendEmail(notification: EmailNotification): Promise<boolean> {
+    if (this.graphConfigured) {
+      return this.sendViaGraph(notification);
+    }
+
     if (!this.isConfigured) {
       this.logger.warn(
-        `Correo no enviado (SMTP no configurado): ${notification.subject}`,
+        `Correo no enviado (sin proveedor configurado): ${notification.subject}`,
       );
       return false;
     }
@@ -747,6 +874,57 @@ export class NotificationsService {
     );
   }
 
+  async notifyCronogramaSubmitted(
+    reviewerEmail: string,
+    reviewerName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      reviewerEmail,
+      reviewerName,
+      `Cronograma del acta ${data.identifier} pendiente de revision`,
+      "Cronograma pendiente de revision",
+      "Se envio el plan del cronograma para revision del Director Tecnico.",
+      data,
+      "#f59e0b",
+      "Ver cronograma",
+    );
+  }
+
+  async notifyCronogramaApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Cronograma del acta ${data.identifier} aprobado`,
+      "Cronograma aprobado",
+      "El Director Tecnico aprobo el plan del cronograma. Ya puedes continuar con la ejecucion.",
+      data,
+      "#16a34a",
+      "Ver cronograma",
+    );
+  }
+
+  async notifyCronogramaRejected(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Cronograma del acta ${data.identifier} devuelto`,
+      "Cronograma devuelto",
+      "El Director Tecnico devolvio el plan del cronograma. Revisa el comentario, corrige y vuelve a enviarlo.",
+      data,
+      "#dc2626",
+      "Editar cronograma",
+    );
+  }
+
   async notifyActaReviewed(
     recipientEmail: string,
     recipientName: string,
@@ -856,12 +1034,24 @@ export class NotificationsService {
   // ============================================
 
   isEmailConfigured(): boolean {
-    return this.isConfigured;
+    return this.graphConfigured || this.isConfigured;
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
+    if (this.graphConfigured) {
+      try {
+        await this.getGraphToken();
+        return {
+          success: true,
+          message: `Conexión Microsoft Graph exitosa (remitente: ${this.graphSender})`,
+        };
+      } catch (error) {
+        return { success: false, message: `Error Graph: ${error.message}` };
+      }
+    }
+
     if (!this.isConfigured) {
-      return { success: false, message: "SMTP no configurado" };
+      return { success: false, message: "Sin proveedor de correo configurado" };
     }
 
     try {
