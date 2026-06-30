@@ -82,7 +82,7 @@ export class SchedulesService {
   ) {}
 
   async getOrCreateSchedule(workId: number): Promise<ScheduleDetail> {
-    const work = await this.workRepo.findOne({ where: { workId }, relations: ['company'] });
+    const work = await this.workRepo.findOne({ where: { workId }, relations: ['company', 'project'] });
     if (!work) throw new NotFoundException(`Work ${workId} not found`);
 
     let schedule = await this.scheduleRepo.findOne({ where: { workId } });
@@ -149,26 +149,39 @@ export class SchedulesService {
     // Sort by ucap code
     items.sort((a, b) => a.ucapCode.localeCompare(b.ucapCode, 'es'));
 
-    // IPP factor: (previousMonthIpp of latest approved survey) / (company ippInitialValue)
+    // IPP factor: previousMonthIpp del levantamiento / IPP inicial base.
+    // - IPP del mes: se prefiere el último levantamiento APROBADO; si no hay aprobado,
+    //   se usa el último disponible (cualquier estado).
+    // - IPP inicial base: en Antioquia el IPP vive en el proyecto (municipio); para los
+    //   demás departamentos, en la empresa. Por eso se prioriza el del proyecto y se
+    //   cae al de la empresa si el proyecto no lo tiene.
     let ippMes = 0;
     try {
-      const latestSurvey = await this.surveyRepo
-        .createQueryBuilder('survey')
-        .select('survey.previousMonthIpp', 'previousMonthIpp')
-        .where('survey.workId = :workId', { workId })
+      const baseQuery = () =>
+        this.surveyRepo
+          .createQueryBuilder('survey')
+          .select('survey.previousMonthIpp', 'previousMonthIpp')
+          .where('survey.workId = :workId', { workId })
+          .orderBy('survey.surveyDate', 'DESC')
+          .limit(1);
+
+      const approvedSurvey = await baseQuery()
         .andWhere('survey.status = :status', { status: 'approved' })
-        .orderBy('survey.surveyDate', 'DESC')
-        .limit(1)
         .getRawOne<{ previousMonthIpp: string | number | null }>();
 
-      ippMes = Number(latestSurvey?.previousMonthIpp) || 0;
+      const survey =
+        approvedSurvey ??
+        (await baseQuery().getRawOne<{ previousMonthIpp: string | number | null }>());
+
+      ippMes = Number(survey?.previousMonthIpp) || 0;
     } catch (error) {
       this.logger.warn(
-        `No se pudo consultar el IPP del levantamiento aprobado para la obra ${workId}. Se usara factor 1.`,
+        `No se pudo consultar el IPP del levantamiento para la obra ${workId}. Se usara factor 1.`,
         error instanceof Error ? error.stack : String(error),
       );
     }
-    const ippInicial = Number(work.company?.ippInitialValue) || 0;
+    const ippInicial =
+      Number(work.project?.ippInitialValue) || Number(work.company?.ippInitialValue) || 0;
     const ippFactor = ippMes > 0 && ippInicial > 0 ? ippMes / ippInicial : 1;
 
     return {
@@ -506,19 +519,47 @@ export class SchedulesService {
     if (!work) throw new NotFoundException(`Work ${workId} not found`);
 
     try {
-      const projectCode = await this.projectCodeRepo.findOne({
-        where: {
-          companyId: work.companyId,
-          projectId: work.projectId != null ? work.projectId : IsNull(),
-        },
-      });
-      if (!projectCode) return [];
+      // Vinculo acta <-> requisicion: las requisiciones guardan el numero de acta en
+      // `codigo_obra` (= work.record_number). Asi cada acta se compara solo contra SUS
+      // requisiciones (clave cuando un municipio tiene varias actas). Si no hay match
+      // por acta (datos antiguos sin codigo_obra ligado), se cae al heuristico de la
+      // requisicion mas reciente del proyecto/municipio.
+      let reqIds: number[] = [];
+
+      const actaNumber = work.recordNumber?.trim();
+      if (actaNumber) {
+        const actaReqs = await this.requisitionRepo
+          .createQueryBuilder('req')
+          .where('req.companyId = :cid', { cid: work.companyId })
+          .andWhere('req.codigoObra = :acta', { acta: actaNumber })
+          .getMany();
+        reqIds = actaReqs.map((r) => r.requisitionId);
+      }
+
+      if (reqIds.length === 0) {
+        const projectCode = await this.projectCodeRepo.findOne({
+          where: {
+            companyId: work.companyId,
+            projectId: work.projectId != null ? work.projectId : IsNull(),
+          },
+        });
+        if (!projectCode) return [];
+
+        const latestReq = await this.requisitionRepo
+          .createQueryBuilder('req')
+          .where('req.projectCodeId = :pcId', { pcId: projectCode.codeId })
+          .orderBy('req.createdAt', 'DESC')
+          .addOrderBy('req.requisitionId', 'DESC')
+          .getOne();
+        if (!latestReq) return [];
+        reqIds = [latestReq.requisitionId];
+      }
 
       const reqItems = await this.requisitionItemRepo
         .createQueryBuilder('ri')
         .innerJoin('ri.requisition', 'req')
         .innerJoinAndSelect('ri.material', 'material')
-        .where('req.projectCodeId = :pcId', { pcId: projectCode.codeId })
+        .where('req.requisitionId IN (:...ids)', { ids: reqIds })
         .getMany();
 
       if (reqItems.length === 0) return [];

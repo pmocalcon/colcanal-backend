@@ -215,6 +215,53 @@ export class PurchasesService {
           }
           break;
         }
+
+        case 'new_for_validation': {
+          // Buscar el validador (Director de Proyecto = autorizador del creador)
+          const authorization = await this.authorizationRepository.findOne({
+            where: { usuarioAutorizadoId: requisition.createdBy },
+            relations: ['usuarioAutorizador'],
+          });
+
+          if (authorization?.usuarioAutorizador) {
+            const validator = authorization.usuarioAutorizador;
+            const email = validator.emailNotificacion || validator.email;
+            await this.notificationsService.notifyRequisitionForValidation(
+              email,
+              validator.nombre,
+              notificationData,
+            );
+          }
+          break;
+        }
+
+        case 'validated': {
+          // Notificar al creador que su requisición fue validada
+          const creator = requisition.creator;
+          if (creator) {
+            const email = creator.emailNotificacion || creator.email;
+            await this.notificationsService.notifyRequisitionValidated(
+              email,
+              creator.nombre,
+              { ...notificationData, comments: options?.comments },
+            );
+          }
+          break;
+        }
+
+        case 'validation_rejected': {
+          // Notificar al creador que su requisición fue rechazada en validación
+          const creator = requisition.creator;
+          if (creator) {
+            const email = creator.emailNotificacion || creator.email;
+            await this.notificationsService.notifyRequisitionValidationRejected(
+              email,
+              creator.nombre,
+              { ...notificationData, comments: options?.comments },
+            );
+          }
+          break;
+        }
       }
     } catch (error) {
       // Log del error pero no fallar el flujo principal

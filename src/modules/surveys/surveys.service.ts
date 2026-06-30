@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
-import { WorkActa, ActaStatus, ActaBudgetStatus } from '../../database/entities/work-acta.entity';
+import { WorkActa, ActaStatus, ActaBudgetStatus, ActaCronogramaStatus } from '../../database/entities/work-acta.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -251,7 +251,7 @@ export class SurveysService {
   }
 
   private async sendActaNotification(
-    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'sent_to_budget' | 'budget_approved' | 'budget_rejected',
+    type: 'submitted_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'sent_to_budget' | 'budget_approved' | 'budget_rejected' | 'cronograma_submitted' | 'cronograma_approved' | 'cronograma_rejected',
     acta: WorkActa,
     options?: {
       actor?: User | null;
@@ -295,6 +295,30 @@ export class SurveysService {
           type === 'budget_approved'
             ? this.notificationsService.notifyActaBudgetApproved(email, name, data)
             : this.notificationsService.notifyActaBudgetRejected(email, name, data),
+        );
+        return;
+      }
+
+      if (type === 'cronograma_submitted') {
+        // El Director de Proyecto envió el plan: avisa al Director Técnico.
+        const tecnicos = await this.findActiveUsersByRoleNames(['Director Técnico', 'Analista PMO']);
+        await this.notifyUniqueUsers(tecnicos, (email, name) =>
+          this.notificationsService.notifyCronogramaSubmitted(email, name, data),
+        );
+        return;
+      }
+
+      if (type === 'cronograma_approved' || type === 'cronograma_rejected') {
+        // Cierra el ciclo: avisa al Director de Proyecto (creador del plan).
+        const recipients: User[] = [];
+        if (acta.createdBy) {
+          const creator = await this.userRepository.findOne({ where: { userId: acta.createdBy } });
+          if (creator) recipients.push(creator);
+        }
+        await this.notifyUniqueUsers(recipients, (email, name) =>
+          type === 'cronograma_approved'
+            ? this.notificationsService.notifyCronogramaApproved(email, name, data)
+            : this.notificationsService.notifyCronogramaRejected(email, name, data),
         );
         return;
       }
@@ -1937,5 +1961,120 @@ export class SurveysService {
       })),
     );
     return result;
+  }
+
+  // ============================================
+  // CRONOGRAMA DEL ACTA (Director de Proyecto → Director Técnico)
+  // ============================================
+
+  /** El Director de Proyecto envía el plan del cronograma a revisión del Director Técnico. */
+  async submitActaCronograma(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (!rol?.startsWith('Director de Proyecto') && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo el Director de Proyecto puede enviar el cronograma a revisión');
+    }
+
+    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    if (!acta) {
+      acta = this.workActaRepository.create({
+        companyId,
+        actaNumber,
+        status: ActaStatus.BORRADOR,
+        createdBy: userId,
+      });
+    }
+
+    if (
+      acta.cronogramaStatus !== ActaCronogramaStatus.PENDIENTE &&
+      acta.cronogramaStatus !== ActaCronogramaStatus.RECHAZADO
+    ) {
+      throw new BadRequestException('El cronograma ya fue enviado a revisión');
+    }
+
+    acta.cronogramaStatus = ActaCronogramaStatus.EN_REVISION;
+    acta.cronogramaRechazoMotivo = null;
+    acta.createdBy = userId;
+    const savedActa = await this.workActaRepository.save(acta);
+
+    this.sendActaNotification('cronograma_submitted', savedActa, { actor: user }).catch(() => {});
+    return savedActa;
+  }
+
+  /** El Director Técnico aprueba (habilita ejecución) o rechaza con motivo el plan del cronograma. */
+  async reviewActaCronograma(
+    companyId: number,
+    actaNumber: string,
+    userId: number,
+    decision: 'aprobado' | 'rechazado',
+    motivo?: string,
+  ): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+      throw new ForbiddenException('Solo el Director Técnico puede aprobar o rechazar el cronograma');
+    }
+
+    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    if (!acta) throw new NotFoundException('Acta no encontrada');
+    if (acta.cronogramaStatus !== ActaCronogramaStatus.EN_REVISION) {
+      throw new BadRequestException('El cronograma del acta no está en revisión');
+    }
+
+    if (decision === 'rechazado') {
+      if (!motivo || !motivo.trim()) {
+        throw new BadRequestException('Debe indicar el motivo del rechazo');
+      }
+      acta.cronogramaStatus = ActaCronogramaStatus.RECHAZADO;
+      acta.cronogramaRechazoMotivo = motivo.trim();
+    } else {
+      acta.cronogramaStatus = ActaCronogramaStatus.APROBADO;
+      acta.cronogramaRechazoMotivo = null;
+    }
+    acta.cronogramaReviewedBy = userId;
+    acta.cronogramaReviewedAt = new Date();
+
+    const savedActa = await this.workActaRepository.save(acta);
+
+    this.sendActaNotification(
+      decision === 'aprobado' ? 'cronograma_approved' : 'cronograma_rejected',
+      savedActa,
+      { actor: user, comments: decision === 'rechazado' ? motivo?.trim() : undefined },
+    ).catch(() => {});
+
+    return savedActa;
+  }
+
+  /** Actas con cronograma en revisión (bandeja del Director Técnico). */
+  async getActasPendingCronograma(): Promise<
+    Array<{
+      companyId: number;
+      actaNumber: string;
+      companyName: string | null;
+      worksCount: number;
+      updatedAt: Date;
+    }>
+  > {
+    const actas = await this.workActaRepository.find({
+      where: { cronogramaStatus: ActaCronogramaStatus.EN_REVISION },
+      order: { updatedAt: 'DESC' },
+    });
+    if (actas.length === 0) return [];
+
+    const companyIds = Array.from(new Set(actas.map((a) => a.companyId)));
+    const companies = await this.companyRepository.findByIds(companyIds);
+    const companyName = new Map(companies.map((c) => [c.companyId, c.name]));
+
+    return Promise.all(
+      actas.map(async (a) => ({
+        companyId: a.companyId,
+        actaNumber: a.actaNumber,
+        companyName: companyName.get(a.companyId) ?? null,
+        worksCount: await this.workRepository.count({
+          where: { companyId: a.companyId, recordNumber: a.actaNumber },
+        }),
+        updatedAt: a.updatedAt,
+      })),
+    );
   }
 }

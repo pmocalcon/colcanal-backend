@@ -352,6 +352,14 @@ export class SurveysController {
     return this.surveysService.getActasPendingBudget();
   }
 
+  // Ruta estática: debe ir ANTES de 'actas/:actaNumber'.
+  @Get('actas/pending-cronograma')
+  @Permissions('levantamientos:revisar')
+  @ApiOperation({ summary: 'Actas con cronograma en revisión (bandeja Director Técnico)' })
+  async getActasPendingCronograma() {
+    return this.surveysService.getActasPendingCronograma();
+  }
+
   @Get('actas/:actaNumber')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get acta workflow status' })
@@ -424,6 +432,34 @@ export class SurveysController {
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.reviewActaBudget(
+      body.companyId,
+      actaNumber,
+      userId,
+      body.decision,
+      body.motivo,
+    );
+  }
+
+  @Patch('actas/:actaNumber/submit-cronograma')
+  @Permissions('levantamientos:crear')
+  @ApiOperation({ summary: 'Director de Proyecto envía el plan del cronograma a revisión técnica' })
+  async submitActaCronograma(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { companyId: number },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.submitActaCronograma(body.companyId, actaNumber, userId);
+  }
+
+  @Patch('actas/:actaNumber/review-cronograma')
+  @Permissions('levantamientos:revisar')
+  @ApiOperation({ summary: 'Director Técnico aprueba/rechaza el plan del cronograma (habilita ejecución)' })
+  async reviewActaCronograma(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { companyId: number; decision: 'aprobado' | 'rechazado'; motivo?: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.reviewActaCronograma(
       body.companyId,
       actaNumber,
       userId,

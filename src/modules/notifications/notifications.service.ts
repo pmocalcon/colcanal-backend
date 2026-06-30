@@ -557,6 +557,95 @@ export class NotificationsService {
   }
 
   // ============================================
+  // NOTIFICACIONES DE VALIDACIÓN (Director de Proyecto)
+  // ============================================
+
+  async notifyRequisitionForValidation(
+    validatorEmail: string,
+    validatorName: string,
+    data: RequisitionNotificationData,
+  ): Promise<boolean> {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="utf-8">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #7c3aed; padding: 20px; text-align: center; }
+          .header h1 { margin: 0; color: white; font-size: 22px; }
+          .content { padding: 20px; background-color: #f9f9f9; }
+          .info-box { background-color: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+          .btn { display: inline-block; padding: 12px 24px; background-color: #7c3aed; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 15px; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header"><h1>🧭 Requisición pendiente de validación</h1></div>
+          <div class="content">
+            <p>Hola <strong>${this.escapeHtml(validatorName)}</strong>,</p>
+            <p>Una nueva requisición requiere tu <strong>validación</strong> como Director de Proyecto antes de pasar a revisión.</p>
+            <div class="info-box">
+              <p><strong>Número:</strong> ${this.escapeHtml(data.requisitionNumber)}</p>
+              <p><strong>Creado por:</strong> ${this.escapeHtml(data.creatorName)}</p>
+              ${data.projectName ? `<p><strong>Proyecto:</strong> ${this.escapeHtml(data.projectName)}</p>` : ""}
+              <p><strong>Materiales:</strong> ${data.itemsCount} ítem(s)</p>
+            </div>
+            ${data.actionUrl ? `<a href="${this.escapeHtml(data.actionUrl)}" class="btn">Validar Requisición</a>` : ""}
+          </div>
+          <div class="footer"><p>Sistema de Gestión Empresarial - Canalcongroup</p></div>
+        </div>
+      </body>
+      </html>
+    `;
+    return this.sendEmail({
+      to: validatorEmail,
+      subject: `🧭 Requisición ${data.requisitionNumber} pendiente de validación`,
+      html,
+    });
+  }
+
+  async notifyRequisitionValidated(
+    creatorEmail: string,
+    creatorName: string,
+    data: RequisitionNotificationData & { comments?: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      creatorName,
+      "✅ Requisición validada",
+      "#16a34a",
+      `<p>Tu requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong> fue <strong>validada</strong> por el Director de Proyecto y pasó a la etapa de revisión.</p>
+       ${data.comments ? `<div class="comments"><strong>Comentarios:</strong><p>${this.escapeHtml(data.comments)}</p></div>` : ""}`,
+    );
+    return this.sendEmail({
+      to: creatorEmail,
+      subject: `✅ Tu requisición ${data.requisitionNumber} fue validada`,
+      html,
+    });
+  }
+
+  async notifyRequisitionValidationRejected(
+    creatorEmail: string,
+    creatorName: string,
+    data: RequisitionNotificationData & { comments?: string },
+  ): Promise<boolean> {
+    const html = this.buildVoidEmail(
+      creatorName,
+      "❌ Requisición rechazada en validación",
+      "#dc2626",
+      `<p>Tu requisición <strong>${this.escapeHtml(data.requisitionNumber)}</strong> fue <strong>rechazada</strong> en la etapa de validación del Director de Proyecto.</p>
+       ${data.comments ? `<div class="comments"><strong>Motivo:</strong><p>${this.escapeHtml(data.comments)}</p></div>` : ""}
+       <p>Revisa los comentarios y realiza las correcciones necesarias.</p>`,
+    );
+    return this.sendEmail({
+      to: creatorEmail,
+      subject: `❌ Tu requisición ${data.requisitionNumber} fue rechazada en validación`,
+      html,
+    });
+  }
+
+  // ============================================
   // NOTIFICACIONES DE ANULACIÓN DE REQUISICIÓN
   // ============================================
 

@@ -22,6 +22,15 @@ export enum ActaBudgetStatus {
   RECHAZADO = 'rechazado',
 }
 
+// Estado del plan del cronograma del acta. El Director de Proyecto lo arma y lo envía
+// a revisión; el Director Técnico aprueba (habilita ejecución) o rechaza con motivo.
+export enum ActaCronogramaStatus {
+  PENDIENTE = 'pendiente',
+  EN_REVISION = 'en_revision',
+  APROBADO = 'aprobado',
+  RECHAZADO = 'rechazado',
+}
+
 // El número de acta (ej. "01-2026") se reutiliza entre municipios; la identidad real
 // del acta es (empresa, número), no solo el número.
 @Entity('work_actas')
@@ -45,6 +54,20 @@ export class WorkActa {
   // Motivo cuando la Directora Financiera rechaza el presupuesto del acta.
   @Column({ name: 'presupuesto_rechazo_motivo', type: 'text', nullable: true })
   presupuestoRechazoMotivo: string | null;
+
+  // Estado del plan del cronograma (Director de Proyecto → Director Técnico).
+  @Column({ name: 'cronograma_status', type: 'varchar', length: 20, default: ActaCronogramaStatus.PENDIENTE })
+  cronogramaStatus: ActaCronogramaStatus;
+
+  // Motivo cuando el Director Técnico rechaza el plan del cronograma.
+  @Column({ name: 'cronograma_rechazo_motivo', type: 'text', nullable: true })
+  cronogramaRechazoMotivo: string | null;
+
+  @Column({ name: 'cronograma_reviewed_by', type: 'int', nullable: true })
+  cronogramaReviewedBy: number | null;
+
+  @Column({ name: 'cronograma_reviewed_at', type: 'timestamptz', nullable: true })
+  cronogramaReviewedAt: Date | null;
 
   @Column({ name: 'project_code', type: 'varchar', length: 100, nullable: true })
   projectCode: string | null;

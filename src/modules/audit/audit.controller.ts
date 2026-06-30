@@ -147,8 +147,10 @@ export class AuditController {
     @Query("toDate") toDate?: string,
     @Query("requisitionNumber") requisitionNumber?: string,
     @Query("companyName") companyName?: string,
+    @Query("materialCode") materialCode?: string,
+    @Query("requesterName") requesterName?: string,
   ) {
-    return this.auditService.getMatrix({ fromDate, toDate, requisitionNumber, companyName });
+    return this.auditService.getMatrix({ fromDate, toDate, requisitionNumber, companyName, materialCode, requesterName });
   }
 
   @Get("requisition/:id")

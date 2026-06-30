@@ -248,6 +248,8 @@ export class AuditService {
     toDate?: string;
     requisitionNumber?: string;
     companyName?: string;
+    materialCode?: string;
+    requesterName?: string;
   }) {
     const ACTION_ORDER = [
       'crear_requisicion',
@@ -304,6 +306,17 @@ export class AuditService {
         toDate: new Date(`${filters.toDate}T23:59:59`),
       });
     }
+    if (filters?.materialCode) {
+      // Solo requisiciones que contengan el material (por código o descripción).
+      qb.andWhere(
+        `requisition.requisitionId IN (
+          SELECT ri.requisition_id FROM requisition_items ri
+          JOIN materials m ON m.material_id = ri.material_id
+          WHERE m.code ILIKE :matCode OR m.description ILIKE :matCode
+        )`,
+        { matCode: `%${filters.materialCode}%` },
+      );
+    }
 
     const rawRows = await qb.getRawMany();
 
@@ -346,6 +359,31 @@ export class AuditService {
       .map(({ minDate, ...rest }) => rest);
 
     const requisitionIds = Array.from(map.keys());
+
+    // Fecha de envío de la factura a contabilidad (la última, por requisición). Se adjunta
+    // como evento sintético 'factura_contabilidad' para poder medir tiempos en el frontend.
+    if (requisitionIds.length > 0) {
+      const sentResult = await this.purchaseOrderRepository.query(
+        `SELECT po.requisition_id AS requisition_id,
+                MAX(i.sent_to_accounting_date)::text AS sent_date
+         FROM invoices i
+         JOIN purchase_orders po ON po.purchase_order_id = i.purchase_order_id
+         WHERE po.requisition_id = ANY($1::int[])
+           AND i.sent_to_accounting = true
+           AND i.sent_to_accounting_date IS NOT NULL
+         GROUP BY po.requisition_id`,
+        [requisitionIds],
+      );
+      const sentMap = new Map<number, string>();
+      for (const r of sentResult) {
+        if (r.sent_date) sentMap.set(Number(r.requisition_id), r.sent_date);
+      }
+      for (const row of rows) {
+        const sent = sentMap.get(row.requisitionId);
+        if (sent) row.events['factura_contabilidad'] = sent;
+      }
+    }
+
     let totalPurchaseOrders = 0;
     let purchaseOrdersByMonth: { year: number; month: number; count: number }[] = [];
     let totalVoidedRequisitions = 0;
@@ -396,6 +434,117 @@ export class AuditService {
       }));
     }
 
+    // Montos por mes: valor de órdenes de compra y de facturación.
+    let purchaseOrderValueByMonth: { year: number; month: number; value: number }[] = [];
+    let invoiceValueByMonth: { year: number; month: number; value: number }[] = [];
+    let totalPurchaseOrderValue = 0;
+    let totalInvoiceValue = 0;
+    if (requisitionIds.length > 0) {
+      const poValueResult = await this.purchaseOrderRepository.query(
+        `SELECT EXTRACT(YEAR FROM created_at)::int AS year, EXTRACT(MONTH FROM created_at)::int AS month, COALESCE(SUM(total_amount), 0)::float AS value
+         FROM purchase_orders
+         WHERE requisition_id = ANY($1::int[])
+         GROUP BY year, month
+         ORDER BY year, month`,
+        [requisitionIds],
+      );
+      purchaseOrderValueByMonth = poValueResult.map((r: any) => ({ year: r.year, month: r.month, value: Number(r.value) }));
+      totalPurchaseOrderValue = purchaseOrderValueByMonth.reduce((s, r) => s + r.value, 0);
+
+      const invValueResult = await this.purchaseOrderRepository.query(
+        `SELECT EXTRACT(YEAR FROM i.issue_date)::int AS year, EXTRACT(MONTH FROM i.issue_date)::int AS month, COALESCE(SUM(i.amount), 0)::float AS value
+         FROM invoices i
+         JOIN purchase_orders po ON po.purchase_order_id = i.purchase_order_id
+         WHERE po.requisition_id = ANY($1::int[])
+         GROUP BY year, month
+         ORDER BY year, month`,
+        [requisitionIds],
+      );
+      invoiceValueByMonth = invValueResult.map((r: any) => ({ year: r.year, month: r.month, value: Number(r.value) }));
+      totalInvoiceValue = invoiceValueByMonth.reduce((s, r) => s + r.value, 0);
+    }
+
+    // Materiales más pedidos: por número de requisiciones que lo incluyen y cantidad total.
+    // Si hay filtro de material, solo se cuentan los materiales que coinciden (no todos los
+    // de la requisición), para que el gráfico no muestre los demás ítems del mismo pedido.
+    // El filtro de persona (requesterName) aplica SOLO a este gráfico, no al resto del tab.
+    let topMaterials: { code: string; description: string; reqCount: number; totalQuantity: number; totalAmount: number }[] = [];
+    if (requisitionIds.length > 0) {
+      const matParams: any[] = [requisitionIds];
+      let matFilterClause = '';
+      if (filters?.materialCode) {
+        matParams.push(`%${filters.materialCode}%`);
+        matFilterClause += ` AND (m.code ILIKE $${matParams.length} OR m.description ILIKE $${matParams.length})`;
+      }
+      if (filters?.requesterName) {
+        matParams.push(`%${filters.requesterName}%`);
+        matFilterClause += ` AND ri.requisition_id IN (
+          SELECT r.requisition_id FROM requisitions r
+          JOIN users u ON u.user_id = r.created_by
+          WHERE u.nombre ILIKE $${matParams.length}
+        )`;
+      }
+      // Dinero = suma del total de los ítems de OC ligados al ítem de requisición del material.
+      const matResult = await this.requisitionRepository.query(
+        `SELECT m.code AS code, m.description AS description,
+                COUNT(DISTINCT ri.requisition_id)::int AS req_count,
+                COALESCE(SUM(ri.quantity), 0)::float AS total_quantity,
+                COALESCE(SUM(poi.total_amount), 0)::float AS total_amount
+         FROM requisition_items ri
+         JOIN materials m ON m.material_id = ri.material_id
+         LEFT JOIN purchase_order_items poi ON poi.requisition_item_id = ri.item_id
+         WHERE ri.requisition_id = ANY($1::int[])${matFilterClause}
+         GROUP BY m.code, m.description
+         ORDER BY total_amount DESC, req_count DESC
+         LIMIT 20`,
+        matParams,
+      );
+      topMaterials = matResult.map((r: any) => ({
+        code: r.code || '',
+        description: r.description || '',
+        reqCount: Number(r.req_count),
+        totalQuantity: Number(r.total_quantity),
+        totalAmount: Number(r.total_amount),
+      }));
+    }
+
+    // Materiales más pedidos por mes: mismas reglas de filtro, agrupado además por mes de
+    // creación de la requisición. El frontend pivota y arma las series del Top de materiales.
+    let topMaterialsByMonth: { year: number; month: number; code: string; description: string; reqCount: number; totalQuantity: number; totalAmount: number }[] = [];
+    if (requisitionIds.length > 0) {
+      const monthParams: any[] = [requisitionIds];
+      let monthFilterClause = '';
+      if (filters?.materialCode) {
+        monthParams.push(`%${filters.materialCode}%`);
+        monthFilterClause = ' AND (m.code ILIKE $2 OR m.description ILIKE $2)';
+      }
+      const monthResult = await this.requisitionRepository.query(
+        `SELECT EXTRACT(YEAR FROM r.created_at)::int AS year,
+                EXTRACT(MONTH FROM r.created_at)::int AS month,
+                m.code AS code, m.description AS description,
+                COUNT(DISTINCT ri.requisition_id)::int AS req_count,
+                COALESCE(SUM(ri.quantity), 0)::float AS total_quantity,
+                COALESCE(SUM(poi.total_amount), 0)::float AS total_amount
+         FROM requisition_items ri
+         JOIN materials m ON m.material_id = ri.material_id
+         JOIN requisitions r ON r.requisition_id = ri.requisition_id
+         LEFT JOIN purchase_order_items poi ON poi.requisition_item_id = ri.item_id
+         WHERE ri.requisition_id = ANY($1::int[])${monthFilterClause}
+         GROUP BY year, month, m.code, m.description
+         ORDER BY year, month`,
+        monthParams,
+      );
+      topMaterialsByMonth = monthResult.map((r: any) => ({
+        year: r.year,
+        month: r.month,
+        code: r.code || '',
+        description: r.description || '',
+        reqCount: Number(r.req_count),
+        totalQuantity: Number(r.total_quantity),
+        totalAmount: Number(r.total_amount),
+      }));
+    }
+
     return {
       actions,
       rows,
@@ -403,6 +552,12 @@ export class AuditService {
       purchaseOrdersByMonth,
       totalVoidedRequisitions,
       voidedRequisitionsByMonth,
+      purchaseOrderValueByMonth,
+      invoiceValueByMonth,
+      totalPurchaseOrderValue,
+      totalInvoiceValue,
+      topMaterials,
+      topMaterialsByMonth,
     };
   }
 
