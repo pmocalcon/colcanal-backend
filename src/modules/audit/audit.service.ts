@@ -280,6 +280,7 @@ export class AuditService {
       .leftJoin('requisition.operationCenter', 'operationCenter')
       .leftJoin('operationCenter.company', 'company')
       .leftJoin('requisition.status', 'status')
+      .leftJoin('requisition.creator', 'creator')
       .groupBy('log.requisitionId')
       .addGroupBy('log.action')
       .addGroupBy('requisition.requisitionNumber')
@@ -296,6 +297,11 @@ export class AuditService {
     if (filters?.companyName) {
       qb.andWhere('company.name ILIKE :companyName', {
         companyName: `%${filters.companyName}%`,
+      });
+    }
+    if (filters?.requesterName) {
+      qb.andWhere('creator.nombre ILIKE :requesterName', {
+        requesterName: `%${filters.requesterName}%`,
       });
     }
     if (filters?.fromDate) {
@@ -467,7 +473,7 @@ export class AuditService {
     // Materiales más pedidos: por número de requisiciones que lo incluyen y cantidad total.
     // Si hay filtro de material, solo se cuentan los materiales que coinciden (no todos los
     // de la requisición), para que el gráfico no muestre los demás ítems del mismo pedido.
-    // El filtro de persona (requesterName) aplica SOLO a este gráfico, no al resto del tab.
+    // El filtro de persona ya viene aplicado en requisitionIds (afecta a todos los gráficos).
     let topMaterials: { code: string; description: string; reqCount: number; totalQuantity: number; totalAmount: number }[] = [];
     if (requisitionIds.length > 0) {
       const matParams: any[] = [requisitionIds];
@@ -475,14 +481,6 @@ export class AuditService {
       if (filters?.materialCode) {
         matParams.push(`%${filters.materialCode}%`);
         matFilterClause += ` AND (m.code ILIKE $${matParams.length} OR m.description ILIKE $${matParams.length})`;
-      }
-      if (filters?.requesterName) {
-        matParams.push(`%${filters.requesterName}%`);
-        matFilterClause += ` AND ri.requisition_id IN (
-          SELECT r.requisition_id FROM requisitions r
-          JOIN users u ON u.user_id = r.created_by
-          WHERE u.nombre ILIKE $${matParams.length}
-        )`;
       }
       // Dinero = suma del total de los ítems de OC ligados al ítem de requisición del material.
       const matResult = await this.requisitionRepository.query(

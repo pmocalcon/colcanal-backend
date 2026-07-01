@@ -575,6 +575,25 @@ export class SurveysService {
     return this.getSurvey(surveyId);
   }
 
+  async updateSurveyIpp(surveyId: number, previousMonthIpp: number): Promise<any> {
+    if (!Number.isFinite(previousMonthIpp) || previousMonthIpp <= 0) {
+      throw new BadRequestException('El IPP debe ser un número mayor a cero');
+    }
+
+    const survey = await this.surveyRepository.findOne({
+      where: { surveyId },
+    });
+
+    if (!survey) {
+      throw new NotFoundException(`Survey with ID ${surveyId} not found`);
+    }
+
+    survey.previousMonthIpp = previousMonthIpp;
+    await this.surveyRepository.save(survey);
+
+    return this.getSurvey(surveyId);
+  }
+
   async getSurvey(surveyId: number): Promise<any> {
     const survey = await this.surveyRepository.findOne({
       where: { surveyId },
@@ -860,6 +879,61 @@ export class SurveysService {
     const ucaps = await query.getMany();
 
     return { ippConfig, ucaps };
+  }
+
+  /**
+   * Valor Total (con IPP) por obra, igual que el "Resumen de Acta":
+   * valor = (Σ cantidad×vr.unitario de ítems del presupuesto + mano de obra) × factor IPP.
+   * vr.unitario = rounded_value del UCAP (o unit_value del ítem si no hay UCAP).
+   * factor IPP = previousMonthIpp del survey / ipp_initial_value (proyecto o empresa).
+   */
+  async getWorksValue(
+    workIds: number[],
+  ): Promise<{ workId: number; value: number }[]> {
+    const ids = (workIds || []).filter((n) => Number.isInteger(n));
+    if (ids.length === 0) return [];
+
+    // Valor = TOTAL AJUSTADO del presupuesto del levantamiento (igual que el detalle):
+    //   por cada survey: SUBTOTAL = Σ(unit_value × quantity)  (sin mano de obra)
+    //   factor IPP = survey.previous_month_ipp / ipp_initial_value (proyecto o empresa)
+    //   total ajustado = SUBTOTAL × factor
+    // Se aplica el factor por survey (cada levantamiento tiene su IPP) y se suma por obra.
+    const rows: any[] = await this.surveyRepository.query(
+      `SELECT s.work_id AS work_id,
+              COALESCE(SUM(
+                sub.total_base *
+                CASE
+                  WHEN bi.base_ipp > 0 AND s.previous_month_ipp IS NOT NULL AND s.previous_month_ipp > 0
+                  THEN s.previous_month_ipp / bi.base_ipp
+                  ELSE 1
+                END
+              ), 0)::float AS value
+       FROM surveys s
+       JOIN LATERAL (
+         SELECT COALESCE(SUM(sbi.quantity * sbi.unit_value), 0)::float AS total_base
+         FROM survey_budget_items sbi
+         WHERE sbi.survey_id = s.survey_id
+       ) sub ON true
+       JOIN LATERAL (
+         SELECT COALESCE(p.ipp_initial_value, c.ipp_initial_value)::float AS base_ipp
+         FROM works w
+         LEFT JOIN projects p ON p.project_id = w.project_id
+         LEFT JOIN companies c ON c.company_id = w.company_id
+         WHERE w.work_id = s.work_id
+       ) bi ON true
+       WHERE s.work_id = ANY($1::int[])
+       GROUP BY s.work_id`,
+      [ids],
+    );
+
+    const valueMap = new Map<number, number>(
+      rows.map((r) => [Number(r.work_id), Number(r.value)]),
+    );
+
+    return ids.map((workId) => ({
+      workId,
+      value: Math.round(valueMap.get(workId) || 0),
+    }));
   }
 
   // ============================================

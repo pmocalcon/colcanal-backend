@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Param, Body, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { SchedulesService } from './schedules.service';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
@@ -21,6 +21,13 @@ export class SchedulesController {
   @ApiOperation({ summary: 'Get aggregated survey materials for a work' })
   async getSurveyMaterials(@Param('workId', ParseIntPipe) workId: number) {
     return this.schedulesService.getSurveyMaterials(workId);
+  }
+
+  @Post('execution-status')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Which of the given works have execution recorded in the schedule' })
+  async getWorksExecutionStatus(@Body() body: { workIds: number[] }) {
+    return this.schedulesService.getWorksExecutionStatus(body?.workIds || []);
   }
 
   @Get('work/:workId/purchase-comparison')

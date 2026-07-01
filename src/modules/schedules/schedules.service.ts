@@ -81,6 +81,34 @@ export class SchedulesService {
     private projectCodeRepo: Repository<ProjectCode>,
   ) {}
 
+  /**
+   * Devuelve, para un conjunto de obras, cuáles tienen ejecución registrada en el cronograma.
+   * "Ejecutada" = tiene cantidad ejecutada > 0 en plan diario de UCAPs (executed_quantity)
+   * o en schedule_executions (materiales/actividades).
+   */
+  async getWorksExecutionStatus(
+    workIds: number[],
+  ): Promise<{ workId: number; hasExecution: boolean }[]> {
+    const ids = (workIds || []).filter((n) => Number.isInteger(n));
+    if (ids.length === 0) return [];
+
+    const rows: any[] = await this.scheduleRepo.query(
+      `SELECT s.work_id AS work_id
+       FROM schedules s
+       WHERE s.work_id = ANY($1::int[])
+         AND (
+           EXISTS (SELECT 1 FROM schedule_daily_plans dp
+                   WHERE dp.schedule_id = s.schedule_id AND dp.executed_quantity > 0)
+           OR EXISTS (SELECT 1 FROM schedule_executions se
+                      WHERE se.schedule_id = s.schedule_id AND se.quantity > 0)
+         )`,
+      [ids],
+    );
+
+    const executed = new Set<number>(rows.map((r) => Number(r.work_id)));
+    return ids.map((workId) => ({ workId, hasExecution: executed.has(workId) }));
+  }
+
   async getOrCreateSchedule(workId: number): Promise<ScheduleDetail> {
     const work = await this.workRepo.findOne({ where: { workId }, relations: ['company', 'project'] });
     if (!work) throw new NotFoundException(`Work ${workId} not found`);

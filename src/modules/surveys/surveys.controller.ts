@@ -78,6 +78,14 @@ export class SurveysController {
     return this.surveysService.getWorks(companyIds, projectId, createdBy);
   }
 
+  @Post('works/value')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Valor Total (con IPP) por obra' })
+  @ApiResponse({ status: 200, description: 'Valores por obra' })
+  async getWorksValue(@Body() body: { workIds: number[] }) {
+    return this.surveysService.getWorksValue(body?.workIds || []);
+  }
+
   @Get('works/:id')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get a work by ID' })
@@ -205,6 +213,18 @@ export class SurveysController {
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.updateSurvey(id, updateSurveyDto, userId);
+  }
+
+  @Patch(':id/ipp')
+  @Permissions('levantamientos:editar', 'levantamientos:presupuesto')
+  @ApiOperation({ summary: 'Update only the previous month IPP for a survey' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Survey IPP updated successfully' })
+  async updateSurveyIpp(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('previousMonthIpp') previousMonthIpp: number,
+  ) {
+    return this.surveysService.updateSurveyIpp(id, Number(previousMonthIpp));
   }
 
   @Patch(':id/submit')
