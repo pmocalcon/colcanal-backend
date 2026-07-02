@@ -110,7 +110,7 @@ export class PurchasesService {
   // HELPER: Notificaciones por correo
   // ============================================
   private async sendRequisitionNotification(
-    type: 'new_for_review' | 'reviewed' | 'for_approval' | 'approved' | 'ready_for_quotation' | 'new_for_validation' | 'validated' | 'validation_rejected',
+    type: 'new_for_review' | 'reviewed' | 'for_approval' | 'for_authorization' | 'approved' | 'ready_for_quotation' | 'new_for_validation' | 'validated' | 'validation_rejected',
     requisition: Requisition,
     options?: { approved?: boolean; comments?: string },
   ): Promise<void> {
@@ -159,22 +159,42 @@ export class PurchasesService {
         }
 
         case 'for_approval': {
-          // Buscar usuarios con rol Gerencia que pueden aprobar
+          // El aprobador de requisiciones es únicamente el rol "Gerencia" (Gloria).
+          // Antes el filtro incluía cualquier rol con "gerencia" o "director", por lo que
+          // el correo llegaba también a Director de Proyecto, Director Técnico, etc.
           const managers = await this.userRepository.find({
             where: { estado: true },
             relations: ['role'],
           });
 
-          const approvers = managers.filter(u =>
-            u.role?.nombreRol?.toLowerCase().includes('gerencia') ||
-            u.role?.nombreRol?.toLowerCase().includes('director')
-          );
+          const approvers = managers.filter(u => u.role?.nombreRol?.trim() === 'Gerencia');
 
           for (const approver of approvers) {
             const email = approver.emailNotificacion || approver.email;
             await this.notificationsService.notifyRequisitionForApproval(
               email,
               approver.nombre,
+              notificationData,
+            );
+          }
+          break;
+        }
+
+        case 'for_authorization': {
+          // Obras especiales (UTAP): AUTORIZA el rol "Gerencia de Proyectos" (Lorena),
+          // que es un paso distinto de la aprobación final de Gerencia (Gloria).
+          const users = await this.userRepository.find({
+            where: { estado: true },
+            relations: ['role'],
+          });
+          const authorizers = users.filter(
+            u => u.role?.nombreRol?.trim() === 'Gerencia de Proyectos',
+          );
+          for (const authorizer of authorizers) {
+            const email = authorizer.emailNotificacion || authorizer.email;
+            await this.notificationsService.notifyRequisitionForApproval(
+              email,
+              authorizer.nombre,
               notificationData,
             );
           }
@@ -743,8 +763,8 @@ export class PurchasesService {
         // Enviar notificación al Director de Proyecto para validación
         this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
       } else if (skipsReview && hasSpecialObra) {
-        // Enviar notificación a Gerencia de Proyectos para autorización
-        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+        // Obra especial: la AUTORIZA Gerencia de Proyectos (Lorena), no Gerencia (Gloria).
+        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
       } else if (goesDirectToGerencia) {
         // Enviar notificación a Gerencia (roles de alto nivel saltan revisión)
         this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
@@ -1667,9 +1687,13 @@ export class PurchasesService {
         comments: dto.comments,
       }).catch(() => {});
 
-      // Si fue aprobada, notificar al siguiente nivel
+      // Si fue aprobada, notificar al siguiente nivel según corresponda:
+      // - aprobada_revisor  → aprueba Gerencia (Gloria)
+      // - pendiente_autorizacion (obra especial) → autoriza Gerencia de Proyectos (Lorena)
       if (dto.decision === 'approve' && newStatusCode === 'aprobada_revisor') {
         this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+      } else if (dto.decision === 'approve' && newStatusCode === 'pendiente_autorizacion') {
+        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
       }
 
       return fullRequisition;
@@ -1933,7 +1957,20 @@ export class PurchasesService {
 
       await queryRunner.commitTransaction();
 
-      return this.getRequisitionById(requisitionId, userId);
+      // Notificaciones tras la decisión de Gerencia de Proyectos (Lorena):
+      // - autorizado → aprueba Gerencia (Gloria)
+      // - rechazada_autorizador → avisar al creador que fue rechazada
+      const fullRequisition = await this.getRequisitionById(requisitionId, userId);
+      if (newStatusCode === 'autorizado') {
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+      } else if (newStatusCode === 'rechazada_autorizador') {
+        this.sendRequisitionNotification('reviewed', fullRequisition as Requisition, {
+          approved: false,
+          comments: dto.comments,
+        }).catch(() => {});
+      }
+
+      return fullRequisition;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
