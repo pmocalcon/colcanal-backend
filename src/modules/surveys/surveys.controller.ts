@@ -10,6 +10,7 @@ import {
   Query,
   ParseIntPipe,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -191,6 +192,45 @@ export class SurveysController {
     @CurrentUser('permissions') permissions: string[],
   ) {
     return this.surveysService.getSurveyDatabase(filters, userId, permissions ?? []);
+  }
+
+  @Get('annual-plan/review')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Get annual plan summary review status' })
+  async getAnnualPlanReview(
+    @Query('year') year: string,
+    @Query('municipio') municipio: string,
+    @Query('zone') zone?: string,
+  ) {
+    return this.surveysService.getAnnualPlanReview(Number(year), municipio, zone);
+  }
+
+  @Patch('annual-plan/review')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Approve or reject annual plan summary' })
+  async reviewAnnualPlan(
+    @Body() body: {
+      year: number;
+      municipio: string;
+      zone?: string;
+      decision: 'aprobado' | 'rechazado';
+      comment?: string;
+    },
+    @CurrentUser('userId') userId: number,
+    @CurrentUser('role') role: { nombreRol?: string },
+  ) {
+    if (!['Gerencia de Proyectos', 'Analista PMO'].includes(role?.nombreRol ?? '')) {
+      throw new ForbiddenException('Solo Gerencia de Proyectos o Analista PMO puede aprobar o rechazar el resumen del plan anual');
+    }
+
+    return this.surveysService.reviewAnnualPlan(
+      Number(body.year),
+      body.municipio,
+      body.zone,
+      body.decision,
+      body.comment,
+      userId,
+    );
   }
 
   @Get(':id')
@@ -388,6 +428,32 @@ export class SurveysController {
     @Query('companyId') companyId: string,
   ) {
     return this.surveysService.getWorkActa(Number(companyId), actaNumber);
+  }
+
+  @Get('actas/:actaNumber/summary-draft')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({ summary: 'Get shared editable summary draft for an acta' })
+  async getActaSummaryDraft(
+    @Param('actaNumber') actaNumber: string,
+    @Query('companyId') companyId: string,
+  ) {
+    return this.surveysService.getActaSummaryDraft(Number(companyId), actaNumber);
+  }
+
+  @Put('actas/:actaNumber/summary-draft')
+  @Permissions('levantamientos:crear', 'levantamientos:editar')
+  @ApiOperation({ summary: 'Save shared editable summary draft for an acta' })
+  async saveActaSummaryDraft(
+    @Param('actaNumber') actaNumber: string,
+    @Body() body: { companyId: number; payload: Record<string, any> },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.saveActaSummaryDraft(
+      Number(body.companyId),
+      actaNumber,
+      body.payload,
+      userId,
+    );
   }
 
   @Post('actas/bulk-status')

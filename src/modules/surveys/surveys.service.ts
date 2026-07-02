@@ -10,6 +10,8 @@ import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
 import { WorkActa, ActaStatus, ActaBudgetStatus, ActaCronogramaStatus } from '../../database/entities/work-acta.entity';
+import { ActaSummaryDraft } from '../../database/entities/acta-summary-draft.entity';
+import { AnnualPlanReview, AnnualPlanReviewStatus } from '../../database/entities/annual-plan-review.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -65,6 +67,10 @@ export class SurveysService {
     private surveyReviewerAccessRepository: Repository<SurveyReviewerAccess>,
     @InjectRepository(WorkActa)
     private workActaRepository: Repository<WorkActa>,
+    @InjectRepository(ActaSummaryDraft)
+    private actaSummaryDraftRepository: Repository<ActaSummaryDraft>,
+    @InjectRepository(AnnualPlanReview)
+    private annualPlanReviewRepository: Repository<AnnualPlanReview>,
     private notificationsService: NotificationsService,
   ) {}
 
@@ -1795,6 +1801,117 @@ export class SurveysService {
   // ============================================
   // WORK ACTA WORKFLOW METHODS
   // ============================================
+
+  private normalizeAnnualPlanScope(year: number, municipio: string, zone?: string) {
+    if (!Number.isFinite(year) || year < 2000 || !municipio?.trim()) {
+      throw new BadRequestException('Año y municipio son obligatorios');
+    }
+
+    return {
+      year,
+      municipio: municipio.trim(),
+      zone: zone?.trim() || 'all',
+    };
+  }
+
+  async getAnnualPlanReview(year: number, municipio: string, zone?: string): Promise<AnnualPlanReview | null> {
+    const scope = this.normalizeAnnualPlanScope(year, municipio, zone);
+    return this.annualPlanReviewRepository.findOne({ where: scope });
+  }
+
+  async reviewAnnualPlan(
+    year: number,
+    municipio: string,
+    zone: string | undefined,
+    decision: 'aprobado' | 'rechazado',
+    comment: string | undefined,
+    userId: number,
+  ): Promise<AnnualPlanReview> {
+    const scope = this.normalizeAnnualPlanScope(year, municipio, zone);
+    if (decision !== AnnualPlanReviewStatus.APROBADO && decision !== AnnualPlanReviewStatus.RECHAZADO) {
+      throw new BadRequestException('Decisión de revisión inválida');
+    }
+
+    let review = await this.annualPlanReviewRepository.findOne({ where: scope });
+    if (!review) {
+      review = this.annualPlanReviewRepository.create(scope);
+    }
+
+    review.status = decision as AnnualPlanReviewStatus;
+    review.comment = comment?.trim() || null;
+    review.reviewedBy = userId;
+    review.reviewedAt = new Date();
+
+    return this.annualPlanReviewRepository.save(review);
+  }
+
+  async getActaSummaryDraft(companyId: number, actaNumber: string): Promise<{
+    payload: Record<string, any> | null;
+    updatedAt: Date | null;
+    updatedBy: number | null;
+  }> {
+    if (!Number.isFinite(companyId) || companyId <= 0 || !actaNumber?.trim()) {
+      throw new BadRequestException('Empresa y número de acta son obligatorios');
+    }
+
+    const draft = await this.actaSummaryDraftRepository.findOne({
+      where: { companyId, actaNumber: actaNumber.trim() },
+    });
+
+    return {
+      payload: draft?.payload ?? null,
+      updatedAt: draft?.updatedAt ?? null,
+      updatedBy: draft?.updatedBy ?? null,
+    };
+  }
+
+  async saveActaSummaryDraft(
+    companyId: number,
+    actaNumber: string,
+    payload: Record<string, any>,
+    userId: number,
+  ): Promise<{
+    payload: Record<string, any>;
+    updatedAt: Date;
+    updatedBy: number | null;
+  }> {
+    if (!Number.isFinite(companyId) || companyId <= 0 || !actaNumber?.trim()) {
+      throw new BadRequestException('Empresa y número de acta son obligatorios');
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new BadRequestException('El contenido del acta no es válido');
+    }
+
+    const company = await this.companyRepository.findOne({ where: { companyId } });
+    if (!company) {
+      throw new BadRequestException('La empresa del acta no existe');
+    }
+
+    const normalizedActaNumber = actaNumber.trim();
+    let draft = await this.actaSummaryDraftRepository.findOne({
+      where: { companyId, actaNumber: normalizedActaNumber },
+    });
+
+    if (!draft) {
+      draft = this.actaSummaryDraftRepository.create({
+        companyId,
+        actaNumber: normalizedActaNumber,
+        payload,
+        createdBy: userId,
+        updatedBy: userId,
+      });
+    } else {
+      draft.payload = payload;
+      draft.updatedBy = userId;
+    }
+
+    const saved = await this.actaSummaryDraftRepository.save(draft);
+    return {
+      payload: saved.payload,
+      updatedAt: saved.updatedAt,
+      updatedBy: saved.updatedBy,
+    };
+  }
 
   async getWorkActa(companyId: number, actaNumber: string): Promise<WorkActa | null> {
     return this.workActaRepository.findOne({ where: { companyId, actaNumber } });

@@ -6,6 +6,8 @@ import { SurveysService } from './surveys.service';
 // Survey entities
 import { Work } from '../../database/entities/work.entity';
 import { WorkActa } from '../../database/entities/work-acta.entity';
+import { ActaSummaryDraft } from '../../database/entities/acta-summary-draft.entity';
+import { AnnualPlanReview } from '../../database/entities/annual-plan-review.entity';
 import { Survey } from '../../database/entities/survey.entity';
 import { SurveyBudgetItem } from '../../database/entities/survey-budget-item.entity';
 import { SurveyInvestmentItem } from '../../database/entities/survey-investment-item.entity';
@@ -30,6 +32,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
       // Survey entities
       Work,
       WorkActa,
+      ActaSummaryDraft,
+      AnnualPlanReview,
       Survey,
       SurveyBudgetItem,
       SurveyInvestmentItem,
