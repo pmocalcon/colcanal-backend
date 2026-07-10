@@ -325,6 +325,7 @@ async function seed() {
         icono: "HardHat",
       },
       { nombre: "Auditorías", slug: "auditorias", icono: "FileText" },
+      { nombre: "CREG", slug: "creg", icono: "Zap" },
       {
         nombre: "Notificaciones",
         slug: "notificaciones",
@@ -363,6 +364,18 @@ async function seed() {
       console.log(
         `✅ Assigned Levantamiento de Obras gestion to all ${roles.length} roles`,
       );
+    }
+
+    // Asignar CREG a todos los roles en entorno Docker/dev para que el módulo
+    // quede visible después de sembrar la base local.
+    const cregGestion = gestiones.find((g) => g.slug === "creg");
+    if (cregGestion) {
+      const allCregRoleGestiones = roles.map((role) => ({
+        rolId: role.rolId,
+        gestionId: cregGestion.gestionId,
+      }));
+      await roleGestionRepository.save(allCregRoleGestiones);
+      console.log(`✅ Assigned CREG gestion to all ${roles.length} roles`);
     }
 
     // Asignar Auditorías solo a Gerencia, Director PMO y Analista PMO

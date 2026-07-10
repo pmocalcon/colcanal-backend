@@ -15,6 +15,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { SurveysModule } from "./modules/surveys/surveys.module";
 import { DirectorBudgetsModule } from "./modules/director-budgets/director-budgets.module";
 import { SchedulesModule } from "./modules/schedules/schedules.module";
+import { CregModule } from "./modules/creg/creg.module";
 import configuration from "./config/configuration";
 
 @Module({
@@ -42,6 +43,7 @@ import configuration from "./config/configuration";
     SurveysModule,
     DirectorBudgetsModule,
     SchedulesModule,
+    CregModule,
   ],
   controllers: [AppController],
   providers: [AppService],

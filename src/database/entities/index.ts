@@ -57,6 +57,14 @@ export { SurveyReviewerAccess } from './survey-reviewer-access.entity';
 export { DirectorBudget } from './director-budget.entity';
 export { DirectorBudgetItem } from './director-budget-item.entity';
 
+// CREG (Unidades constructivas - costo de reposicion a nuevo)
+// El desglose de costos vive en la UCAP (ucap_cost_items); solo queda la
+// configuracion de porcentajes por municipio.
+export { CregMunicipioConfig } from './creg-municipio-config.entity';
+export { CregParametrizacion } from './creg-parametrizacion.entity';
+export { CregCenso } from './creg-censo.entity';
+export { UcapCostItem } from './ucap-cost-item.entity';
+
 // Schedules (Cronograma)
 export { Schedule } from './schedule.entity';
 export { ScheduleItem } from './schedule-item.entity';

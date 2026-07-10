@@ -291,6 +291,13 @@ export class PurchasesController {
     return this.purchasesService.getAllRequisitions(filters);
   }
 
+  // Ruta estática antes de '@Get(":id")' para que no la capture como id.
+  @Get("dashboard-summary")
+  @ApiOperation({ summary: "Resumen agregado de compras para el dashboard" })
+  async getPurchasesDashboardSummary() {
+    return this.purchasesService.getPurchasesDashboardSummary();
+  }
+
   @Post("void-requisitions")
   @ApiOperation({ summary: "Anular requisiciones (solo analista PMO / director PMO)" })
   @HttpCode(HttpStatus.OK)

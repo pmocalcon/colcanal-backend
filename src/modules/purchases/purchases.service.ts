@@ -868,6 +868,78 @@ export class PurchasesService {
     };
   }
 
+  /**
+   * Resumen agregado de compras para el dashboard: totales exactos, desglose por
+   * estado y tendencia mensual (últimos 12 meses) de requisiciones y órdenes.
+   */
+  async getPurchasesDashboardSummary() {
+    const from = new Date();
+    from.setMonth(from.getMonth() - 11);
+    from.setDate(1);
+    from.setHours(0, 0, 0, 0);
+
+    const [reqTotal, reqByStatus, reqMonthly] = await Promise.all([
+      this.requisitionRepository.count(),
+      this.requisitionRepository
+        .createQueryBuilder("r")
+        .leftJoin("r.status", "s")
+        .select("s.name", "name")
+        .addSelect("COUNT(*)", "count")
+        .groupBy("s.name")
+        .getRawMany(),
+      this.requisitionRepository
+        .createQueryBuilder("r")
+        .select("to_char(r.created_at, 'YYYY-MM')", "month")
+        .addSelect("COUNT(*)", "count")
+        .where("r.created_at >= :from", { from })
+        .groupBy("month")
+        .orderBy("month", "ASC")
+        .getRawMany(),
+    ]);
+
+    const [poAgg, poByStatus, poMonthly] = await Promise.all([
+      this.purchaseOrderRepository
+        .createQueryBuilder("po")
+        .select("COUNT(*)", "count")
+        .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+        .getRawOne<{ count: string; value: string }>(),
+      this.purchaseOrderRepository
+        .createQueryBuilder("po")
+        .leftJoin("po.approvalStatus", "s")
+        .select("s.name", "name")
+        .addSelect("COUNT(*)", "count")
+        .groupBy("s.name")
+        .getRawMany(),
+      this.purchaseOrderRepository
+        .createQueryBuilder("po")
+        .select("to_char(po.created_at, 'YYYY-MM')", "month")
+        .addSelect("COUNT(*)", "count")
+        .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+        .where("po.created_at >= :from", { from })
+        .groupBy("month")
+        .orderBy("month", "ASC")
+        .getRawMany(),
+    ]);
+
+    return {
+      requisitions: {
+        total: reqTotal,
+        byStatus: reqByStatus.map((x) => ({ name: x.name ?? "Sin estado", count: Number(x.count) })),
+        monthly: reqMonthly.map((x) => ({ month: x.month, count: Number(x.count) })),
+      },
+      purchaseOrders: {
+        total: Number(poAgg?.count ?? 0),
+        value: Number(poAgg?.value ?? 0),
+        byStatus: poByStatus.map((x) => ({ name: x.name ?? "Sin estado", count: Number(x.count) })),
+        monthly: poMonthly.map((x) => ({
+          month: x.month,
+          count: Number(x.count),
+          value: Number(x.value),
+        })),
+      },
+    };
+  }
+
   async getAllRequisitions(filters: FilterRequisitionsDto) {
     const page = filters.page || 1;
     const limit = filters.limit || 200;
