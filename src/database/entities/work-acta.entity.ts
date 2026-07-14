@@ -31,16 +31,21 @@ export enum ActaCronogramaStatus {
   RECHAZADO = 'rechazado',
 }
 
-// El número de acta (ej. "01-2026") se reutiliza entre municipios; la identidad real
-// del acta es (empresa, número), no solo el número.
+// El número de acta (ej. "01-2026") se reutiliza entre municipios. La identidad real
+// del acta es (empresa, proyecto, número): en Canales & Contactos el municipio es el
+// proyecto, así que un mismo número en municipios distintos son actas distintas.
+// project_id es nullable (las empresas sin proyecto usan NULL).
 @Entity('work_actas')
-@Unique(['companyId', 'actaNumber'])
+@Unique(['companyId', 'projectId', 'actaNumber'])
 export class WorkActa {
   @PrimaryGeneratedColumn({ name: 'acta_id' })
   actaId: number;
 
   @Column({ name: 'company_id', type: 'int' })
   companyId: number;
+
+  @Column({ name: 'project_id', type: 'int', nullable: true })
+  projectId: number | null;
 
   @Column({ name: 'acta_number', type: 'varchar', length: 100 })
   actaNumber: string;

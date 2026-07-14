@@ -162,7 +162,11 @@ export class SurveysService {
     const [company, works, creator] = await Promise.all([
       this.companyRepository.findOne({ where: { companyId: acta.companyId } }),
       this.workRepository.find({
-        where: { companyId: acta.companyId, recordNumber: acta.actaNumber },
+        where: {
+          companyId: acta.companyId,
+          projectId: acta.projectId ?? IsNull(),
+          recordNumber: acta.actaNumber,
+        },
         relations: ['project', 'creator'],
       }),
       acta.createdBy
@@ -171,6 +175,11 @@ export class SurveysService {
     ]);
 
     const firstWork = works[0];
+
+    const actaUrl =
+      `/dashboard/levantamiento-obras/acta/${encodeURIComponent(acta.actaNumber)}` +
+      `?company=${acta.companyId}` +
+      (acta.projectId != null ? `&project=${acta.projectId}` : '');
 
     return {
       entityType: 'acta',
@@ -182,7 +191,7 @@ export class SurveysService {
       actorName: actor ? this.getUserDisplayName(actor) : undefined,
       worksCount: works.length || undefined,
       projectCode: acta.projectCode || undefined,
-      actionUrl: this.buildFrontendUrl(`/dashboard/levantamiento-obras/acta/${encodeURIComponent(acta.actaNumber)}`),
+      actionUrl: this.buildFrontendUrl(actaUrl),
       ...extra,
     };
   }
@@ -629,6 +638,7 @@ export class SurveysService {
             .findOne({
               where: {
                 companyId: survey.work.companyId,
+                projectId: survey.work.projectId ?? IsNull(),
                 actaNumber: survey.work.recordNumber,
               },
               select: ['actaNumber', 'projectCode'],
@@ -719,7 +729,11 @@ export class SurveysService {
 
     const actaPairs = surveys
       .filter((s) => s.work?.companyId != null && s.work?.recordNumber)
-      .map((s) => ({ companyId: s.work!.companyId, actaNumber: s.work!.recordNumber }));
+      .map((s) => ({
+        companyId: s.work!.companyId,
+        projectId: s.work!.projectId ?? null,
+        actaNumber: s.work!.recordNumber,
+      }));
     const actaMap = await this.getActaProjectCodeMap(actaPairs);
 
     const data = surveys.map((survey) => ({
@@ -727,7 +741,9 @@ export class SurveysService {
       surveyNumber: survey.projectCode,
       projectCode:
         survey.work?.companyId != null && survey.work?.recordNumber
-          ? actaMap.get(`${survey.work.companyId}|${survey.work.recordNumber}`) || null
+          ? actaMap.get(
+              SurveysService.actaCodeKey(survey.work.companyId, survey.work.projectId, survey.work.recordNumber),
+            ) || null
           : null,
     }));
 
@@ -1288,7 +1304,11 @@ export class SurveysService {
 
     const actaPairsDb = surveys
       .filter((s) => s.work?.companyId != null && s.work?.recordNumber)
-      .map((s) => ({ companyId: s.work!.companyId, actaNumber: s.work!.recordNumber }));
+      .map((s) => ({
+        companyId: s.work!.companyId,
+        projectId: s.work!.projectId ?? null,
+        actaNumber: s.work!.recordNumber,
+      }));
     const actaMapDb = await this.getActaProjectCodeMap(actaPairsDb);
 
     // Transform to include calculated fields
@@ -1297,7 +1317,9 @@ export class SurveysService {
       surveyNumber: survey.projectCode,
       projectCode:
         survey.work?.companyId != null && survey.work?.recordNumber
-          ? actaMapDb.get(`${survey.work.companyId}|${survey.work.recordNumber}`) || null
+          ? actaMapDb.get(
+              SurveysService.actaCodeKey(survey.work.companyId, survey.work.projectId, survey.work.recordNumber),
+            ) || null
           : null,
       status: survey.status,
 
@@ -1388,28 +1410,39 @@ export class SurveysService {
   // ============================================
 
   /**
-   * Mapa de código de contabilidad por acta, con clave compuesta `${companyId}|${actaNumber}`.
-   * El número de acta se reutiliza entre municipios, así que se debe consultar por empresa+número.
+   * Mapa de código de contabilidad por acta, con clave compuesta
+   * `${companyId}|${projectId ?? 0}|${actaNumber}`.
+   * El número de acta se reutiliza entre municipios (proyectos), así que se debe
+   * consultar por empresa + proyecto + número.
    */
+  static actaCodeKey(companyId: number, projectId: number | null | undefined, actaNumber: string) {
+    return `${companyId}|${projectId ?? 0}|${actaNumber}`;
+  }
+
   private async getActaProjectCodeMap(
-    pairs: Array<{ companyId: number; actaNumber: string }>,
+    pairs: Array<{ companyId: number; projectId: number | null; actaNumber: string }>,
   ): Promise<Map<string, string>> {
     const map = new Map<string, string>();
-    const uniquePairs = new Map<string, { companyId: number; actaNumber: string }>();
+    const uniquePairs = new Map<string, { companyId: number; projectId: number | null; actaNumber: string }>();
     for (const p of pairs) {
       if (p.companyId == null || !p.actaNumber) continue;
-      uniquePairs.set(`${p.companyId}|${p.actaNumber}`, p);
+      uniquePairs.set(SurveysService.actaCodeKey(p.companyId, p.projectId, p.actaNumber), p);
     }
     if (uniquePairs.size === 0) return map;
 
     const qb = this.workActaRepository
       .createQueryBuilder('acta')
-      .select(['acta.companyId', 'acta.actaNumber', 'acta.projectCode']);
+      .select(['acta.companyId', 'acta.projectId', 'acta.actaNumber', 'acta.projectCode']);
     const ors: string[] = [];
     const params: Record<string, number | string> = {};
     let i = 0;
     for (const p of uniquePairs.values()) {
-      ors.push(`(acta.companyId = :c${i} AND acta.actaNumber = :a${i})`);
+      if (p.projectId == null) {
+        ors.push(`(acta.companyId = :c${i} AND acta.projectId IS NULL AND acta.actaNumber = :a${i})`);
+      } else {
+        ors.push(`(acta.companyId = :c${i} AND acta.projectId = :p${i} AND acta.actaNumber = :a${i})`);
+        params[`p${i}`] = p.projectId;
+      }
       params[`c${i}`] = p.companyId;
       params[`a${i}`] = p.actaNumber;
       i++;
@@ -1418,7 +1451,9 @@ export class SurveysService {
 
     const actas = await qb.getMany();
     actas.forEach((a) => {
-      if (a.projectCode) map.set(`${a.companyId}|${a.actaNumber}`, a.projectCode);
+      if (a.projectCode) {
+        map.set(SurveysService.actaCodeKey(a.companyId, a.projectId, a.actaNumber), a.projectCode);
+      }
     });
     return map;
   }
@@ -1856,7 +1891,11 @@ export class SurveysService {
     return this.annualPlanReviewRepository.save(review);
   }
 
-  async getActaSummaryDraft(companyId: number, actaNumber: string): Promise<{
+  async getActaSummaryDraft(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+  ): Promise<{
     payload: Record<string, any> | null;
     updatedAt: Date | null;
     updatedBy: number | null;
@@ -1866,7 +1905,7 @@ export class SurveysService {
     }
 
     const draft = await this.actaSummaryDraftRepository.findOne({
-      where: { companyId, actaNumber: actaNumber.trim() },
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber: actaNumber.trim() },
     });
 
     return {
@@ -1878,6 +1917,7 @@ export class SurveysService {
 
   async saveActaSummaryDraft(
     companyId: number,
+    projectId: number | null,
     actaNumber: string,
     payload: Record<string, any>,
     userId: number,
@@ -1900,12 +1940,13 @@ export class SurveysService {
 
     const normalizedActaNumber = actaNumber.trim();
     let draft = await this.actaSummaryDraftRepository.findOne({
-      where: { companyId, actaNumber: normalizedActaNumber },
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber: normalizedActaNumber },
     });
 
     if (!draft) {
       draft = this.actaSummaryDraftRepository.create({
         companyId,
+        projectId: projectId ?? null,
         actaNumber: normalizedActaNumber,
         payload,
         createdBy: userId,
@@ -1924,35 +1965,56 @@ export class SurveysService {
     };
   }
 
-  async getWorkActa(companyId: number, actaNumber: string): Promise<WorkActa | null> {
-    return this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+  async getWorkActa(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+  ): Promise<WorkActa | null> {
+    return this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
   }
 
-  async getWorkActas(pairs: Array<{ companyId: number; actaNumber: string }>): Promise<WorkActa[]> {
+  async getWorkActas(
+    pairs: Array<{ companyId: number; projectId: number | null; actaNumber: string }>,
+  ): Promise<WorkActa[]> {
     const valid = pairs.filter((p) => p.companyId != null && p.actaNumber);
     if (!valid.length) return [];
     const qb = this.workActaRepository.createQueryBuilder('acta');
     const ors: string[] = [];
     const params: Record<string, number | string> = {};
     valid.forEach((p, i) => {
-      ors.push(`(acta.companyId = :c${i} AND acta.actaNumber = :a${i})`);
+      if (p.projectId == null) {
+        ors.push(`(acta.companyId = :c${i} AND acta.projectId IS NULL AND acta.actaNumber = :a${i})`);
+      } else {
+        ors.push(`(acta.companyId = :c${i} AND acta.projectId = :p${i} AND acta.actaNumber = :a${i})`);
+        params[`p${i}`] = p.projectId;
+      }
       params[`c${i}`] = p.companyId;
       params[`a${i}`] = p.actaNumber;
     });
     return qb.where(`(${ors.join(' OR ')})`, params).getMany();
   }
 
-  async submitActaForReview(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
+  async submitActaForReview(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    userId: number,
+  ): Promise<WorkActa> {
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     const rol = user?.role?.nombreRol;
     if (!rol?.startsWith('Director de Proyecto') && rol !== 'Analista PMO') {
       throw new ForbiddenException('Solo el Director de Proyecto puede enviar el acta a revisión');
     }
 
-    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    let acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) {
       acta = this.workActaRepository.create({
         companyId,
+        projectId: projectId ?? null,
         actaNumber,
         status: ActaStatus.BORRADOR,
         createdBy: userId,
@@ -1976,6 +2038,7 @@ export class SurveysService {
 
   async reviewActa(
     companyId: number,
+    projectId: number | null,
     actaNumber: string,
     approved: boolean,
     comment: string | undefined,
@@ -1987,7 +2050,9 @@ export class SurveysService {
       throw new ForbiddenException('Solo el Director Técnico puede revisar el acta');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
     if (acta.status !== ActaStatus.EN_REVISION) {
       throw new BadRequestException('El acta no está en estado de revisión');
@@ -2019,6 +2084,7 @@ export class SurveysService {
 
   async approveActa(
     companyId: number,
+    projectId: number | null,
     actaNumber: string,
     projectCode: string,
     userId: number,
@@ -2029,7 +2095,9 @@ export class SurveysService {
       throw new ForbiddenException('Solo la Gerencia de Proyectos puede aprobar el acta');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
     if (acta.status !== ActaStatus.EN_APROBACION) {
       throw new BadRequestException('El acta no está pendiente de aprobación por Gerencia');
@@ -2050,17 +2118,25 @@ export class SurveysService {
    * El Director Técnico envía el acta a presupuesto: marca el estado de presupuesto
    * en 'en_revision' y notifica por correo a la Directora Financiera.
    */
-  async sendActaToBudget(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
+  async sendActaToBudget(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    userId: number,
+  ): Promise<WorkActa> {
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     const rol = user?.role?.nombreRol;
     if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
       throw new ForbiddenException('Solo el Director Técnico puede enviar el acta a presupuesto');
     }
 
-    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    let acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) {
       acta = this.workActaRepository.create({
         companyId,
+        projectId: projectId ?? null,
         actaNumber,
         status: ActaStatus.BORRADOR,
         createdBy: userId,
@@ -2087,6 +2163,7 @@ export class SurveysService {
    */
   async reviewActaBudget(
     companyId: number,
+    projectId: number | null,
     actaNumber: string,
     userId: number,
     decision: 'aprobado' | 'rechazado',
@@ -2098,7 +2175,9 @@ export class SurveysService {
       throw new ForbiddenException('Solo la Directora Financiera puede aprobar o rechazar el presupuesto del acta');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) {
       throw new NotFoundException('Acta no encontrada');
     }
@@ -2135,6 +2214,7 @@ export class SurveysService {
   async getActasPendingBudget(): Promise<
     Array<{
       companyId: number;
+      projectId: number | null;
       actaNumber: string;
       companyName: string | null;
       worksCount: number;
@@ -2154,10 +2234,11 @@ export class SurveysService {
     const result = await Promise.all(
       actas.map(async (a) => ({
         companyId: a.companyId,
+        projectId: a.projectId ?? null,
         actaNumber: a.actaNumber,
         companyName: companyName.get(a.companyId) ?? null,
         worksCount: await this.workRepository.count({
-          where: { companyId: a.companyId, recordNumber: a.actaNumber },
+          where: { companyId: a.companyId, projectId: a.projectId ?? IsNull(), recordNumber: a.actaNumber },
         }),
         updatedAt: a.updatedAt,
       })),
@@ -2170,17 +2251,25 @@ export class SurveysService {
   // ============================================
 
   /** El Director de Proyecto envía el plan del cronograma a revisión del Director Técnico. */
-  async submitActaCronograma(companyId: number, actaNumber: string, userId: number): Promise<WorkActa> {
+  async submitActaCronograma(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    userId: number,
+  ): Promise<WorkActa> {
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     const rol = user?.role?.nombreRol;
     if (!rol?.startsWith('Director de Proyecto') && rol !== 'Analista PMO') {
       throw new ForbiddenException('Solo el Director de Proyecto puede enviar el cronograma a revisión');
     }
 
-    let acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    let acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) {
       acta = this.workActaRepository.create({
         companyId,
+        projectId: projectId ?? null,
         actaNumber,
         status: ActaStatus.BORRADOR,
         createdBy: userId,
@@ -2206,6 +2295,7 @@ export class SurveysService {
   /** El Director Técnico aprueba (habilita ejecución) o rechaza con motivo el plan del cronograma. */
   async reviewActaCronograma(
     companyId: number,
+    projectId: number | null,
     actaNumber: string,
     userId: number,
     decision: 'aprobado' | 'rechazado',
@@ -2217,7 +2307,9 @@ export class SurveysService {
       throw new ForbiddenException('Solo el Director Técnico puede aprobar o rechazar el cronograma');
     }
 
-    const acta = await this.workActaRepository.findOne({ where: { companyId, actaNumber } });
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
     if (!acta) throw new NotFoundException('Acta no encontrada');
     if (acta.cronogramaStatus !== ActaCronogramaStatus.EN_REVISION) {
       throw new BadRequestException('El cronograma del acta no está en revisión');
@@ -2251,6 +2343,7 @@ export class SurveysService {
   async getActasPendingCronograma(): Promise<
     Array<{
       companyId: number;
+      projectId: number | null;
       actaNumber: string;
       companyName: string | null;
       worksCount: number;
@@ -2270,10 +2363,11 @@ export class SurveysService {
     return Promise.all(
       actas.map(async (a) => ({
         companyId: a.companyId,
+        projectId: a.projectId ?? null,
         actaNumber: a.actaNumber,
         companyName: companyName.get(a.companyId) ?? null,
         worksCount: await this.workRepository.count({
-          where: { companyId: a.companyId, recordNumber: a.actaNumber },
+          where: { companyId: a.companyId, projectId: a.projectId ?? IsNull(), recordNumber: a.actaNumber },
         }),
         updatedAt: a.updatedAt,
       })),

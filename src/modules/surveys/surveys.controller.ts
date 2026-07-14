@@ -37,6 +37,15 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 
+/** Query param opcional de proyecto: '', 'null' o ausente → null. */
+function parseNullableInt(value?: string): number | null {
+  if (value === undefined || value === null || value === '' || value === 'null') {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
+}
+
 @ApiTags('Surveys (Levantamiento de Obras)')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -426,8 +435,9 @@ export class SurveysController {
   async getWorkActa(
     @Param('actaNumber') actaNumber: string,
     @Query('companyId') companyId: string,
+    @Query('projectId') projectId?: string,
   ) {
-    return this.surveysService.getWorkActa(Number(companyId), actaNumber);
+    return this.surveysService.getWorkActa(Number(companyId), parseNullableInt(projectId), actaNumber);
   }
 
   @Get('actas/:actaNumber/summary-draft')
@@ -436,8 +446,9 @@ export class SurveysController {
   async getActaSummaryDraft(
     @Param('actaNumber') actaNumber: string,
     @Query('companyId') companyId: string,
+    @Query('projectId') projectId?: string,
   ) {
-    return this.surveysService.getActaSummaryDraft(Number(companyId), actaNumber);
+    return this.surveysService.getActaSummaryDraft(Number(companyId), parseNullableInt(projectId), actaNumber);
   }
 
   @Put('actas/:actaNumber/summary-draft')
@@ -445,11 +456,12 @@ export class SurveysController {
   @ApiOperation({ summary: 'Save shared editable summary draft for an acta' })
   async saveActaSummaryDraft(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number; payload: Record<string, any> },
+    @Body() body: { companyId: number; projectId?: number | null; payload: Record<string, any> },
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.saveActaSummaryDraft(
       Number(body.companyId),
+      body.projectId ?? null,
       actaNumber,
       body.payload,
       userId,
@@ -460,9 +472,14 @@ export class SurveysController {
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get status for multiple actas' })
   async getWorkActas(
-    @Body() body: { items: Array<{ companyId: number; actaNumber: string }> },
+    @Body() body: { items: Array<{ companyId: number; projectId?: number | null; actaNumber: string }> },
   ) {
-    return this.surveysService.getWorkActas(body.items || []);
+    const items = (body.items || []).map((i) => ({
+      companyId: i.companyId,
+      projectId: i.projectId ?? null,
+      actaNumber: i.actaNumber,
+    }));
+    return this.surveysService.getWorkActas(items);
   }
 
   @Patch('actas/:actaNumber/submit')
@@ -470,10 +487,10 @@ export class SurveysController {
   @ApiOperation({ summary: 'Director de Proyecto submits acta for Director Técnico review' })
   async submitActaForReview(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number },
+    @Body() body: { companyId: number; projectId?: number | null },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.submitActaForReview(body.companyId, actaNumber, userId);
+    return this.surveysService.submitActaForReview(body.companyId, body.projectId ?? null, actaNumber, userId);
   }
 
   @Patch('actas/:actaNumber/review')
@@ -481,10 +498,17 @@ export class SurveysController {
   @ApiOperation({ summary: 'Director Técnico reviews (approves or rejects) an acta' })
   async reviewActa(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number; approved: boolean; comment?: string },
+    @Body() body: { companyId: number; projectId?: number | null; approved: boolean; comment?: string },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.reviewActa(body.companyId, actaNumber, body.approved, body.comment, userId);
+    return this.surveysService.reviewActa(
+      body.companyId,
+      body.projectId ?? null,
+      actaNumber,
+      body.approved,
+      body.comment,
+      userId,
+    );
   }
 
   @Patch('actas/:actaNumber/approve')
@@ -492,10 +516,16 @@ export class SurveysController {
   @ApiOperation({ summary: 'Gerencia de Proyectos approves acta and assigns project code' })
   async approveActa(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number; projectCode: string },
+    @Body() body: { companyId: number; projectId?: number | null; projectCode: string },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.approveActa(body.companyId, actaNumber, body.projectCode, userId);
+    return this.surveysService.approveActa(
+      body.companyId,
+      body.projectId ?? null,
+      actaNumber,
+      body.projectCode,
+      userId,
+    );
   }
 
   @Patch('actas/:actaNumber/send-to-budget')
@@ -503,10 +533,10 @@ export class SurveysController {
   @ApiOperation({ summary: 'Director Técnico envía el acta a presupuesto (notifica a la Directora Financiera)' })
   async sendActaToBudget(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number },
+    @Body() body: { companyId: number; projectId?: number | null },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.sendActaToBudget(body.companyId, actaNumber, userId);
+    return this.surveysService.sendActaToBudget(body.companyId, body.projectId ?? null, actaNumber, userId);
   }
 
   @Patch('actas/:actaNumber/review-budget')
@@ -514,11 +544,12 @@ export class SurveysController {
   @ApiOperation({ summary: 'Directora Financiera aprueba/rechaza el presupuesto del acta (notifica al Director Técnico)' })
   async reviewActaBudget(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number; decision: 'aprobado' | 'rechazado'; motivo?: string },
+    @Body() body: { companyId: number; projectId?: number | null; decision: 'aprobado' | 'rechazado'; motivo?: string },
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.reviewActaBudget(
       body.companyId,
+      body.projectId ?? null,
       actaNumber,
       userId,
       body.decision,
@@ -531,10 +562,10 @@ export class SurveysController {
   @ApiOperation({ summary: 'Director de Proyecto envía el plan del cronograma a revisión técnica' })
   async submitActaCronograma(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number },
+    @Body() body: { companyId: number; projectId?: number | null },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.submitActaCronograma(body.companyId, actaNumber, userId);
+    return this.surveysService.submitActaCronograma(body.companyId, body.projectId ?? null, actaNumber, userId);
   }
 
   @Patch('actas/:actaNumber/review-cronograma')
@@ -542,11 +573,12 @@ export class SurveysController {
   @ApiOperation({ summary: 'Director Técnico aprueba/rechaza el plan del cronograma (habilita ejecución)' })
   async reviewActaCronograma(
     @Param('actaNumber') actaNumber: string,
-    @Body() body: { companyId: number; decision: 'aprobado' | 'rechazado'; motivo?: string },
+    @Body() body: { companyId: number; projectId?: number | null; decision: 'aprobado' | 'rechazado'; motivo?: string },
     @CurrentUser('userId') userId: number,
   ) {
     return this.surveysService.reviewActaCronograma(
       body.companyId,
+      body.projectId ?? null,
       actaNumber,
       userId,
       body.decision,

@@ -7,14 +7,19 @@ import {
   Unique,
 } from 'typeorm';
 
+// El borrador del "Resumen de Acta" comparte la identidad del acta:
+// (empresa, proyecto, número). project_id es nullable.
 @Entity('acta_summary_drafts')
-@Unique(['companyId', 'actaNumber'])
+@Unique(['companyId', 'projectId', 'actaNumber'])
 export class ActaSummaryDraft {
   @PrimaryGeneratedColumn({ name: 'summary_id' })
   summaryId: number;
 
   @Column({ name: 'company_id', type: 'int' })
   companyId: number;
+
+  @Column({ name: 'project_id', type: 'int', nullable: true })
+  projectId: number | null;
 
   @Column({ name: 'acta_number', type: 'varchar', length: 100 })
   actaNumber: string;
