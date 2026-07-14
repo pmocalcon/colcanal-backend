@@ -895,7 +895,9 @@ export class SurveysService {
    */
   async getWorksValue(
     workIds: number[],
-  ): Promise<{ workId: number; value: number }[]> {
+  ): Promise<
+    { workId: number; value: number; baseIpp: number | null; mesIpp: number | null }[]
+  > {
     const ids = (workIds || []).filter((n) => Number.isInteger(n));
     if (ids.length === 0) return [];
 
@@ -904,6 +906,8 @@ export class SurveysService {
     //   factor IPP = survey.previous_month_ipp / ipp_initial_value (proyecto o empresa)
     //   total ajustado = SUBTOTAL × factor
     // Se aplica el factor por survey (cada levantamiento tiene su IPP) y se suma por obra.
+    // base_ipp = IPP inicial del proyecto (o empresa); mes_ipp = IPP del mes del levantamiento.
+    // Ambos se devuelven para mostrarlos por obra (un mismo work suele tener un solo survey).
     const rows: any[] = await this.surveyRepository.query(
       `SELECT s.work_id AS work_id,
               COALESCE(SUM(
@@ -913,7 +917,9 @@ export class SurveysService {
                   THEN s.previous_month_ipp / bi.base_ipp
                   ELSE 1
                 END
-              ), 0)::float AS value
+              ), 0)::float AS value,
+              MAX(bi.base_ipp)::float AS base_ipp,
+              MAX(s.previous_month_ipp)::float AS mes_ipp
        FROM surveys s
        JOIN LATERAL (
          SELECT COALESCE(SUM(sbi.quantity * sbi.unit_value), 0)::float AS total_base
@@ -932,14 +938,19 @@ export class SurveysService {
       [ids],
     );
 
-    const valueMap = new Map<number, number>(
-      rows.map((r) => [Number(r.work_id), Number(r.value)]),
+    const rowMap = new Map<number, any>(
+      rows.map((r) => [Number(r.work_id), r]),
     );
 
-    return ids.map((workId) => ({
-      workId,
-      value: Math.round(valueMap.get(workId) || 0),
-    }));
+    return ids.map((workId) => {
+      const r = rowMap.get(workId);
+      return {
+        workId,
+        value: Math.round(Number(r?.value) || 0),
+        baseIpp: r?.base_ipp != null ? Number(r.base_ipp) : null,
+        mesIpp: r?.mes_ipp != null ? Number(r.mes_ipp) : null,
+      };
+    });
   }
 
   // ============================================
