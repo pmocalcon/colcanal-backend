@@ -31,6 +31,10 @@ export class Ucap {
   @Column({ type: "text" })
   description: string;
 
+  // Grupo/categoría para agrupar UCAPs (LUMINARIAS, FOTOCONTROLES, ...). Lista fija en el front.
+  @Column({ name: "grupo", type: "varchar", length: 60, nullable: true })
+  grupo: string | null;
+
   @Column({ name: "rounded_value", type: "decimal", precision: 15, scale: 2 })
   roundedValue: number;
 

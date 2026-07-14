@@ -109,6 +109,11 @@ export class SaveUcapCostSheetDto {
   @IsString()
   description?: string;
 
+  @ApiProperty({ required: false, nullable: true, description: "Grupo/categoria de la UCAP" })
+  @IsOptional()
+  @IsString()
+  grupo?: string | null;
+
   @ApiProperty({ required: false, nullable: true, description: "IPP inicial (base) de la UCAP" })
   @IsOptional()
   @IsNumber()

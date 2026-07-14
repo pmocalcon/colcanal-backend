@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, IsNull } from "typeorm";
+import { DataSource, EntityManager, Repository, IsNull } from "typeorm";
 import { CregMunicipioConfig } from "../../database/entities/creg-municipio-config.entity";
 import { CregParametrizacion } from "../../database/entities/creg-parametrizacion.entity";
 import { CregCenso } from "../../database/entities/creg-censo.entity";
@@ -50,6 +50,7 @@ export class CregService {
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -339,7 +340,8 @@ export class CregService {
   }
 
   /**
-   * Crea la UCAP y guarda su hoja de costos en una sola operación.
+   * Crea la UCAP y guarda su hoja de costos en una sola operación ATÓMICA:
+   * si algo falla, no queda una UCAP huérfana ocupando el código.
    */
   async createUnit(dto: CreateCregUnitDto) {
     const code = (dto.code ?? "").trim();
@@ -359,25 +361,31 @@ export class CregService {
 
     const ippBase = await this.getCompanyIppBase(dto.companyId, projectId);
 
-    const ucap = this.ucapRepo.create({
-      companyId: dto.companyId,
-      code,
-      description,
-      roundedValue: 0,
-      initialIpp: dto.initialIpp ?? ippBase ?? 0,
-      isActive: true,
-      ...(projectId ? { projectId } : {}),
-    } as Partial<Ucap> as Ucap);
+    const ucapId = await this.dataSource.transaction(async (m) => {
+      const ucap = m.getRepository(Ucap).create({
+        companyId: dto.companyId,
+        code,
+        description,
+        roundedValue: 0,
+        initialIpp: dto.initialIpp ?? ippBase ?? 0,
+        isActive: true,
+        ...(projectId ? { projectId } : {}),
+      } as Partial<Ucap> as Ucap);
+      // Código/descripción ya quedan seteados; persistSheet aplica el resto.
+      await this.persistSheet(m, ucap, dto, ippBase);
+      return ucap.ucapId;
+    });
 
-    const saved = await this.ucapRepo.save(ucap);
-    // El codigo/descripcion ya quedaron guardados; saveSheet aplica el resto.
-    return this.saveSheet(saved.ucapId, dto);
+    return this.findOne(ucapId);
   }
 
   /**
    * Guarda la hoja de costos dentro de la UCAP y actualiza su valor (roundedValue)
    * con el TOTAL CON INDIRECTOS (sin IPP). También permite editar el código,
    * la descripción y el IPP inicial de la UCAP desde la misma hoja.
+   *
+   * El borrado de líneas + guardado van en una TRANSACCIÓN: si el save falla, no
+   * se pierde la hoja de costos existente.
    */
   async saveSheet(ucapId: number, dto: SaveUcapCostSheetDto) {
     const ucap = await this.ucapRepo.findOne({
@@ -405,6 +413,25 @@ export class CregService {
       ucap.description = description;
     }
 
+    await this.dataSource.transaction((m) => this.persistSheet(m, ucap, dto, ippBase));
+    return this.findOne(ucapId);
+  }
+
+  /**
+   * Aplica los %/IPP/potencias, reemplaza las líneas y recalcula el valor de la
+   * UCAP, todo con el `EntityManager` recibido (dentro de una transacción).
+   * No hace lecturas de configuración: el `ippBase` se pasa ya resuelto.
+   */
+  private async persistSheet(
+    m: EntityManager,
+    ucap: Ucap,
+    dto: SaveUcapCostSheetDto,
+    ippBase: number | null,
+  ): Promise<void> {
+    const ucapRepo = m.getRepository(Ucap);
+    const itemRepo = m.getRepository(UcapCostItem);
+
+    if (dto.grupo !== undefined) ucap.grupo = dto.grupo?.trim() || null;
     ucap.pctEngineering = dto.pctEngineering;
     ucap.pctAdministration = dto.pctAdministration;
     ucap.pctInspection = dto.pctInspection;
@@ -422,10 +449,10 @@ export class CregService {
     if (dto.initialIpp != null) ucap.initialIpp = dto.initialIpp;
     else if (ippBase != null) ucap.initialIpp = ippBase;
 
-    // Reemplazar las líneas
-    await this.itemRepo.delete({ ucapId });
+    // Reemplazar las líneas (sólo si la UCAP ya existía: al crear no hay nada que borrar).
+    if (ucap.ucapId) await itemRepo.delete({ ucapId: ucap.ucapId });
     ucap.costItems = dto.items.map((it, idx) =>
-      this.itemRepo.create({
+      itemRepo.create({
         section: it.section,
         materialId: it.materialId ?? null,
         name: it.name,
@@ -461,10 +488,9 @@ export class CregService {
     ucap.roundedValue =
       dto.items.length > 0
         ? totals.totalUnit
-        : dto.roundedValue ?? Number(ucap.roundedValue) ?? 0;
+        : dto.roundedValue ?? (Number(ucap.roundedValue) || 0);
 
-    await this.ucapRepo.save(ucap);
-    return this.findOne(ucapId);
+    await ucapRepo.save(ucap);
   }
 
   /**
@@ -488,6 +514,34 @@ export class CregService {
     ucap.ippCurrent = null;
     await this.ucapRepo.save(ucap);
     return { message: "Hoja de costos eliminada" };
+  }
+
+  /**
+   * Elimina la UCAP por completo (y sus líneas), liberando el código para poder
+   * reutilizarlo. Sirve para recuperar UCAPs mal creadas. Si la UCAP está en uso
+   * (referenciada por presupuestos/levantamientos), la FK lo impide y se devuelve
+   * un error claro en vez de un 500.
+   */
+  async deleteUnit(ucapId: number) {
+    const ucap = await this.ucapRepo.findOne({ where: { ucapId } });
+    if (!ucap) {
+      throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
+    }
+    try {
+      await this.dataSource.transaction(async (m) => {
+        await m.getRepository(UcapCostItem).delete({ ucapId });
+        await m.getRepository(Ucap).delete({ ucapId });
+      });
+    } catch (err: any) {
+      // 23503 = foreign_key_violation (Postgres): la UCAP está referenciada.
+      if (err?.code === "23503") {
+        throw new BadRequestException(
+          "No se puede eliminar la UCAP porque está en uso (presupuestos o levantamientos la referencian).",
+        );
+      }
+      throw err;
+    }
+    return { message: "UCAP eliminada" };
   }
 
   // ============ Helpers de cálculo ============
@@ -611,6 +665,7 @@ export class CregService {
       projectId: ucap.projectId ?? null,
       code: ucap.code,
       name: ucap.description,
+      grupo: ucap.grupo ?? null,
       value: Number(ucap.roundedValue),
       /** IPP inicial propio de la UCAP (columna "IPP inicial" de la lista). */
       initialIpp: ucap.initialIpp != null ? Number(ucap.initialIpp) : null,

@@ -158,10 +158,17 @@ export class CregController {
     return this.service.saveSheet(ucapId, dto);
   }
 
-  @Delete("units/:ucapId")
+  @Delete("units/:ucapId/sheet")
   @Permissions("creg:unidades")
-  @ApiOperation({ summary: "Eliminar la hoja de costos de una UCAP" })
+  @ApiOperation({ summary: "Eliminar la hoja de costos de una UCAP (sin borrar la UCAP)" })
   clearSheet(@Param("ucapId", ParseIntPipe) ucapId: number) {
     return this.service.clearSheet(ucapId);
+  }
+
+  @Delete("units/:ucapId")
+  @Permissions("creg:unidades")
+  @ApiOperation({ summary: "Eliminar la UCAP por completo (libera el código)" })
+  deleteUnit(@Param("ucapId", ParseIntPipe) ucapId: number) {
+    return this.service.deleteUnit(ucapId);
   }
 }
