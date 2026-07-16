@@ -63,6 +63,7 @@ export { DirectorBudgetItem } from './director-budget-item.entity';
 export { CregMunicipioConfig } from './creg-municipio-config.entity';
 export { CregParametrizacion } from './creg-parametrizacion.entity';
 export { CregCenso } from './creg-censo.entity';
+export { CregLiquidacion } from './creg-liquidacion.entity';
 export { UcapCostItem } from './ucap-cost-item.entity';
 export { UcapApellido } from './ucap-apellido.entity';
 

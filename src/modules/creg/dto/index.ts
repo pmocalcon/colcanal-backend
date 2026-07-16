@@ -27,6 +27,14 @@ export class SaveCregCensoDto {
   data: Record<string, any>;
 }
 
+// ============ Liquidacion mensual por municipio ============
+
+export class SaveCregLiquidacionDto {
+  @ApiProperty({ type: Object, description: "Datos propios de cada mes liquidado (ajustes, IPP usado)" })
+  @IsObject()
+  data: Record<string, any>;
+}
+
 // ============ Configuracion por municipio ============
 
 export class UpsertCregConfigDto {

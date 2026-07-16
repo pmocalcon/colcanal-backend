@@ -18,6 +18,7 @@ import {
   CreateCregUnitDto,
   RenameUcapApellidoDto,
   SaveCregCensoDto,
+  SaveCregLiquidacionDto,
   SaveCregParametrizacionDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
@@ -75,9 +76,10 @@ export class CregController {
 
   // ---- Parametrizacion por municipio ----
 
-  // El Censo fisico tambien lee de aqui: el rango de meses vive en Parametros.
+  // El Censo fisico y la Liquidacion tambien leen de aqui: el rango de meses y
+  // los factores (r, Vi, FAOM, IPP, % ambientales) viven en Parametros.
   @Get("parametrizacion/:companyId")
-  @Permissions("creg:parametros", "creg:censo")
+  @Permissions("creg:parametros", "creg:censo", "creg:liquidacion")
   @ApiOperation({ summary: "Obtener la parametrizacion CREG del municipio" })
   getParametrizacion(
     @Param("companyId", ParseIntPipe) companyId: number,
@@ -103,8 +105,9 @@ export class CregController {
 
   // ---- Censo fisico por municipio ----
 
+  // La Liquidacion toma de aqui las cantidades del mes liquidado.
   @Get("censo/:companyId")
-  @Permissions("creg:censo")
+  @Permissions("creg:censo", "creg:liquidacion")
   @ApiOperation({ summary: "Obtener el censo fisico del municipio" })
   getCenso(
     @Param("companyId", ParseIntPipe) companyId: number,
@@ -122,6 +125,35 @@ export class CregController {
     @Query("projectId") projectId?: string,
   ) {
     return this.service.saveCenso(companyId, parseOptionalInt(projectId), dto);
+  }
+
+  // ---- Liquidacion mensual por municipio ----
+
+  // La liquidacion se calcula con el censo y los Parametros del municipio;
+  // aqui solo vive lo propio de cada mes (ajustes, IPP usado).
+  @Get("liquidacion/:companyId")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Obtener la liquidacion mensual del municipio" })
+  getLiquidacion(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.getLiquidacion(companyId, parseOptionalInt(projectId));
+  }
+
+  @Put("liquidacion/:companyId")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Guardar la liquidacion mensual del municipio" })
+  saveLiquidacion(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: SaveCregLiquidacionDto,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.saveLiquidacion(
+      companyId,
+      parseOptionalInt(projectId),
+      dto,
+    );
   }
 
   // ---- Hojas de costos (sobre UCAPs) ----

@@ -8,6 +8,7 @@ import { DataSource, EntityManager, Repository, IsNull } from "typeorm";
 import { CregMunicipioConfig } from "../../database/entities/creg-municipio-config.entity";
 import { CregParametrizacion } from "../../database/entities/creg-parametrizacion.entity";
 import { CregCenso } from "../../database/entities/creg-censo.entity";
+import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
 import { UcapApellido } from "../../database/entities/ucap-apellido.entity";
@@ -16,6 +17,7 @@ import { Project } from "../../database/entities/project.entity";
 import {
   CreateCregUnitDto,
   SaveCregCensoDto,
+  SaveCregLiquidacionDto,
   SaveCregParametrizacionDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
@@ -43,6 +45,8 @@ export class CregService {
     private readonly paramRepo: Repository<CregParametrizacion>,
     @InjectRepository(CregCenso)
     private readonly censoRepo: Repository<CregCenso>,
+    @InjectRepository(CregLiquidacion)
+    private readonly liquidacionRepo: Repository<CregLiquidacion>,
     @InjectRepository(Ucap)
     private readonly ucapRepo: Repository<Ucap>,
     @InjectRepository(UcapCostItem)
@@ -246,6 +250,36 @@ export class CregService {
     row.data = dto.data ?? {};
     await this.censoRepo.save(row);
     return this.getCenso(companyId, projectId);
+  }
+
+  // ============ Liquidacion mensual por municipio ============
+
+  async getLiquidacion(companyId: number, projectId?: number | null) {
+    const row = await this.liquidacionRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return {
+      companyId,
+      projectId: projectId ?? null,
+      data: row?.data ?? null,
+      exists: !!row,
+    };
+  }
+
+  async saveLiquidacion(
+    companyId: number,
+    projectId: number | null,
+    dto: SaveCregLiquidacionDto,
+  ) {
+    let row = await this.liquidacionRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    if (!row) {
+      row = this.liquidacionRepo.create({ companyId, projectId: projectId ?? null });
+    }
+    row.data = dto.data ?? {};
+    await this.liquidacionRepo.save(row);
+    return this.getLiquidacion(companyId, projectId);
   }
 
   // ============ Resumen agregado (dashboard) ============
@@ -634,8 +668,11 @@ export class CregService {
     ippBase: number | null,
     ippCurrent: number | null,
   ) {
-    // Excel redondea a peso entero en cada paso (cada línea, subtotales,
-    // indirectos y total). Se replica ese redondeo para cuadrar exacto.
+    // Cada línea de costo directo sí se redondea a peso entero (es lo que se
+    // captura y se muestra). Los indirectos, en cambio, se calculan con toda su
+    // precisión y solo se TRUNCA el total: redondear cada indirecto por separado
+    // acumulaba centavos y dejaba la UCAP 1-2 pesos por encima del Excel
+    // (p.ej. 3.162.502 en vez de 3.162.500; LED 35 W 2.270.245 vs 2.270.244).
     const r = (n: number) => Math.round(n);
     const sum = (section: string) =>
       items
@@ -649,15 +686,16 @@ export class CregService {
     const subtotalDirectos =
       subtotalMaterials + subtotalTransporte + subtotalObraCivil + subtotalMontaje;
 
+    // Sin redondear: el redondeo se aplica una sola vez, sobre el total.
     const indirect = {
-      transport: r(subtotalDirectos * (pct.transport / 100)),
-      engineering: r(subtotalDirectos * (pct.engineering / 100)),
-      administration: r(subtotalDirectos * (pct.administration / 100)),
-      inspection: r(subtotalDirectos * (pct.inspection / 100)),
-      interventoria: r(subtotalDirectos * (pct.interventoria / 100)),
-      retieRetilap: r(subtotalDirectos * (pct.retieRetilap / 100)),
-      financial: r(subtotalDirectos * (pct.financial / 100)),
-      environmental: r(subtotalDirectos * (pct.environmental / 100)),
+      transport: subtotalDirectos * (pct.transport / 100),
+      engineering: subtotalDirectos * (pct.engineering / 100),
+      administration: subtotalDirectos * (pct.administration / 100),
+      inspection: subtotalDirectos * (pct.inspection / 100),
+      interventoria: subtotalDirectos * (pct.interventoria / 100),
+      retieRetilap: subtotalDirectos * (pct.retieRetilap / 100),
+      financial: subtotalDirectos * (pct.financial / 100),
+      environmental: subtotalDirectos * (pct.environmental / 100),
     };
     const totalIndirectos =
       indirect.transport +
@@ -668,11 +706,11 @@ export class CregService {
       indirect.retieRetilap +
       indirect.financial +
       indirect.environmental;
-    const totalUnit = subtotalDirectos + totalIndirectos;
+    const totalUnit = Math.floor(subtotalDirectos + totalIndirectos);
     // Factor IPP = IPP actual / IPP base (actualiza el valor a precios de hoy).
     const ippFactor =
       ippBase && ippCurrent && ippBase !== 0 ? ippCurrent / ippBase : 1;
-    const finalValue = r(totalUnit * ippFactor);
+    const finalValue = Math.floor(totalUnit * ippFactor);
 
     return {
       subtotalMaterials,
