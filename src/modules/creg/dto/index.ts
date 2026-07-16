@@ -195,6 +195,20 @@ export class SaveUcapCostSheetDto {
   items: UcapCostItemDto[];
 }
 
+/** Agregar un apellido/variante a una UCAP. */
+export class AddUcapApellidoDto {
+  @ApiProperty({ description: "Nombre del apellido/variante (p. ej. 'Acta 001-2024')" })
+  @IsString()
+  apellido: string;
+}
+
+/** Renombrar un apellido/variante existente. */
+export class RenameUcapApellidoDto {
+  @ApiProperty({ description: "Nuevo nombre del apellido/variante" })
+  @IsString()
+  apellido: string;
+}
+
 /**
  * Crea la UCAP y guarda su hoja de costos en una sola llamada.
  * `code` y `description` se heredan de SaveUcapCostSheetDto y aqui son obligatorios

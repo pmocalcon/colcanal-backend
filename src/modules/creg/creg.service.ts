@@ -10,6 +10,7 @@ import { CregParametrizacion } from "../../database/entities/creg-parametrizacio
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
+import { UcapApellido } from "../../database/entities/ucap-apellido.entity";
 import { Company } from "../../database/entities/company.entity";
 import { Project } from "../../database/entities/project.entity";
 import {
@@ -46,6 +47,8 @@ export class CregService {
     private readonly ucapRepo: Repository<Ucap>,
     @InjectRepository(UcapCostItem)
     private readonly itemRepo: Repository<UcapCostItem>,
+    @InjectRepository(UcapApellido)
+    private readonly apellidoRepo: Repository<UcapApellido>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(Project)
@@ -302,7 +305,7 @@ export class CregService {
         projectId: projectId ?? IsNull(),
         isActive: true,
       },
-      relations: ["costItems"],
+      relations: ["costItems", "apellidos"],
       order: { code: "ASC" },
     });
     const base = await this.getCompanyIppBase(companyId, projectId);
@@ -314,7 +317,7 @@ export class CregService {
   async findOne(ucapId: number) {
     const ucap = await this.ucapRepo.findOne({
       where: { ucapId },
-      relations: ["costItems"],
+      relations: ["costItems", "apellidos"],
     });
     if (!ucap) {
       throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
@@ -415,6 +418,76 @@ export class CregService {
 
     await this.dataSource.transaction((m) => this.persistSheet(m, ucap, dto, ippBase));
     return this.findOne(ucapId);
+  }
+
+  // ============ Apellidos/variantes de una UCAP ============
+
+  private serializeApellido(a: UcapApellido) {
+    return {
+      apellidoId: a.apellidoId,
+      ucapId: a.ucapId,
+      apellido: a.apellido,
+      sortOrder: a.sortOrder,
+    };
+  }
+
+  /** Lista los apellidos/variantes de una UCAP, en orden. */
+  async listApellidos(ucapId: number) {
+    const rows = await this.apellidoRepo.find({
+      where: { ucapId },
+      order: { sortOrder: "ASC", apellidoId: "ASC" },
+    });
+    return rows.map((a) => this.serializeApellido(a));
+  }
+
+  /** Agrega un apellido/variante a la UCAP (al final del orden). */
+  async addApellido(ucapId: number, apellido: string) {
+    const ucap = await this.ucapRepo.findOne({ where: { ucapId } });
+    if (!ucap) throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
+    const name = (apellido ?? "").trim();
+    if (!name) throw new BadRequestException("El apellido es obligatorio");
+
+    const last = await this.apellidoRepo.findOne({
+      where: { ucapId },
+      order: { sortOrder: "DESC" },
+    });
+    const row = this.apellidoRepo.create({
+      ucapId,
+      apellido: name,
+      sortOrder: (last?.sortOrder ?? -1) + 1,
+    });
+    const saved = await this.apellidoRepo.save(row);
+    return this.serializeApellido(saved);
+  }
+
+  /** Renombra un apellido/variante. */
+  async renameApellido(apellidoId: number, apellido: string) {
+    const row = await this.apellidoRepo.findOne({ where: { apellidoId } });
+    if (!row) throw new NotFoundException(`Apellido ${apellidoId} no encontrado`);
+    const name = (apellido ?? "").trim();
+    if (!name) throw new BadRequestException("El apellido es obligatorio");
+    row.apellido = name;
+    const saved = await this.apellidoRepo.save(row);
+    return this.serializeApellido(saved);
+  }
+
+  /**
+   * Elimina un apellido/variante. Idempotente: si la fila ya no existe (borrada
+   * antes, doble clic, UI con estado viejo), la operación se considera cumplida
+   * en vez de devolver 404 y dejar la fila fantasma atascada en la interfaz.
+   */
+  async deleteApellido(apellidoId: number) {
+    const row = await this.apellidoRepo.findOne({ where: { apellidoId } });
+    if (!row) {
+      return {
+        message: "El apellido ya no existía",
+        apellidoId,
+        ucapId: null as number | null,
+        alreadyGone: true,
+      };
+    }
+    await this.apellidoRepo.delete({ apellidoId });
+    return { message: "Apellido eliminado", apellidoId, ucapId: row.ucapId, alreadyGone: false };
   }
 
   /**
@@ -666,6 +739,10 @@ export class CregService {
       code: ucap.code,
       name: ucap.description,
       grupo: ucap.grupo ?? null,
+      apellidos: (ucap.apellidos || [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.apellidoId - b.apellidoId)
+        .map((a) => this.serializeApellido(a)),
       value: Number(ucap.roundedValue),
       /** IPP inicial propio de la UCAP (columna "IPP inicial" de la lista). */
       initialIpp: ucap.initialIpp != null ? Number(ucap.initialIpp) : null,

@@ -12,6 +12,7 @@ import {
 import { Company } from "./company.entity";
 import { Project } from "./project.entity";
 import { UcapCostItem } from "./ucap-cost-item.entity";
+import { UcapApellido } from "./ucap-apellido.entity";
 
 @Entity("ucaps")
 @Unique(["companyId", "projectId", "code"])
@@ -104,4 +105,8 @@ export class Ucap {
 
   @OneToMany(() => UcapCostItem, (item) => item.ucap, { cascade: true })
   costItems: UcapCostItem[];
+
+  // Apellidos/variantes de la UCAP (distinguen el origen: acta, otrosí, ...).
+  @OneToMany(() => UcapApellido, (a) => a.ucap, { cascade: true })
+  apellidos: UcapApellido[];
 }

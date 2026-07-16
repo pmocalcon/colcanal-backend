@@ -64,6 +64,7 @@ export { CregMunicipioConfig } from './creg-municipio-config.entity';
 export { CregParametrizacion } from './creg-parametrizacion.entity';
 export { CregCenso } from './creg-censo.entity';
 export { UcapCostItem } from './ucap-cost-item.entity';
+export { UcapApellido } from './ucap-apellido.entity';
 
 // Schedules (Cronograma)
 export { Schedule } from './schedule.entity';

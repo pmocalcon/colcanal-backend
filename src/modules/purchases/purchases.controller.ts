@@ -294,8 +294,9 @@ export class PurchasesController {
   // Ruta estática antes de '@Get(":id")' para que no la capture como id.
   @Get("dashboard-summary")
   @ApiOperation({ summary: "Resumen agregado de compras para el dashboard" })
-  async getPurchasesDashboardSummary() {
-    return this.purchasesService.getPurchasesDashboardSummary();
+  async getPurchasesDashboardSummary(@Query("year") year?: string) {
+    const y = year ? Number(year) : undefined;
+    return this.purchasesService.getPurchasesDashboardSummary(Number.isFinite(y) ? y : undefined);
   }
 
   @Post("void-requisitions")

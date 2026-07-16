@@ -887,8 +887,9 @@ export class SurveysService {
       }
     }
 
-    // Get UCAPs
+    // Get UCAPs (con sus apellidos/variantes para el listado y el censo)
     const query = this.ucapRepository.createQueryBuilder('ucap')
+      .leftJoinAndSelect('ucap.apellidos', 'apellidos')
       .where('ucap.companyId = :companyId', { companyId })
       .andWhere('ucap.isActive = true');
 
@@ -896,7 +897,7 @@ export class SurveysService {
       query.andWhere('(ucap.projectId = :projectId OR ucap.projectId IS NULL)', { projectId });
     }
 
-    query.orderBy('ucap.code', 'ASC');
+    query.orderBy('ucap.code', 'ASC').addOrderBy('apellidos.sortOrder', 'ASC');
 
     const ucaps = await query.getMany();
 

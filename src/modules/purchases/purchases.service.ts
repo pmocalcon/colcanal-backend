@@ -872,56 +872,219 @@ export class PurchasesService {
    * Resumen agregado de compras para el dashboard: totales exactos, desglose por
    * estado y tendencia mensual (últimos 12 meses) de requisiciones y órdenes.
    */
-  async getPurchasesDashboardSummary() {
-    const from = new Date();
-    from.setMonth(from.getMonth() - 11);
-    from.setDate(1);
-    from.setHours(0, 0, 0, 0);
+  async getPurchasesDashboardSummary(year?: number) {
+    const hasYear = !!year && Number.isFinite(year);
+    const yearFrom = hasYear ? new Date(year!, 0, 1) : null;
+    const yearTo = hasYear ? new Date(year! + 1, 0, 1) : null;
+
+    // Rango de las series mensuales: el año elegido, o los últimos 12 meses.
+    const trailingFrom = new Date();
+    trailingFrom.setMonth(trailingFrom.getMonth() - 11);
+    trailingFrom.setDate(1);
+    trailingFrom.setHours(0, 0, 0, 0);
+
+    // Aplica el filtro de año (si hay) a un QueryBuilder sobre la columna dada.
+    const applyYear = (qb: any, col: string) => {
+      if (hasYear) qb.andWhere(`${col} >= :yf AND ${col} < :yt`, { yf: yearFrom, yt: yearTo });
+      return qb;
+    };
+    const monthlyWhere = hasYear
+      ? { clause: "%COL% >= :yf AND %COL% < :yt", params: { yf: yearFrom, yt: yearTo } }
+      : { clause: "%COL% >= :tf", params: { tf: trailingFrom } };
 
     const [reqTotal, reqByStatus, reqMonthly] = await Promise.all([
-      this.requisitionRepository.count(),
-      this.requisitionRepository
-        .createQueryBuilder("r")
-        .leftJoin("r.status", "s")
-        .select("s.name", "name")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("s.name")
-        .getRawMany(),
+      applyYear(this.requisitionRepository.createQueryBuilder("r"), "r.created_at").getCount(),
+      applyYear(
+        this.requisitionRepository
+          .createQueryBuilder("r")
+          .leftJoin("r.status", "s")
+          .select("s.name", "name")
+          .addSelect("COUNT(*)", "count")
+          .groupBy("s.name"),
+        "r.created_at",
+      ).getRawMany(),
       this.requisitionRepository
         .createQueryBuilder("r")
         .select("to_char(r.created_at, 'YYYY-MM')", "month")
         .addSelect("COUNT(*)", "count")
-        .where("r.created_at >= :from", { from })
+        .where(monthlyWhere.clause.replace(/%COL%/g, "r.created_at"), monthlyWhere.params)
         .groupBy("month")
         .orderBy("month", "ASC")
         .getRawMany(),
     ]);
 
-    const [poAgg, poByStatus, poMonthly] = await Promise.all([
-      this.purchaseOrderRepository
-        .createQueryBuilder("po")
-        .select("COUNT(*)", "count")
-        .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
-        .getRawOne<{ count: string; value: string }>(),
-      this.purchaseOrderRepository
-        .createQueryBuilder("po")
-        .leftJoin("po.approvalStatus", "s")
-        .select("s.name", "name")
-        .addSelect("COUNT(*)", "count")
-        .groupBy("s.name")
-        .getRawMany(),
+    const [poAgg, poByStatus, poMonthly, poBySupplier] = await Promise.all([
+      applyYear(
+        this.purchaseOrderRepository
+          .createQueryBuilder("po")
+          .select("COUNT(*)", "count")
+          .addSelect("COALESCE(SUM(po.total_amount), 0)", "value"),
+        "po.created_at",
+      ).getRawOne(),
+      applyYear(
+        this.purchaseOrderRepository
+          .createQueryBuilder("po")
+          .leftJoin("po.approvalStatus", "s")
+          .select("s.name", "name")
+          .addSelect("COUNT(*)", "count")
+          .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+          .groupBy("s.name"),
+        "po.created_at",
+      ).getRawMany(),
       this.purchaseOrderRepository
         .createQueryBuilder("po")
         .select("to_char(po.created_at, 'YYYY-MM')", "month")
         .addSelect("COUNT(*)", "count")
         .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
-        .where("po.created_at >= :from", { from })
+        .where(monthlyWhere.clause.replace(/%COL%/g, "po.created_at"), monthlyWhere.params)
         .groupBy("month")
         .orderBy("month", "ASC")
         .getRawMany(),
+      applyYear(
+        this.purchaseOrderRepository
+          .createQueryBuilder("po")
+          .leftJoin("po.supplier", "sup")
+          .select("sup.name", "name")
+          .addSelect("COUNT(*)", "count")
+          .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+          .groupBy("sup.name")
+          .orderBy("value", "DESC")
+          .limit(10),
+        "po.created_at",
+      ).getRawMany(),
     ]);
 
+    // Ahorro por cotización: en los ítems con 2+ cotizaciones activas, cuánto se
+    // ahorró al elegir un proveedor más barato que el más caro cotizado
+    // (cantidad × (precio máximo cotizado − precio seleccionado)).
+    let savingsValue = 0;
+    let savingsItems = 0;
+    try {
+      const savingsParams: any[] = [];
+      let savingsWhere = "";
+      if (hasYear) {
+        savingsWhere = "WHERE r.created_at >= $1 AND r.created_at < $2";
+        savingsParams.push(yearFrom, yearTo);
+      }
+      const savingsRows = await this.dataSource.query(
+        `SELECT COALESCE(SUM(ri.quantity * (q.max_price - q.sel_price)), 0) AS savings,
+                COUNT(*) AS items
+         FROM (
+           SELECT rq.requisition_item_id,
+                  MAX(rq.unit_price) AS max_price,
+                  MAX(rq.unit_price) FILTER (WHERE rq.is_selected) AS sel_price
+           FROM requisition_item_quotations rq
+           WHERE rq.is_active = true AND rq.unit_price IS NOT NULL
+           GROUP BY rq.requisition_item_id
+           HAVING COUNT(*) > 1 AND BOOL_OR(rq.is_selected) = true
+         ) q
+         JOIN requisition_items ri ON ri.item_id = q.requisition_item_id
+         JOIN requisitions r ON r.requisition_id = ri.requisition_id
+         ${savingsWhere}`,
+        savingsParams,
+      );
+      savingsValue = Number(savingsRows?.[0]?.savings ?? 0);
+      savingsItems = Number(savingsRows?.[0]?.items ?? 0);
+    } catch (e: any) {
+      this.logger.warn(
+        `No se pudo calcular el ahorro por cotización: ${e?.message ?? e}`,
+      );
+    }
+
+    // Valor de órdenes por año (para el comparativo año vs. año, sin filtrar por año).
+    const poByYearRaw = await this.purchaseOrderRepository
+      .createQueryBuilder("po")
+      .select("EXTRACT(YEAR FROM po.created_at)", "year")
+      .addSelect("COUNT(*)", "count")
+      .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+      .groupBy("year")
+      .orderBy("year", "ASC")
+      .getRawMany();
+
+    const [poByCompany, poByCategory, poPendingAgg, poMonthByYear] =
+      await Promise.all([
+        // Gasto por empresa (dónde se va la plata).
+        applyYear(
+          this.purchaseOrderRepository
+            .createQueryBuilder("po")
+            .leftJoin("po.requisition", "r")
+            .leftJoin("r.company", "c")
+            .select("c.name", "name")
+            .addSelect("COUNT(*)", "count")
+            .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+            .groupBy("c.name")
+            .orderBy("value", "DESC")
+            .limit(12),
+          "po.created_at",
+        ).getRawMany(),
+        // Gasto por categoría de material (en qué se gasta).
+        applyYear(
+          this.purchaseOrderItemRepository
+            .createQueryBuilder("poi")
+            .leftJoin("poi.purchaseOrder", "po")
+            .leftJoin("poi.requisitionItem", "ri")
+            .leftJoin("ri.material", "m")
+            .leftJoin("m.materialGroup", "mg")
+            .select("mg.name", "name")
+            .addSelect("COALESCE(SUM(poi.total_amount), 0)", "value")
+            .groupBy("mg.name")
+            .orderBy("value", "DESC")
+            .limit(12),
+          "po.created_at",
+        ).getRawMany(),
+        // Valor $ pendiente de aprobación de gerencia.
+        applyYear(
+          this.purchaseOrderRepository
+            .createQueryBuilder("po")
+            .leftJoin("po.approvalStatus", "s")
+            .select("COALESCE(SUM(po.total_amount), 0)", "value")
+            .addSelect("COUNT(*)", "count")
+            .where("s.code = :pendCode", {
+              pendCode: "pendiente_aprobacion_gerencia",
+            }),
+          "po.created_at",
+        ).getRawOne(),
+        // Valor de órdenes por mes y año (comparativo mensual sobrepuesto).
+        this.purchaseOrderRepository
+          .createQueryBuilder("po")
+          .select("EXTRACT(YEAR FROM po.created_at)", "year")
+          .addSelect("EXTRACT(MONTH FROM po.created_at)", "month")
+          .addSelect("COALESCE(SUM(po.total_amount), 0)", "value")
+          .groupBy("year")
+          .addGroupBy("month")
+          .orderBy("year", "ASC")
+          .addOrderBy("month", "ASC")
+          .getRawMany(),
+      ]);
+
+    // Años disponibles (de requisiciones) para el filtro del dashboard.
+    const yearsRaw = await this.requisitionRepository
+      .createQueryBuilder("r")
+      .select("DISTINCT EXTRACT(YEAR FROM r.created_at)", "y")
+      .orderBy("y", "DESC")
+      .getRawMany();
+
     return {
+      year: hasYear ? year : null,
+      years: yearsRaw.map((x) => Number(x.y)).filter((n) => Number.isFinite(n)),
+      savings: { value: savingsValue, items: savingsItems },
+      poPending: {
+        value: Number(poPendingAgg?.value ?? 0),
+        count: Number(poPendingAgg?.count ?? 0),
+      },
+      byCompany: poByCompany.map((x) => ({
+        name: x.name ?? "Sin empresa",
+        count: Number(x.count),
+        value: Number(x.value),
+      })),
+      byCategory: poByCategory
+        .filter((x) => x.name != null)
+        .map((x) => ({ name: x.name, value: Number(x.value) })),
+      monthlyByYear: poMonthByYear.map((x) => ({
+        year: Number(x.year),
+        month: Number(x.month),
+        value: Number(x.value),
+      })),
       requisitions: {
         total: reqTotal,
         byStatus: reqByStatus.map((x) => ({ name: x.name ?? "Sin estado", count: Number(x.count) })),
@@ -930,12 +1093,28 @@ export class PurchasesService {
       purchaseOrders: {
         total: Number(poAgg?.count ?? 0),
         value: Number(poAgg?.value ?? 0),
-        byStatus: poByStatus.map((x) => ({ name: x.name ?? "Sin estado", count: Number(x.count) })),
+        byStatus: poByStatus.map((x) => ({
+          name: x.name ?? "Sin estado",
+          count: Number(x.count),
+          value: Number(x.value),
+        })),
+        bySupplier: poBySupplier.map((x) => ({
+          name: x.name ?? "Sin proveedor",
+          count: Number(x.count),
+          value: Number(x.value),
+        })),
         monthly: poMonthly.map((x) => ({
           month: x.month,
           count: Number(x.count),
           value: Number(x.value),
         })),
+        byYear: poByYearRaw
+          .map((x) => ({
+            year: Number(x.year),
+            count: Number(x.count),
+            value: Number(x.value),
+          }))
+          .filter((x) => Number.isFinite(x.year)),
       },
     };
   }

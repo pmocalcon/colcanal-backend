@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -13,7 +14,9 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { CregService } from "./creg.service";
 import {
+  AddUcapApellidoDto,
   CreateCregUnitDto,
+  RenameUcapApellidoDto,
   SaveCregCensoDto,
   SaveCregParametrizacionDto,
   SaveUcapCostSheetDto,
@@ -158,6 +161,42 @@ export class CregController {
     return this.service.saveSheet(ucapId, dto);
   }
 
+  // ---- Apellidos/variantes de una UCAP ----
+
+  @Get("units/:ucapId/apellidos")
+  @Permissions("creg:unidades", "creg:censo")
+  @ApiOperation({ summary: "Listar los apellidos/variantes de una UCAP" })
+  listApellidos(@Param("ucapId", ParseIntPipe) ucapId: number) {
+    return this.service.listApellidos(ucapId);
+  }
+
+  @Post("units/:ucapId/apellidos")
+  @Permissions("creg:unidades", "creg:censo")
+  @ApiOperation({ summary: "Agregar un apellido/variante a la UCAP" })
+  addApellido(
+    @Param("ucapId", ParseIntPipe) ucapId: number,
+    @Body() dto: AddUcapApellidoDto,
+  ) {
+    return this.service.addApellido(ucapId, dto.apellido);
+  }
+
+  @Patch("apellidos/:apellidoId")
+  @Permissions("creg:unidades", "creg:censo")
+  @ApiOperation({ summary: "Renombrar un apellido/variante" })
+  renameApellido(
+    @Param("apellidoId", ParseIntPipe) apellidoId: number,
+    @Body() dto: RenameUcapApellidoDto,
+  ) {
+    return this.service.renameApellido(apellidoId, dto.apellido);
+  }
+
+  @Delete("apellidos/:apellidoId")
+  @Permissions("creg:unidades", "creg:censo")
+  @ApiOperation({ summary: "Eliminar un apellido/variante" })
+  deleteApellido(@Param("apellidoId", ParseIntPipe) apellidoId: number) {
+    return this.service.deleteApellido(apellidoId);
+  }
+
   @Delete("units/:ucapId/sheet")
   @Permissions("creg:unidades")
   @ApiOperation({ summary: "Eliminar la hoja de costos de una UCAP (sin borrar la UCAP)" })
@@ -166,7 +205,7 @@ export class CregController {
   }
 
   @Delete("units/:ucapId")
-  @Permissions("creg:unidades")
+  @Permissions("creg:unidades", "creg:censo")
   @ApiOperation({ summary: "Eliminar la UCAP por completo (libera el código)" })
   deleteUnit(@Param("ucapId", ParseIntPipe) ucapId: number) {
     return this.service.deleteUnit(ucapId);
