@@ -198,4 +198,31 @@ export class AuditController {
   async getAuditStats() {
     return this.auditService.getAuditStats();
   }
+
+  @Get("materials-purchase-control")
+  @ApiOperation({
+    summary: "Control de compra de materiales",
+    description: `
+    Devuelve una fila por ítem de orden de compra, con la factura asociada si ya existe.
+    Pensado para el control de compra de luminarias y proyectores, pero sirve para
+    cualquier grupo de material.
+
+    Incluye además los grupos de material y los años disponibles, para poblar los filtros.
+    `,
+  })
+  @ApiQuery({ name: "groupId", required: false, type: Number })
+  @ApiQuery({ name: "year", required: false, type: Number })
+  @ApiQuery({ name: "onlyInvoiced", required: false, type: Boolean })
+  @ApiResponse({ status: 200, description: "Listado obtenido exitosamente" })
+  async getMaterialsPurchaseControl(
+    @Query("groupId") groupId?: string,
+    @Query("year") year?: string,
+    @Query("onlyInvoiced") onlyInvoiced?: string,
+  ) {
+    return this.auditService.getMaterialsPurchaseControl({
+      groupId: groupId ? parseInt(groupId, 10) : undefined,
+      year: year ? parseInt(year, 10) : undefined,
+      onlyInvoiced: onlyInvoiced === "true",
+    });
+  }
 }

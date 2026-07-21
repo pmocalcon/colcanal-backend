@@ -592,4 +592,87 @@ export class AuditService {
       recentLogs,
     };
   }
+
+  /**
+   * Control de compra de materiales: una fila por ítem de orden de compra, con su
+   * factura si ya la tiene. Replica el formato del Excel de control de luminarias.
+   *
+   * El municipio sale de dos lados según la región: en Antioquia es un proyecto de
+   * Canales & Contactos, mientras que en Valle y Quindío va dentro del nombre de la
+   * unión temporal. Se resuelve el primero aquí y el segundo en el front, que ya
+   * tiene el mapeo de nombres oficiales.
+   */
+  async getMaterialsPurchaseControl(filters?: {
+    groupId?: number;
+    year?: number;
+    onlyInvoiced?: boolean;
+  }) {
+    const condiciones: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.groupId) {
+      params.push(filters.groupId);
+      condiciones.push(`g.group_id = $${params.length}`);
+    }
+    if (filters?.year) {
+      params.push(filters.year);
+      condiciones.push(
+        `EXTRACT(YEAR FROM COALESCE(i.issue_date, po.issue_date)) = $${params.length}`,
+      );
+    }
+    if (filters?.onlyInvoiced) {
+      condiciones.push("i.invoice_id IS NOT NULL");
+    }
+    const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+    const rows = await this.purchaseOrderRepository.manager.query(
+      `SELECT poi.po_item_id            AS "poItemId",
+              p.name                    AS "projectName",
+              co.name                   AS "companyName",
+              po.purchase_order_number  AS "purchaseOrderNumber",
+              i.issue_date              AS "invoiceDate",
+              i.invoice_number          AS "invoiceNumber",
+              m.code                    AS "materialCode",
+              m.description             AS "materialDescription",
+              g.name                    AS "groupName",
+              poi.quantity              AS "quantity",
+              r.requisition_number      AS "requisitionNumber",
+              po.issue_date             AS "orderDate"
+         FROM purchase_order_items poi
+         JOIN purchase_orders po    ON po.purchase_order_id = poi.purchase_order_id
+         JOIN requisitions r        ON r.requisition_id = po.requisition_id
+         JOIN requisition_items ri  ON ri.item_id = poi.requisition_item_id
+         JOIN materials m           ON m.material_id = ri.material_id
+         JOIN material_groups g     ON g.group_id = m.group_id
+         LEFT JOIN companies co     ON co.company_id = r.company_id
+         LEFT JOIN projects p       ON p.project_id = r.project_id
+         LEFT JOIN invoices i       ON i.purchase_order_id = po.purchase_order_id
+         ${where}
+        ORDER BY COALESCE(i.issue_date, po.issue_date) DESC, po.purchase_order_number, m.description`,
+      params,
+    );
+
+    // Para poblar los selectores sin una segunda llamada.
+    const groups = await this.purchaseOrderRepository.manager.query(
+      `SELECT g.group_id AS "groupId", g.name AS "name"
+         FROM material_groups g ORDER BY g.name`,
+    );
+    const years = await this.purchaseOrderRepository.manager.query(
+      `SELECT DISTINCT EXTRACT(YEAR FROM COALESCE(i.issue_date, po.issue_date))::int AS "year"
+         FROM purchase_orders po
+         LEFT JOIN invoices i ON i.purchase_order_id = po.purchase_order_id
+        WHERE COALESCE(i.issue_date, po.issue_date) IS NOT NULL
+        ORDER BY 1 DESC`,
+    );
+
+    return {
+      data: rows.map((row: Record<string, unknown>) => ({
+        ...row,
+        quantity: Number(row.quantity),
+      })),
+      total: rows.length,
+      groups,
+      years: years.map((y: { year: number }) => y.year),
+    };
+  }
 }
