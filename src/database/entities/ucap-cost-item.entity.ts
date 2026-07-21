@@ -41,10 +41,13 @@ export class UcapCostItem {
   @Column({ type: "varchar", length: 30, default: "UND" })
   unit: string;
 
-  @Column({ type: "decimal", precision: 12, scale: 3, default: 0 })
+  // Precisión alta a propósito: las cantidades del APU son fracciones (1/15,
+  // 1/30) y los precios traen centavos (1.701,7). Truncarlas corría el total de
+  // la UCAP 1-2 pesos frente al Excel.
+  @Column({ type: "decimal", precision: 14, scale: 8, default: 0 })
   quantity: number;
 
-  @Column({ name: "unit_price", type: "decimal", precision: 15, scale: 2, default: 0 })
+  @Column({ name: "unit_price", type: "decimal", precision: 15, scale: 4, default: 0 })
   unitPrice: number;
 
   @Column({ name: "sort_order", type: "int", default: 0 })

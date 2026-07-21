@@ -9,6 +9,8 @@ import { CregMunicipioConfig } from "../../database/entities/creg-municipio-conf
 import { CregParametrizacion } from "../../database/entities/creg-parametrizacion.entity";
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
+import { CregIddOff } from "../../database/entities/creg-idd-off.entity";
+import { CregIddOn } from "../../database/entities/creg-idd-on.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
 import { UcapApellido } from "../../database/entities/ucap-apellido.entity";
@@ -18,6 +20,8 @@ import {
   CreateCregUnitDto,
   SaveCregCensoDto,
   SaveCregLiquidacionDto,
+  SaveCregIddOffDto,
+  SaveCregIddOnDto,
   SaveCregParametrizacionDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
@@ -47,6 +51,10 @@ export class CregService {
     private readonly censoRepo: Repository<CregCenso>,
     @InjectRepository(CregLiquidacion)
     private readonly liquidacionRepo: Repository<CregLiquidacion>,
+    @InjectRepository(CregIddOff)
+    private readonly iddOffRepo: Repository<CregIddOff>,
+    @InjectRepository(CregIddOn)
+    private readonly iddOnRepo: Repository<CregIddOn>,
     @InjectRepository(Ucap)
     private readonly ucapRepo: Repository<Ucap>,
     @InjectRepository(UcapCostItem)
@@ -282,6 +290,66 @@ export class CregService {
     return this.getLiquidacion(companyId, projectId);
   }
 
+  // ============ IDD OFF (indice de disponibilidad, apagadas) ============
+
+  async getIddOff(companyId: number, projectId?: number | null) {
+    const row = await this.iddOffRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return {
+      companyId,
+      projectId: projectId ?? null,
+      data: row?.data ?? null,
+      exists: !!row,
+    };
+  }
+
+  async saveIddOff(
+    companyId: number,
+    projectId: number | null,
+    dto: SaveCregIddOffDto,
+  ) {
+    let row = await this.iddOffRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    if (!row) {
+      row = this.iddOffRepo.create({ companyId, projectId: projectId ?? null });
+    }
+    row.data = dto.data ?? {};
+    await this.iddOffRepo.save(row);
+    return this.getIddOff(companyId, projectId);
+  }
+
+  // ============ ID ON (indice de disponibilidad, encendidas) ============
+
+  async getIddOn(companyId: number, projectId?: number | null) {
+    const row = await this.iddOnRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return {
+      companyId,
+      projectId: projectId ?? null,
+      data: row?.data ?? null,
+      exists: !!row,
+    };
+  }
+
+  async saveIddOn(
+    companyId: number,
+    projectId: number | null,
+    dto: SaveCregIddOnDto,
+  ) {
+    let row = await this.iddOnRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    if (!row) {
+      row = this.iddOnRepo.create({ companyId, projectId: projectId ?? null });
+    }
+    row.data = dto.data ?? {};
+    await this.iddOnRepo.save(row);
+    return this.getIddOn(companyId, projectId);
+  }
+
   // ============ Resumen agregado (dashboard) ============
 
   /**
@@ -474,12 +542,17 @@ export class CregService {
     return rows.map((a) => this.serializeApellido(a));
   }
 
-  /** Agrega un apellido/variante a la UCAP (al final del orden). */
+  /**
+   * Agrega un apellido/variante a la UCAP (al final del orden).
+   *
+   * El nombre puede ir vacío: en el censo la fila nace en blanco para escribirla
+   * desde cero. Solo se usa para mostrar y buscar, nunca para identificar la
+   * variante — de eso se encarga apellidoId — así que no estorba dejarlo así.
+   */
   async addApellido(ucapId: number, apellido: string) {
     const ucap = await this.ucapRepo.findOne({ where: { ucapId } });
     if (!ucap) throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
     const name = (apellido ?? "").trim();
-    if (!name) throw new BadRequestException("El apellido es obligatorio");
 
     const last = await this.apellidoRepo.findOne({
       where: { ucapId },
@@ -494,13 +567,11 @@ export class CregService {
     return this.serializeApellido(saved);
   }
 
-  /** Renombra un apellido/variante. */
+  /** Renombra un apellido/variante. Admite vaciarlo, igual que al crearlo. */
   async renameApellido(apellidoId: number, apellido: string) {
     const row = await this.apellidoRepo.findOne({ where: { apellidoId } });
     if (!row) throw new NotFoundException(`Apellido ${apellidoId} no encontrado`);
-    const name = (apellido ?? "").trim();
-    if (!name) throw new BadRequestException("El apellido es obligatorio");
-    row.apellido = name;
+    row.apellido = (apellido ?? "").trim();
     const saved = await this.apellidoRepo.save(row);
     return this.serializeApellido(saved);
   }
@@ -552,6 +623,7 @@ export class CregService {
     ucap.ucapYear = dto.ucapYear ?? null;
     ucap.powerNominal = dto.powerNominal ?? null;
     ucap.powerLosses = dto.powerLosses ?? null;
+    ucap.efficiencyLmW = dto.efficiencyLmW ?? null;
     // IPP base: el que envía la hoja; si no, el del municipio.
     if (dto.initialIpp != null) ucap.initialIpp = dto.initialIpp;
     else if (ippBase != null) ucap.initialIpp = ippBase;
@@ -668,16 +740,18 @@ export class CregService {
     ippBase: number | null,
     ippCurrent: number | null,
   ) {
-    // Cada línea de costo directo sí se redondea a peso entero (es lo que se
-    // captura y se muestra). Los indirectos, en cambio, se calculan con toda su
-    // precisión y solo se TRUNCA el total: redondear cada indirecto por separado
-    // acumulaba centavos y dejaba la UCAP 1-2 pesos por encima del Excel
-    // (p.ej. 3.162.502 en vez de 3.162.500; LED 35 W 2.270.245 vs 2.270.244).
-    const r = (n: number) => Math.round(n);
+    // Como en el Excel: NADA se redondea en el camino. Cada línea conserva su
+    // producto exacto (con centavos), los subtotales y los indirectos también,
+    // y el redondeo se aplica UNA sola vez, al final, con round (no floor).
+    //
+    // Antes se redondeaba cada línea y se truncaba el total; eso corría el
+    // decimal medio peso y dejaba muchas UCAPs 1 peso cortas frente al Excel
+    // (p. ej. 152.380 en vez de 152.381). Verificado contra el Excel en
+    // 0010=2.270.244, 0301=152.381, 0404/0405/0406.
     const sum = (section: string) =>
       items
         .filter((it) => it.section === section)
-        .reduce((acc, it) => acc + r(Number(it.quantity) * Number(it.unitPrice)), 0);
+        .reduce((acc, it) => acc + Number(it.quantity) * Number(it.unitPrice), 0);
 
     const subtotalMaterials = sum("material");
     const subtotalTransporte = sum("transporte");
@@ -706,11 +780,11 @@ export class CregService {
       indirect.retieRetilap +
       indirect.financial +
       indirect.environmental;
-    const totalUnit = Math.floor(subtotalDirectos + totalIndirectos);
+    const totalUnit = Math.round(subtotalDirectos + totalIndirectos);
     // Factor IPP = IPP actual / IPP base (actualiza el valor a precios de hoy).
     const ippFactor =
       ippBase && ippCurrent && ippBase !== 0 ? ippCurrent / ippBase : 1;
-    const finalValue = Math.floor(totalUnit * ippFactor);
+    const finalValue = Math.round(totalUnit * ippFactor);
 
     return {
       subtotalMaterials,
@@ -796,6 +870,7 @@ export class CregService {
         ucap.powerNominal != null || ucap.powerLosses != null
           ? (ucap.powerNominal ?? 0) + (ucap.powerLosses ?? 0)
           : null,
+      efficiencyLmW: ucap.efficiencyLmW ?? null,
       ippFactor: totals.ippFactor,
       hasCostSheet: items.length > 0,
       items,

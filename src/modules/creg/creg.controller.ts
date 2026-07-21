@@ -19,6 +19,8 @@ import {
   RenameUcapApellidoDto,
   SaveCregCensoDto,
   SaveCregLiquidacionDto,
+  SaveCregIddOffDto,
+  SaveCregIddOnDto,
   SaveCregParametrizacionDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
@@ -154,6 +156,54 @@ export class CregController {
       parseOptionalInt(projectId),
       dto,
     );
+  }
+
+  // ---- IDD OFF: indice de disponibilidad (apagadas) ----
+
+  // La liquidacion lee el ID del mes para la anualidad de inversion, asi que
+  // tambien puede consultarlo con su propio permiso.
+  @Get("idd-off/:companyId")
+  @Permissions("creg:iddoff", "creg:liquidacion")
+  @ApiOperation({ summary: "Obtener las fallas y el indice de disponibilidad" })
+  getIddOff(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.getIddOff(companyId, parseOptionalInt(projectId));
+  }
+
+  @Put("idd-off/:companyId")
+  @Permissions("creg:iddoff")
+  @ApiOperation({ summary: "Guardar las fallas del periodo (IDD OFF)" })
+  saveIddOff(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: SaveCregIddOffDto,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.saveIddOff(companyId, parseOptionalInt(projectId), dto);
+  }
+
+  // ---- ID ON: indice de disponibilidad (encendidas) ----
+
+  @Get("idd-on/:companyId")
+  @Permissions("creg:iddon", "creg:liquidacion")
+  @ApiOperation({ summary: "Obtener las encendidas y el indice de disponibilidad" })
+  getIddOn(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.getIddOn(companyId, parseOptionalInt(projectId));
+  }
+
+  @Put("idd-on/:companyId")
+  @Permissions("creg:iddon")
+  @ApiOperation({ summary: "Guardar las encendidas del periodo (ID ON)" })
+  saveIddOn(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: SaveCregIddOnDto,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.saveIddOn(companyId, parseOptionalInt(projectId), dto);
   }
 
   // ---- Hojas de costos (sobre UCAPs) ----

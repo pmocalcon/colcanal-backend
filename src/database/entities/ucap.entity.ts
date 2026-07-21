@@ -86,6 +86,14 @@ export class Ucap {
   @Column({ name: "power_losses", type: "int", nullable: true })
   powerLosses: number | null;
 
+  /**
+   * Eficiencia luminosa [Lm/W]. Distingue tecnologias dentro de un mismo grupo
+   * (sodio 130 vs LED 160), asi que vive en la UCAP y no en Parametros. La
+   * liquidacion la usa para escalar la anualidad de inversion (CINV).
+   */
+  @Column({ name: "efficiency_lm_w", type: "int", nullable: true })
+  efficiencyLmW: number | null;
+
   @Column({ name: "is_active", type: "boolean", default: true })
   isActive: boolean;
 

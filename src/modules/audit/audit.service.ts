@@ -636,6 +636,7 @@ export class AuditService {
               m.description             AS "materialDescription",
               g.name                    AS "groupName",
               poi.quantity              AS "quantity",
+              r.obra                    AS "tipoObra",
               r.requisition_number      AS "requisitionNumber",
               po.issue_date             AS "orderDate"
          FROM purchase_order_items poi

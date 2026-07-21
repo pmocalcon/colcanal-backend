@@ -6,6 +6,8 @@ import { CregMunicipioConfig } from "../../database/entities/creg-municipio-conf
 import { CregParametrizacion } from "../../database/entities/creg-parametrizacion.entity";
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
+import { CregIddOff } from "../../database/entities/creg-idd-off.entity";
+import { CregIddOn } from "../../database/entities/creg-idd-on.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
 import { UcapApellido } from "../../database/entities/ucap-apellido.entity";
@@ -21,6 +23,8 @@ import { RoleGestion } from "../../database/entities/role-gestion.entity";
       CregParametrizacion,
       CregCenso,
       CregLiquidacion,
+      CregIddOff,
+      CregIddOn,
       Ucap,
       UcapCostItem,
       UcapApellido,

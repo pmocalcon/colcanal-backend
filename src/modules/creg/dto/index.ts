@@ -35,6 +35,25 @@ export class SaveCregLiquidacionDto {
   data: Record<string, any>;
 }
 
+export class SaveCregIddOffDto {
+  @ApiProperty({
+    type: Object,
+    description: "Fallas por mes, potencia instalada (WT) y horas del periodo (T)",
+  })
+  @IsObject()
+  data: Record<string, any>;
+}
+
+export class SaveCregIddOnDto {
+  @ApiProperty({
+    type: Object,
+    description:
+      "Encendidas por mes, potencia instalada (WT), horas del periodo (T) y tarifa (TEEn)",
+  })
+  @IsObject()
+  data: Record<string, any>;
+}
+
 // ============ Configuracion por municipio ============
 
 export class UpsertCregConfigDto {
@@ -195,6 +214,12 @@ export class SaveUcapCostSheetDto {
   @IsOptional()
   @IsNumber()
   powerLosses?: number | null;
+
+  /** Eficiencia luminosa [Lm/W]: distingue sodio (130) de LED (160). */
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsNumber()
+  efficiencyLmW?: number | null;
 
   @ApiProperty({ type: [UcapCostItemDto] })
   @IsArray()
