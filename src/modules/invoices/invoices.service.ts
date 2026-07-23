@@ -13,6 +13,7 @@ import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
 import { SendToAccountingDto } from "./dto/send-to-accounting.dto";
 import { ReceivedByAccountingDto } from "./dto/received-by-accounting.dto";
+import { REQUISITION_STATUS } from "../../common/constants";
 
 @Injectable()
 export class InvoicesService {
@@ -110,6 +111,11 @@ export class InvoicesService {
       .leftJoinAndSelect("po.invoices", "invoices")
       .leftJoinAndSelect("po.items", "items")
       .where("approvalStatus.code = :status", { status: "aprobada_gerencia" })
+      // No mostrar órdenes cuya requisición fue anulada (p. ej. PA-015): la
+      // anulación vive en el estado de la requisición, no en el de la OC.
+      .andWhere("requisitionStatus.code != :anuladaStatus", {
+        anuladaStatus: REQUISITION_STATUS.ANULADA,
+      })
       .skip(skip)
       .take(limit)
       .orderBy("po.createdAt", "DESC")
