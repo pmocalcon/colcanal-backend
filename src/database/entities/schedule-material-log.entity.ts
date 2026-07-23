@@ -1,6 +1,9 @@
 import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Schedule } from './schedule.entity';
 
+/**
+ * Registro de material usado en un cronograma (código, cantidad, fecha).
+ */
 @Entity('schedule_material_logs')
 export class ScheduleMaterialLog {
   @PrimaryGeneratedColumn({ name: 'log_id' })

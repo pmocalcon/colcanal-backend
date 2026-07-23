@@ -11,6 +11,9 @@ import { Project } from "./project.entity";
 import { Requisition } from "./requisition.entity";
 import { PurchaseOrderSequence } from "./purchase-order-sequence.entity";
 
+/**
+ * Centro de operación de una empresa/proyecto; ancla las secuencias de órdenes de compra.
+ */
 @Entity("operation_centers")
 export class OperationCenter {
   @PrimaryGeneratedColumn({ name: "center_id" })

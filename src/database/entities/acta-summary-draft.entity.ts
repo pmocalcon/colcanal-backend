@@ -9,6 +9,9 @@ import {
 
 // El borrador del "Resumen de Acta" comparte la identidad del acta:
 // (empresa, proyecto, número). project_id es nullable.
+/**
+ * Borrador del resumen de un acta (empresa/proyecto, número), guardado antes de finalizarla.
+ */
 @Entity('acta_summary_drafts')
 @Unique(['companyId', 'projectId', 'actaNumber'])
 export class ActaSummaryDraft {

@@ -9,6 +9,9 @@ import {
 import { Requisition } from "./requisition.entity";
 import { User } from "./user.entity";
 
+/**
+ * Bitácora de una requisición: cambios de estado con su usuario.
+ */
 @Entity("requisition_logs")
 export class RequisitionLog {
   @PrimaryGeneratedColumn({ name: "log_id" })

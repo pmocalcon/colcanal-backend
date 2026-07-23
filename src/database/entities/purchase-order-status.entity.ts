@@ -1,6 +1,9 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
 import { PurchaseOrder } from "./purchase-order.entity";
 
+/**
+ * Catálogo de estados de una orden de compra.
+ */
 @Entity("purchase_order_statuses")
 export class PurchaseOrderStatus {
   @PrimaryGeneratedColumn({ name: "status_id" })

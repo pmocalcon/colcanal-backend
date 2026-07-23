@@ -10,6 +10,9 @@ import { User } from './user.entity';
 import { Company } from './company.entity';
 import { Project } from './project.entity';
 
+/**
+ * Alcance de un revisor de levantamientos: a qué empresa/proyecto puede acceder.
+ */
 @Entity('survey_reviewer_access')
 export class SurveyReviewerAccess {
   @PrimaryGeneratedColumn({ name: 'access_id' })

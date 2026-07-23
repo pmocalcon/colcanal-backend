@@ -8,6 +8,9 @@ import {
 import { Survey } from "./survey.entity";
 import { Material } from "./material.entity";
 
+/**
+ * Material asociado a un levantamiento (código, unidad).
+ */
 @Entity("survey_materials")
 export class SurveyMaterial {
   @PrimaryGeneratedColumn({ name: "item_id" })

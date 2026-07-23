@@ -28,6 +28,9 @@ export enum BlockStatus {
   REJECTED = 'rejected',
 }
 
+/**
+ * Levantamiento de una obra: fechas, revisor, IPP, certificaciones requeridas y sus ítems (presupuesto, inversión, materiales, viáticos).
+ */
 @Entity('surveys')
 export class Survey {
   @PrimaryGeneratedColumn({ name: 'survey_id' })

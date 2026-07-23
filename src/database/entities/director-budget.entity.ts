@@ -18,6 +18,9 @@ export enum DirectorBudgetStatus {
   FINAL = 'final',
 }
 
+/**
+ * Presupuesto del Director para una obra: excedentes, saldo, mano de obra y demás rubros; se envía a revisión y aprobación.
+ */
 @Entity('director_budgets')
 export class DirectorBudget {
   @PrimaryGeneratedColumn({ name: 'budget_id' })

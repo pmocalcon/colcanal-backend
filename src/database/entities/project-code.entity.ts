@@ -10,6 +10,9 @@ import { Company } from "./company.entity";
 import { Project } from "./project.entity";
 import { Requisition } from "./requisition.entity";
 
+/**
+ * Código de contabilidad de un proyecto/empresa; se usa en las requisiciones.
+ */
 @Entity("project_codes")
 export class ProjectCode {
   @PrimaryGeneratedColumn({ name: "code_id" })

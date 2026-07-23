@@ -2,6 +2,9 @@ import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
 import { Requisition } from "./requisition.entity";
 import { RequisitionApproval } from "./requisition-approval.entity";
 
+/**
+ * Catálogo de estados de una requisición.
+ */
 @Entity("requisition_statuses")
 export class RequisitionStatus {
   @PrimaryGeneratedColumn({ name: "status_id" })

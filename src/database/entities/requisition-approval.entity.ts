@@ -10,6 +10,9 @@ import { Requisition } from "./requisition.entity";
 import { User } from "./user.entity";
 import { RequisitionStatus } from "./requisition-status.entity";
 
+/**
+ * Paso del flujo de aprobación de una requisición: acción, orden y cambio de estado.
+ */
 @Entity("requisition_approvals")
 export class RequisitionApproval {
   @PrimaryGeneratedColumn({ name: "approval_id" })

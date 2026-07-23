@@ -11,6 +11,9 @@ import {
 import { Work } from './work.entity';
 import { ScheduleItem } from './schedule-item.entity';
 
+/**
+ * Cronograma de una obra: fechas de inicio/fin y contractuales.
+ */
 @Entity('schedules')
 export class Schedule {
   @PrimaryGeneratedColumn({ name: 'schedule_id' })

@@ -35,6 +35,9 @@ export enum ActaCronogramaStatus {
 // del acta es (empresa, proyecto, número): en Canales & Contactos el municipio es el
 // proyecto, así que un mismo número en municipios distintos son actas distintas.
 // project_id es nullable (las empresas sin proyecto usan NULL).
+/**
+ * Acta que agrupa obras (empresa, proyecto, número): estado del acta, del presupuesto y del cronograma, y su código de contabilidad.
+ */
 @Entity('work_actas')
 @Unique(['companyId', 'projectId', 'actaNumber'])
 export class WorkActa {

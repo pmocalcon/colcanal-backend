@@ -10,6 +10,9 @@ import { MaterialGroup } from "./material-group.entity";
 import { RequisitionItem } from "./requisition-item.entity";
 import { MaterialPriceHistory } from "./material-price-history.entity";
 
+/**
+ * Material del catálogo (código, descripción, grupo); base de requisiciones y precios.
+ */
 @Entity("materials")
 export class Material {
   @PrimaryGeneratedColumn({ name: "material_id" })

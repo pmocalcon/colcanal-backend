@@ -20,6 +20,9 @@ import { Invoice } from "./invoice.entity";
 import { MaterialReceipt } from "./material-receipt.entity";
 import { MaterialPriceHistory } from "./material-price-history.entity";
 
+/**
+ * Usuario del sistema: correo, rol y token; actor de casi todos los flujos.
+ */
 @Entity("users")
 export class User {
   @PrimaryGeneratedColumn({ name: "user_id" })

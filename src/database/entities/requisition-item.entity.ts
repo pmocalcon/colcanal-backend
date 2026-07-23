@@ -12,6 +12,9 @@ import { RequisitionItemQuotation } from "./requisition-item-quotation.entity";
 import { PurchaseOrderItem } from "./purchase-order-item.entity";
 import { RequisitionItemApproval } from "./requisition-item-approval.entity";
 
+/**
+ * Ítem de una requisición: material y cantidad; recibe cotizaciones y aprobaciones.
+ */
 @Entity("requisition_items")
 export class RequisitionItem {
   @PrimaryGeneratedColumn({ name: "item_id" })

@@ -10,6 +10,9 @@ import {
 import { PurchaseOrder } from "./purchase-order.entity";
 import { User } from "./user.entity";
 
+/**
+ * Factura de una orden de compra: número, fecha, cantidad y su envío/recepción por contabilidad.
+ */
 @Entity("invoices")
 export class Invoice {
   @PrimaryGeneratedColumn({ name: "invoice_id" })

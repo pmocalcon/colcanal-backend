@@ -9,6 +9,9 @@ import {
 import { User } from "./user.entity";
 import { Gestion } from "./gestion.entity";
 
+/**
+ * Autorización de una gestión: un usuario autorizador habilita a otro para un tipo de acción; puede activarse o desactivarse.
+ */
 @Entity("autorizaciones")
 @Unique([
   "usuarioAutorizadorId",

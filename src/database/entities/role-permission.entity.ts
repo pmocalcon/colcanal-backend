@@ -9,6 +9,9 @@ import {
 import { Role } from "./role.entity";
 import { Permission } from "./permission.entity";
 
+/**
+ * Relación rol–permiso: qué permisos tiene un rol.
+ */
 @Entity("roles_permisos")
 @Unique(["rolId", "permisoId"])
 export class RolePermission {

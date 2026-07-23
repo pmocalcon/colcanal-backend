@@ -8,6 +8,9 @@ import {
 import { Survey } from "./survey.entity";
 import { Ucap } from "./ucap.entity";
 
+/**
+ * Ítem de presupuesto de un levantamiento: UCAP con valor unitario, presupuestado e IPP inicial.
+ */
 @Entity("survey_budget_items")
 export class SurveyBudgetItem {
   @PrimaryGeneratedColumn({ name: "item_id" })

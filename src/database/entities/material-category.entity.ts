@@ -1,6 +1,9 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
 import { MaterialGroup } from "./material-group.entity";
 
+/**
+ * Categoría de materiales; agrupa grupos de materiales.
+ */
 @Entity("material_categories")
 export class MaterialCategory {
   @PrimaryGeneratedColumn({ name: "category_id" })

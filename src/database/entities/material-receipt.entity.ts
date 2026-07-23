@@ -10,6 +10,9 @@ import {
 import { PurchaseOrderItem } from "./purchase-order-item.entity";
 import { User } from "./user.entity";
 
+/**
+ * Recepción de un ítem de orden de compra: cantidad recibida, fecha y justificación de sobre-entrega.
+ */
 @Entity("material_receipts")
 export class MaterialReceipt {
   @PrimaryGeneratedColumn({ name: "receipt_id" })

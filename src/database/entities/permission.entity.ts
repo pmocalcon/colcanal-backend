@@ -1,6 +1,9 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
 import { RolePermission } from "./role-permission.entity";
 
+/**
+ * Permiso del sistema (Ver, Crear, Cotizar, creg:liquidacion, …); se asigna a roles.
+ */
 @Entity("permisos")
 export class Permission {
   @PrimaryGeneratedColumn({ name: "permiso_id" })

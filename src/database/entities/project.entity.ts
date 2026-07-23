@@ -13,6 +13,9 @@ import { ProjectCode } from "./project-code.entity";
 import { RequisitionPrefix } from "./requisition-prefix.entity";
 import { CompanyContact } from "./company-contact.entity";
 
+/**
+ * Proyecto de una empresa (municipio en Antioquia). Guarda su IPP base.
+ */
 @Entity("projects")
 @Unique(["companyId", "name"])
 export class Project {

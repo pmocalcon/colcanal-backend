@@ -10,6 +10,9 @@ import { Company } from "./company.entity";
 import { Project } from "./project.entity";
 import { RequisitionSequence } from "./requisition-sequence.entity";
 
+/**
+ * Prefijo de numeración de requisiciones por empresa/proyecto.
+ */
 @Entity("requisition_prefixes")
 export class RequisitionPrefix {
   @PrimaryGeneratedColumn({ name: "prefix_id" })

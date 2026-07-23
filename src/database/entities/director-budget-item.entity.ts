@@ -8,6 +8,9 @@ import {
 import { DirectorBudget } from './director-budget.entity';
 import { Material } from './material.entity';
 
+/**
+ * Ítem del presupuesto del Director: material, cantidad, valor unitario, bodega, transporte y ejecutado.
+ */
 @Entity('director_budget_items')
 export class DirectorBudgetItem {
   @PrimaryGeneratedColumn({ name: 'item_id' })

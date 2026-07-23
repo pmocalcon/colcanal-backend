@@ -13,6 +13,9 @@ import { MaterialReceipt } from "./material-receipt.entity";
 import { MaterialPriceHistory } from "./material-price-history.entity";
 import { PurchaseOrderItemApproval } from "./purchase-order-item-approval.entity";
 
+/**
+ * Ítem de una orden de compra: precio unitario, IVA y total; enlaza la cotización elegida y sus recepciones.
+ */
 @Entity("purchase_order_items")
 export class PurchaseOrderItem {
   @PrimaryGeneratedColumn({ name: "po_item_id" })

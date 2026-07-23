@@ -12,6 +12,9 @@ import { Supplier } from "./supplier.entity";
 import { User } from "./user.entity";
 import { PurchaseOrderItem } from "./purchase-order-item.entity";
 
+/**
+ * Cotización de un proveedor para un ítem de requisición: precio, IVA, si está activa o seleccionada.
+ */
 @Entity("requisition_item_quotations")
 export class RequisitionItemQuotation {
   @PrimaryGeneratedColumn({ name: "quotation_id" })

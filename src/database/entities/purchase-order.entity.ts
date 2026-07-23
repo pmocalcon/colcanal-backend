@@ -27,6 +27,9 @@ export enum PurchaseOrderStatusCode {
   COMPLETED = 'completada',
 }
 
+/**
+ * Orden de compra a un proveedor: totales, IVA, descuentos, estado de aprobación y facturación.
+ */
 @Entity('purchase_orders')
 export class PurchaseOrder {
   @PrimaryGeneratedColumn({ name: 'purchase_order_id' })

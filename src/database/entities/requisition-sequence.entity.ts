@@ -1,6 +1,9 @@
 import { Entity, Column, PrimaryColumn, OneToOne, JoinColumn } from "typeorm";
 import { RequisitionPrefix } from "./requisition-prefix.entity";
 
+/**
+ * Secuencia consecutiva de requisiciones por prefijo.
+ */
 @Entity("requisition_sequences")
 export class RequisitionSequence {
   @PrimaryColumn({ name: "prefix_id" })

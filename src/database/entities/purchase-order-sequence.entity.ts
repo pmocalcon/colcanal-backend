@@ -9,6 +9,9 @@ import {
 } from "typeorm";
 import { OperationCenter } from "./operation-center.entity";
 
+/**
+ * Secuencia consecutiva para numerar órdenes de compra por centro de operación.
+ */
 @Entity("purchase_order_sequences")
 export class PurchaseOrderSequence {
   @PrimaryGeneratedColumn({ name: "sequence_id" })

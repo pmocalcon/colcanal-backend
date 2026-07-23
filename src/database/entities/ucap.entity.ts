@@ -14,6 +14,9 @@ import { Project } from "./project.entity";
 import { UcapCostItem } from "./ucap-cost-item.entity";
 import { UcapApellido } from "./ucap-apellido.entity";
 
+/**
+ * Unidad Constructiva (UCAP): valor, IPP y porcentajes de costo; base del censo, los presupuestos y la liquidación. Tiene hoja de costos y apellidos/variantes.
+ */
 @Entity("ucaps")
 @Unique(["companyId", "projectId", "code"])
 export class Ucap {

@@ -10,6 +10,9 @@ import { RequisitionItemQuotation } from "./requisition-item-quotation.entity";
 import { PurchaseOrder } from "./purchase-order.entity";
 import { MaterialPriceHistory } from "./material-price-history.entity";
 
+/**
+ * Proveedor (NIT/CC, contacto); origen de cotizaciones y órdenes de compra.
+ */
 @Entity("suppliers")
 export class Supplier {
   @PrimaryGeneratedColumn({ name: "supplier_id" })

@@ -17,6 +17,9 @@ export enum ApprovalStatus {
   REJECTED = "rechazado",
 }
 
+/**
+ * Aprobación de una orden de compra: aprobador, estado, comentarios, plazo y vencimiento.
+ */
 @Entity("purchase_order_approvals")
 export class PurchaseOrderApproval {
   @PrimaryGeneratedColumn({ name: "approval_id" })

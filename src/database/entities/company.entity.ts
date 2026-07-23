@@ -5,6 +5,9 @@ import { ProjectCode } from "./project-code.entity";
 import { RequisitionPrefix } from "./requisition-prefix.entity";
 import { CompanyContact } from "./company-contact.entity";
 
+/**
+ * Empresa contratante (UT o matriz). Guarda el IPP base y agrupa proyectos, centros de operación, códigos y contactos.
+ */
 @Entity("companies")
 export class Company {
   @PrimaryGeneratedColumn({ name: "company_id" })

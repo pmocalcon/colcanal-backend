@@ -13,6 +13,9 @@ export enum AnnualPlanReviewStatus {
   RECHAZADO = 'rechazado',
 }
 
+/**
+ * Revisión del plan anual: quién lo revisó y cuándo.
+ */
 @Entity('annual_plan_reviews')
 @Unique(['year', 'municipio', 'zone'])
 export class AnnualPlanReview {

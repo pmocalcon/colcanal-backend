@@ -9,6 +9,9 @@ import {
 import { Schedule } from './schedule.entity';
 import { Ucap } from './ucap.entity';
 
+/**
+ * Ítem de un cronograma: UCAP con su cantidad ejecutada y fechas.
+ */
 @Entity('schedule_items')
 @Unique(['scheduleId', 'ucapId'])
 export class ScheduleItem {

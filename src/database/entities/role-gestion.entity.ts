@@ -9,6 +9,9 @@ import {
 import { Role } from "./role.entity";
 import { Gestion } from "./gestion.entity";
 
+/**
+ * Relación rol–gestión: qué gestiones tiene habilitadas un rol.
+ */
 @Entity("roles_gestiones")
 @Unique(["rolId", "gestionId"])
 export class RoleGestion {

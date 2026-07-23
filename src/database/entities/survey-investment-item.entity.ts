@@ -7,6 +7,9 @@ import {
 } from "typeorm";
 import { Survey } from "./survey.entity";
 
+/**
+ * Ítem de inversión de un levantamiento: cantidades de luminarias, postes y red.
+ */
 @Entity("survey_investment_items")
 export class SurveyInvestmentItem {
   @PrimaryGeneratedColumn({ name: "item_id" })

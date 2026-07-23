@@ -19,6 +19,9 @@ import { RequisitionStatus } from "./requisition-status.entity";
 import { PurchaseOrder } from "./purchase-order.entity";
 import { RequisitionApproval } from "./requisition-approval.entity";
 
+/**
+ * Requisición de compra: empresa, proyecto, código, prioridad y estado; origen del flujo de compras.
+ */
 @Entity("requisitions")
 export class Requisition {
   @PrimaryGeneratedColumn({ name: "requisition_id" })

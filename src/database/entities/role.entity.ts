@@ -9,6 +9,9 @@ import { User } from "./user.entity";
 import { RolePermission } from "./role-permission.entity";
 import { RoleGestion } from "./role-gestion.entity";
 
+/**
+ * Rol de usuario (Gerencia, Compras, Director Técnico, …) con su módulo por defecto.
+ */
 @Entity("roles")
 export class Role {
   @PrimaryGeneratedColumn({ name: "rol_id" })

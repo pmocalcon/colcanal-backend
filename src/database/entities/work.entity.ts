@@ -13,6 +13,9 @@ import { Project } from "./project.entity";
 import { User } from "./user.entity";
 import { Survey } from "./survey.entity";
 
+/**
+ * Obra: municipio, dirección, tipo de solicitud, número de acta y código; contiene el levantamiento.
+ */
 @Entity("works")
 export class Work {
   @PrimaryGeneratedColumn({ name: "work_id" })

@@ -2,6 +2,9 @@ import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from "typeorm";
 import { RoleGestion } from "./role-gestion.entity";
 import { Authorization } from "./authorization.entity";
 
+/**
+ * Gestión: unidad funcional que se asocia a roles (roles_gestiones) y se autoriza.
+ */
 @Entity("gestiones")
 export class Gestion {
   @PrimaryGeneratedColumn({ name: "gestion_id" })

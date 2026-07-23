@@ -2,6 +2,9 @@ import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn, Unique }
 import { Schedule } from './schedule.entity';
 import { Ucap } from './ucap.entity';
 
+/**
+ * Plan diario de un cronograma: cantidad planeada vs ejecutada de una UCAP en una fecha.
+ */
 @Entity('schedule_daily_plans')
 @Unique(['scheduleId', 'ucapId', 'planDate'])
 export class ScheduleDailyPlan {

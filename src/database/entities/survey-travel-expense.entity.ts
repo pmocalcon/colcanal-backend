@@ -18,6 +18,9 @@ export enum TravelExpenseType {
   HOLIDAY_OVERTIME = "holiday_overtime",
 }
 
+/**
+ * Costo de viaje de un levantamiento (tipo de gasto, valor unitario).
+ */
 @Entity("survey_travel_expenses")
 export class SurveyTravelExpense {
   @PrimaryGeneratedColumn({ name: "item_id" })

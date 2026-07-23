@@ -9,6 +9,9 @@ import {
 import { Material } from "./material.entity";
 import { MaterialCategory } from "./material-category.entity";
 
+/**
+ * Grupo de materiales dentro de una categoría (p. ej. LUMINARIAS Y PROYECTORES).
+ */
 @Entity("material_groups")
 export class MaterialGroup {
   @PrimaryGeneratedColumn({ name: "group_id" })

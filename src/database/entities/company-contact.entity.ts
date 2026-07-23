@@ -10,6 +10,9 @@ import {
 import { Company } from "./company.entity";
 import { Project } from "./project.entity";
 
+/**
+ * Contacto de una empresa o proyecto (razón social, persona de contacto). Uno puede marcarse como predeterminado.
+ */
 @Entity("company_contacts")
 export class CompanyContact {
   @PrimaryGeneratedColumn({ name: "contact_id" })
