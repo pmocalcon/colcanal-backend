@@ -133,10 +133,12 @@ export class Survey {
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ name: 'sketch_url', type: 'varchar', length: 500, nullable: true })
+  // Enlaces de SharePoint: pasan de 500 caracteres con facilidad, porque llevan
+  // el id del documento y los parámetros de compartir (?d=w...&csf=1&web=1&e=...).
+  @Column({ name: 'sketch_url', type: 'text', nullable: true })
   sketchUrl: string;
 
-  @Column({ name: 'map_url', type: 'varchar', length: 500, nullable: true })
+  @Column({ name: 'map_url', type: 'text', nullable: true })
   mapUrl: string;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

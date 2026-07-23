@@ -257,7 +257,8 @@ export class CreateSurveyDto {
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  // Los enlaces para compartir de SharePoint pasan de 500 caracteres.
+  @MaxLength(2000)
   sketchUrl?: string;
 
   @ApiProperty({
@@ -267,7 +268,7 @@ export class CreateSurveyDto {
   })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(2000)
   mapUrl?: string;
 
   @ApiProperty({
