@@ -73,7 +73,7 @@ export class DirectorBudgetsController {
 
   @Patch(':id/status')
   @Permissions('levantamientos:revisar', 'levantamientos:autorizar', 'levantamientos:aprobar', 'levantamientos:presupuesto')
-  @ApiOperation({ summary: 'Update budget status (draft → en_revision → final). Aprobar/rechazar: solo Gerencia' })
+  @ApiOperation({ summary: 'Update budget status (draft → en_revision → final). Enviar exige acta esperando presupuesto; aprobar/rechazar: solo Gerencia, y aprobar cierra el presupuesto del acta' })
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBudgetStatusDto,

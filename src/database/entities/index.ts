@@ -69,6 +69,9 @@ export { CregIddOn } from './creg-idd-on.entity';
 export { UcapCostItem } from './ucap-cost-item.entity';
 export { UcapApellido } from './ucap-apellido.entity';
 
+// Gestión del conocimiento (formatos por gestión)
+export { GcSolicitud } from './gc-solicitud.entity';
+
 // Schedules (Cronograma)
 export { Schedule } from './schedule.entity';
 export { ScheduleItem } from './schedule-item.entity';

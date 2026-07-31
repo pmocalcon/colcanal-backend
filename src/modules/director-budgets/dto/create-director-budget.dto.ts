@@ -68,6 +68,23 @@ export class CreateDirectorBudgetDto {
   @IsNumber()
   workId?: number | null;
 
+  // Acta que origina el presupuesto (empresa, proyecto, número). El número solo no
+  // identifica un acta: se repite entre municipios.
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  actaCompanyId?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  actaProjectId?: number | null;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  actaNumber?: string | null;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

@@ -29,6 +29,20 @@ export class DirectorBudget {
   @Column({ name: 'work_id', nullable: true })
   workId: number;
 
+  // Acta que originó el presupuesto. En modo "agrupado" el presupuesto cubre TODAS las
+  // obras del acta, así que work_id va nulo y este era el único rastro —guardado en
+  // work_name, un texto—. Como el número de acta se repite entre municipios, la identidad
+  // real es (empresa, proyecto, número): sin las tres columnas no se puede saber a qué
+  // acta cerrarle el presupuesto cuando Gerencia aprueba.
+  @Column({ name: 'acta_company_id', type: 'int', nullable: true })
+  actaCompanyId: number | null;
+
+  @Column({ name: 'acta_project_id', type: 'int', nullable: true })
+  actaProjectId: number | null;
+
+  @Column({ name: 'acta_number', type: 'varchar', length: 100, nullable: true })
+  actaNumber: string | null;
+
   @Column({ name: 'department_name', type: 'varchar', length: 100, nullable: true })
   departmentName: string;
 

@@ -750,6 +750,15 @@ export class SurveysService {
     return { data, total, page, limit };
   }
 
+  /**
+   * Revisión general: una sola decisión sobre todo el levantamiento.
+   *
+   * **Arrastra los cuatro bloques**, y ese es el punto. Antes solo movía `status` y los
+   * dejaba como estuvieran, así que aprobar por aquí duraba hasta la siguiente revisión
+   * de un bloque: `updateGlobalStatus` recalculaba, veía bloques `pendiente` y devolvía
+   * el levantamiento a «en revisión» sin que nadie lo hubiera desaprobado. Y rechazar no
+   * marcaba ningún bloque, así que quien lo hizo no sabía qué corregir.
+   */
   async reviewSurvey(surveyId: number, reviewDto: ReviewSurveyDto, userId: number): Promise<Survey> {
     const survey = await this.surveyRepository.findOne({
       where: { surveyId },
@@ -763,19 +772,30 @@ export class SurveysService {
       throw new BadRequestException('Survey cannot be reviewed in current status');
     }
 
+    // La revisión por bloque y «aprobar todo» ya lo exigían; decidir sobre el
+    // levantamiento entero no puede ser el camino que se salta al revisor asignado.
+    await this.assertPuedeRevisar(survey, userId);
+
     if (reviewDto.action === ReviewAction.APPROVE) {
       if (!reviewDto.previousMonthIpp) {
         throw new BadRequestException('Previous month IPP is required for approval');
       }
       survey.previousMonthIpp = reviewDto.previousMonthIpp;
-      survey.status = SurveyStatus.APPROVED;
+      this.setAllBlocks(survey, BlockStatus.APPROVED);
+      survey.rejectionComments = undefined;
     } else {
       if (!reviewDto.rejectionComments) {
         throw new BadRequestException('Rejection comments are required');
       }
       survey.rejectionComments = reviewDto.rejectionComments;
-      survey.status = SurveyStatus.REJECTED;
+      // El motivo se copia a cada bloque: es la única forma de que quien lo hizo vea
+      // marcado qué se le devolvió, igual que en un rechazo por bloque.
+      this.setAllBlocks(survey, BlockStatus.REJECTED, reviewDto.rejectionComments);
     }
+
+    // El estado global se deriva de los bloques, nunca se escribe a mano: así esta
+    // decisión y la revisión por bloque no pueden contradecirse.
+    this.updateGlobalStatus(survey);
 
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
@@ -987,19 +1007,7 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    // Validar que el usuario es el Director Técnico asignado o tiene rol privilegiado
-    if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
-      const user = await this.userRepository.findOne({
-        where: { userId },
-        relations: ['role'],
-      });
-      const rol = user?.role?.nombreRol;
-      if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
-        throw new ForbiddenException(
-          'Solo el Director Técnico asignado puede revisar este levantamiento',
-        );
-      }
-    }
+    await this.assertPuedeRevisar(survey, userId);
 
     // Map block to status
     const newStatus: BlockStatus =
@@ -1047,7 +1055,11 @@ export class SurveysService {
     return fullSurvey;
   }
 
-  async approveAllBlocks(surveyId: number, userId: number): Promise<Survey> {
+  async approveAllBlocks(
+    surveyId: number,
+    userId: number,
+    previousMonthIpp?: number,
+  ): Promise<Survey> {
     const survey = await this.surveyRepository.findOne({
       where: { surveyId },
     });
@@ -1056,34 +1068,23 @@ export class SurveysService {
       throw new NotFoundException(`Survey with ID ${surveyId} not found`);
     }
 
-    // Validar que el usuario es el Director Técnico asignado o tiene rol privilegiado
-    if (survey.assignedReviewerId && survey.assignedReviewerId !== userId) {
-      const user = await this.userRepository.findOne({
-        where: { userId },
-        relations: ['role'],
-      });
-      const rol = user?.role?.nombreRol;
-      if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
-        throw new ForbiddenException(
-          'Solo el Director Técnico asignado puede aprobar este levantamiento',
-        );
-      }
+    await this.assertPuedeRevisar(survey, userId);
+
+    // Aprobar sin IPP dejaba el levantamiento aprobado con el factor en blanco, y de ese
+    // factor sale el valor de la obra. Se acepta el que ya tenga guardado; lo que no se
+    // acepta es aprobar sin ninguno.
+    if (previousMonthIpp) {
+      survey.previousMonthIpp = previousMonthIpp;
+    } else if (!survey.previousMonthIpp) {
+      throw new BadRequestException(
+        'Debe registrarse el IPP del mes anterior antes de aprobar el levantamiento',
+      );
     }
 
-    // Approve all blocks
-    survey.budgetStatus = BlockStatus.APPROVED;
-    survey.investmentStatus = BlockStatus.APPROVED;
-    survey.materialsStatus = BlockStatus.APPROVED;
-    survey.travelExpensesStatus = BlockStatus.APPROVED;
+    this.setAllBlocks(survey, BlockStatus.APPROVED);
+    survey.rejectionComments = undefined;
 
-    // Clear any previous comments
-    survey.budgetComments = undefined;
-    survey.investmentComments = undefined;
-    survey.materialsComments = undefined;
-    survey.travelExpensesComments = undefined;
-
-    // Update global status
-    survey.status = SurveyStatus.APPROVED;
+    this.updateGlobalStatus(survey);
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
 
@@ -1157,6 +1158,39 @@ export class SurveysService {
     }).catch(() => {});
 
     return fullSurvey;
+  }
+
+  /**
+   * Solo el Director Técnico asignado revisa su levantamiento. Sin revisor asignado, el
+   * permiso basta. La usan los tres caminos de revisión —por bloque, aprobar todo y
+   * revisión general— para que ninguno sea la puerta de atrás de los otros.
+   */
+  private async assertPuedeRevisar(survey: Survey, userId: number): Promise<void> {
+    if (!survey.assignedReviewerId || survey.assignedReviewerId === userId) return;
+
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    const rol = user?.role?.nombreRol;
+    if (rol !== 'Director Técnico' && rol !== 'Analista PMO') {
+      throw new ForbiddenException(
+        'Solo el Director Técnico asignado puede revisar este levantamiento',
+      );
+    }
+  }
+
+  /** Deja los cuatro bloques en el mismo estado, con el mismo comentario. */
+  private setAllBlocks(survey: Survey, status: BlockStatus, comments?: string): void {
+    survey.budgetStatus = status;
+    survey.investmentStatus = status;
+    survey.materialsStatus = status;
+    survey.travelExpensesStatus = status;
+
+    survey.budgetComments = comments;
+    survey.investmentComments = comments;
+    survey.materialsComments = comments;
+    survey.travelExpensesComments = comments;
   }
 
   private updateGlobalStatus(survey: Survey): void {
@@ -2206,6 +2240,131 @@ export class SurveysService {
     ).catch(() => {});
 
     return savedActa;
+  }
+
+  /**
+   * Cierra el presupuesto del acta cuando Gerencia aprueba el Presupuesto del Director.
+   *
+   * El acta quedaba colgada en 'en_revision' para siempre: `send-to-budget` la ponía ahí
+   * y `review-budget` —el endpoint que la cerraría— no lo llama ninguna pantalla. La
+   * aprobación real ocurre aguas abajo, cuando Gerencia deja el Presupuesto del Director
+   * en 'final'; ese es el momento en que el acta se da por presupuestada.
+   *
+   * Es deliberadamente conservador: solo cierra actas en 'en_revision'. Si el acta nunca
+   * se envió a presupuesto ('pendiente'), fue rechazada, o ya está aprobada, no la toca —
+   * aprobar un presupuesto no puede inventar un envío que no ocurrió.
+   */
+  async closeActaBudgetFromDirectorBudget(
+    link: {
+      actaCompanyId?: number | null;
+      actaProjectId?: number | null;
+      actaNumber?: string | null;
+      workId?: number | null;
+    },
+    userId: number,
+  ): Promise<WorkActa | null> {
+    const acta = await this.findActaForDirectorBudget(link);
+    if (!acta || acta.presupuestoStatus !== ActaBudgetStatus.EN_REVISION) return null;
+
+    acta.presupuestoStatus = ActaBudgetStatus.APROBADO;
+    acta.presupuestoRechazoMotivo = null;
+    const savedActa = await this.workActaRepository.save(acta);
+
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    this.sendActaNotification('budget_approved', savedActa, { actor: user }).catch(() => {});
+
+    return savedActa;
+  }
+
+  /**
+   * Reabre el presupuesto del acta cuando Gerencia devuelve un presupuesto ya autorizado.
+   *
+   * Es el reverso exacto de `closeActaBudgetFromDirectorBudget`. Sin esto, devolver
+   * dejaría al acta diciendo `aprobado` mientras su único presupuesto vuelve a borrador:
+   * el acta afirmaría tener un presupuesto que ya no existe.
+   *
+   * El acta vuelve a la bandeja de la Directora Financiera, que es quien debe rehacerlo,
+   * y se le avisa por correo.
+   */
+  async reopenActaBudgetFromDirectorBudget(
+    link: {
+      actaCompanyId?: number | null;
+      actaProjectId?: number | null;
+      actaNumber?: string | null;
+      workId?: number | null;
+    },
+    userId: number,
+  ): Promise<WorkActa | null> {
+    const acta = await this.findActaForDirectorBudget(link, ActaBudgetStatus.APROBADO);
+    if (!acta || acta.presupuestoStatus !== ActaBudgetStatus.APROBADO) return null;
+
+    acta.presupuestoStatus = ActaBudgetStatus.EN_REVISION;
+    acta.presupuestoRechazoMotivo = null;
+    const savedActa = await this.workActaRepository.save(acta);
+
+    const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
+    this.sendActaNotification('sent_to_budget', savedActa, { actor: user }).catch(() => {});
+
+    return savedActa;
+  }
+
+  /**
+   * Encuentra el acta de un Presupuesto del Director. Tres caminos, de más a menos fiable:
+   *
+   * 1. Las columnas `acta_*` del presupuesto — la identidad completa (empresa, proyecto, número).
+   * 2. La obra, cuando el presupuesto es de una sola (`work_id` → `record_number`).
+   * 3. Solo el número, para los presupuestos agrupados anteriores a las columnas `acta_*`:
+   *    se acepta únicamente si hay **una** acta con ese número en `estadoParaDesambiguar`.
+   *    Ante ambigüedad devuelve null: tocar el acta equivocada es peor que no tocar ninguna.
+   *
+   * `estadoParaDesambiguar` solo interviene en el camino 3, y por eso lo eligen quienes
+   * llaman: el cierre y la validación buscan un acta `en_revision`; la reapertura, una
+   * `aprobado`.
+   */
+  async findActaForDirectorBudget(
+    link: {
+      actaCompanyId?: number | null;
+      actaProjectId?: number | null;
+      actaNumber?: string | null;
+      workId?: number | null;
+    },
+    estadoParaDesambiguar: ActaBudgetStatus = ActaBudgetStatus.EN_REVISION,
+  ): Promise<WorkActa | null> {
+    if (link.actaCompanyId != null && link.actaNumber) {
+      return this.workActaRepository.findOne({
+        where: {
+          companyId: link.actaCompanyId,
+          projectId: link.actaProjectId ?? IsNull(),
+          actaNumber: link.actaNumber,
+        },
+      });
+    }
+
+    if (link.workId != null) {
+      const work = await this.workRepository.findOne({ where: { workId: link.workId } });
+      if (work?.recordNumber) {
+        return this.workActaRepository.findOne({
+          where: {
+            companyId: work.companyId,
+            projectId: work.projectId ?? IsNull(),
+            actaNumber: work.recordNumber,
+          },
+        });
+      }
+      return null;
+    }
+
+    if (link.actaNumber) {
+      const candidatas = await this.workActaRepository.find({
+        where: {
+          actaNumber: link.actaNumber,
+          presupuestoStatus: estadoParaDesambiguar,
+        },
+      });
+      return candidatas.length === 1 ? candidatas[0] : null;
+    }
+
+    return null;
   }
 
   /**

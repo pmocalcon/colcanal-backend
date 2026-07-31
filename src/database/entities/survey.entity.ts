@@ -85,8 +85,10 @@ export class Survey {
   @Column({ name: 'review_date', type: 'timestamptz', nullable: true })
   reviewDate: Date;
 
+  // Opcional como los comentarios por bloque: aprobar limpia el motivo del rechazo
+  // anterior, y la columna admite nulos desde siempre.
   @Column({ name: 'rejection_comments', type: 'text', nullable: true })
-  rejectionComments: string;
+  rejectionComments?: string;
 
   // Block-level review status
   @Column({

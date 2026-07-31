@@ -20,7 +20,7 @@ export interface RequisitionNotificationData {
 }
 
 export interface WorksNotificationData {
-  entityType: "levantamiento" | "acta";
+  entityType: "levantamiento" | "acta" | "presupuesto";
   identifier: string;
   workName?: string;
   companyName?: string;
@@ -780,9 +780,15 @@ export class NotificationsService {
       .replace(/'/g, "&#039;");
   }
 
+  private entityLabel(entityType: WorksNotificationData["entityType"]): string {
+    if (entityType === "acta") return "Acta";
+    if (entityType === "presupuesto") return "Presupuesto";
+    return "Levantamiento";
+  }
+
   private buildWorksRows(data: WorksNotificationData): string {
     const rows: Array<[string, string | number | undefined]> = [
-      [data.entityType === "acta" ? "Acta" : "Levantamiento", data.identifier],
+      [this.entityLabel(data.entityType), data.identifier],
       ["Obra", data.workName],
       ["Empresa", data.companyName],
       ["Proyecto", data.projectName],
@@ -1094,7 +1100,10 @@ export class NotificationsService {
       recipientName,
       `Presupuesto del acta ${data.identifier} aprobado`,
       "Presupuesto del acta aprobado",
-      "La Directora Financiera aprobó el presupuesto del acta.",
+      // Lo dispara la autorizacion del Presupuesto del Director por parte de Gerencia,
+      // que es donde se cierra este eje. El endpoint de la Directora Financiera existe
+      // pero no lo llama ninguna pantalla, asi que el texto no nombra a nadie.
+      "El presupuesto del acta quedo aprobado.",
       data,
       "#16a34a",
       "Ver acta",
@@ -1115,6 +1124,61 @@ export class NotificationsService {
       data,
       "#dc2626",
       "Ver acta",
+    );
+  }
+
+  // ============================================
+  // PRESUPUESTO DEL DIRECTOR
+  // ============================================
+
+  async notifyDirectorBudgetForAuthorization(
+    approverEmail: string,
+    approverName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      approverEmail,
+      approverName,
+      `Presupuesto ${data.identifier} pendiente de autorizacion`,
+      "Presupuesto pendiente de autorizacion",
+      "Un Presupuesto del Director espera la autorizacion de Gerencia.",
+      data,
+      "#2563eb",
+      "Autorizar presupuesto",
+    );
+  }
+
+  async notifyDirectorBudgetApproved(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Presupuesto ${data.identifier} autorizado`,
+      "Presupuesto autorizado",
+      "Gerencia autorizo el Presupuesto del Director. Con esto queda aprobado tambien el presupuesto del acta.",
+      data,
+      "#16a34a",
+      "Ver presupuesto",
+    );
+  }
+
+  async notifyDirectorBudgetRejected(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Presupuesto ${data.identifier} devuelto`,
+      "Presupuesto devuelto a borrador",
+      "Gerencia devolvio el Presupuesto del Director. Revise los valores y vuelva a enviarlo a autorizacion.",
+      data,
+      "#dc2626",
+      "Ver presupuesto",
     );
   }
 

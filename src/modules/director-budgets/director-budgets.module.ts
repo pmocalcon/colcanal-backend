@@ -8,9 +8,14 @@ import { Work } from '../../database/entities/work.entity';
 import { User } from '../../database/entities/user.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { SurveysModule } from '../surveys/surveys.module';
 
 @Module({
   imports: [
+    // Aprobar el presupuesto cierra el presupuesto del acta, que vive en surveys.
+    SurveysModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([
       DirectorBudget,
       DirectorBudgetItem,

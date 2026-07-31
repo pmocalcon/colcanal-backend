@@ -8,8 +8,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DirectorBudget, DirectorBudgetStatus } from '../../database/entities/director-budget.entity';
 import { DirectorBudgetItem } from '../../database/entities/director-budget-item.entity';
+import { ActaBudgetStatus } from '../../database/entities/work-acta.entity';
 import { Work } from '../../database/entities/work.entity';
 import { User } from '../../database/entities/user.entity';
+import {
+  NotificationsService,
+  WorksNotificationData,
+} from '../notifications/notifications.service';
+import { SurveysService } from '../surveys/surveys.service';
 import {
   CreateDirectorBudgetDto,
   UpdateDirectorBudgetDto,
@@ -33,14 +39,27 @@ export class DirectorBudgetsService {
     private readonly workRepo: Repository<Work>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly surveysService: SurveysService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /** Rol único autorizado a aprobar/rechazar el presupuesto del Director (Gerencia). */
   private readonly BUDGET_APPROVER_ROLE = 'Gerencia';
 
+  /**
+   * Quién saca el presupuesto a autorización. Es el rol que lo elabora: el acta le llega
+   * a su bandeja y de ahí arma el presupuesto. Antes la transición no validaba nada —el
+   * código decía «queda abierto»—, así que cualquiera con permiso sobre el presupuesto
+   * podía mandarle uno a Gerencia.
+   */
+  private readonly BUDGET_SUBMITTER_ROLES = ['Director Financiero y Administrativo', 'Analista PMO'];
+
   private buildBudgetEntity(dto: CreateDirectorBudgetDto, resolvedCompanyName?: string): Partial<DirectorBudget> {
     return {
       workId: n(dto.workId) as number,
+      actaCompanyId: n(dto.actaCompanyId),
+      actaProjectId: n(dto.actaProjectId),
+      actaNumber: dto.actaNumber ?? null,
       departmentName: dto.departmentName,
       workName: dto.workName,
       companyName: resolvedCompanyName ?? dto.companyName ?? null,
@@ -216,7 +235,10 @@ export class DirectorBudgetsService {
     const allowed: Record<DirectorBudgetStatus, DirectorBudgetStatus[]> = {
       [DirectorBudgetStatus.DRAFT]: [DirectorBudgetStatus.EN_REVISION],
       [DirectorBudgetStatus.EN_REVISION]: [DirectorBudgetStatus.FINAL, DirectorBudgetStatus.DRAFT],
-      [DirectorBudgetStatus.FINAL]: [],
+      // `final` deja de ser terminal: Gerencia puede devolver un presupuesto ya
+      // autorizado. La pantalla siempre mostró el botón «Devolver» en este estado y la
+      // llamada fallaba contra esta tabla.
+      [DirectorBudgetStatus.FINAL]: [DirectorBudgetStatus.DRAFT],
     };
 
     if (!allowed[budget.status].includes(newStatus)) {
@@ -225,23 +247,239 @@ export class DirectorBudgetsService {
       );
     }
 
-    // Aprobar (en_revision → final) y rechazar (en_revision → draft) los hacen
-    // Gerencia y Analista PMO. Enviar a revisión (draft → en_revision) queda abierto.
+    // Aprobar (en_revision → final) y devolver a borrador —desde revisión o desde un
+    // presupuesto ya autorizado— los hacen Gerencia y Analista PMO. Enviar a revisión
+    // (draft → en_revision) lo hace quien lo elabora, y exige además que el presupuesto
+    // cuelgue de un acta que lo esté esperando.
     const isApproval = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.FINAL;
-    const isRejection = budget.status === DirectorBudgetStatus.EN_REVISION && newStatus === DirectorBudgetStatus.DRAFT;
+    const isRejection = newStatus === DirectorBudgetStatus.DRAFT && budget.status !== DirectorBudgetStatus.DRAFT;
+    const isReopen = budget.status === DirectorBudgetStatus.FINAL && newStatus === DirectorBudgetStatus.DRAFT;
+    const isSubmit = budget.status === DirectorBudgetStatus.DRAFT && newStatus === DirectorBudgetStatus.EN_REVISION;
+
+    if (isSubmit) {
+      const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
+      if (!this.BUDGET_SUBMITTER_ROLES.includes(user?.role?.nombreRol ?? '')) {
+        throw new ForbiddenException(
+          'Solo la Directora Financiera o Analista PMO pueden enviar el presupuesto a autorización',
+        );
+      }
+      await this.validarActaAntesDeAutorizacion(budget);
+    }
+
     if (isApproval || isRejection) {
       const user = await this.userRepo.findOne({ where: { userId }, relations: ['role'] });
       const rol = user?.role?.nombreRol;
       if (rol !== this.BUDGET_APPROVER_ROLE && rol !== 'Analista PMO') {
         throw new ForbiddenException(
-          'Solo Gerencia o Analista PMO pueden aprobar o rechazar el presupuesto',
+          'Solo Gerencia o Analista PMO pueden aprobar, rechazar o devolver el presupuesto',
         );
       }
     }
 
     budget.status = newStatus;
     await this.budgetRepo.save(budget);
+
+    // Aprobar aquí cierra también el presupuesto del ACTA: es el último eslabón de la
+    // cadena (acta → Directora Financiera → Presupuesto del Director → Gerencia) y sin
+    // esto el acta se quedaba en 'en_revision' indefinidamente. No cierra nada si el
+    // presupuesto no viene de un acta o si el acta no está esperando.
+    if (isApproval) {
+      await this.surveysService.closeActaBudgetFromDirectorBudget(
+        this.enlaceAlActa(budget),
+        userId,
+      );
+    }
+
+    // Devolver un presupuesto ya autorizado deshace ese cierre: el acta vuelve a
+    // 'en_revision' y reaparece en la bandeja de la Directora Financiera. Si no, el acta
+    // afirmaría tener un presupuesto aprobado que acaba de volver a borrador.
+    if (isReopen) {
+      await this.surveysService.reopenActaBudgetFromDirectorBudget(
+        this.enlaceAlActa(budget),
+        userId,
+      );
+    }
+
+    // El correo no puede tumbar la transición: si el envío falla, el presupuesto ya
+    // cambió de estado y eso es lo que importa. Mismo criterio que en surveys.
+    const evento = isSubmit
+      ? 'enviado'
+      : isApproval
+        ? 'aprobado'
+        : isReopen
+          ? 'reabierto'
+          : isRejection
+            ? 'rechazado'
+            : null;
+    if (evento) {
+      this.notificarCambioDeEstado(evento, budget, userId).catch(() => {});
+    }
+
     return this.findOne(budgetId);
+  }
+
+  /**
+   * Avisa por correo en cada transición del presupuesto. Antes el módulo no enviaba
+   * ninguno: Gerencia se enteraba solo si entraba a su bandeja, y quien lo elaboró no
+   * sabía si se lo habían autorizado o devuelto.
+   *
+   * A quién:
+   * - **enviado** → a Gerencia (y Analista PMO), que son quienes pueden autorizarlo.
+   * - **aprobado / rechazado / reabierto** → a quien elaboró el presupuesto.
+   *
+   * El cierre y la reapertura del presupuesto del acta mandan su propio correo (al
+   * Director Técnico y a la Directora Financiera), así que aquí no se les duplica.
+   */
+  private async notificarCambioDeEstado(
+    evento: 'enviado' | 'aprobado' | 'rechazado' | 'reabierto',
+    budget: DirectorBudget,
+    actorId: number,
+  ): Promise<void> {
+    const actor = await this.userRepo.findOne({ where: { userId: actorId } });
+    const data = await this.construirDatosDeNotificacion(budget, actor);
+
+    // Devolver algo ya autorizado no es lo mismo que rechazarlo en revisión: quien lo
+    // elaboró creía tenerlo aprobado. El correo usa la caja de comentarios para decirlo.
+    if (evento === 'reabierto') {
+      data.comments =
+        'El presupuesto ya estaba autorizado. Al devolverlo, el presupuesto del acta ' +
+        'vuelve a quedar en revisión.';
+    }
+
+    if (evento === 'enviado') {
+      const autorizadores = await this.usuariosActivosPorRol([
+        this.BUDGET_APPROVER_ROLE,
+        'Analista PMO',
+      ]);
+      await this.enviarSinRepetir(autorizadores, (email, nombre) =>
+        this.notificationsService.notifyDirectorBudgetForAuthorization(email, nombre, data),
+      );
+      return;
+    }
+
+    const creador = budget.createdBy
+      ? await this.userRepo.findOne({ where: { userId: budget.createdBy } })
+      : null;
+    if (!creador) return;
+
+    await this.enviarSinRepetir([creador], (email, nombre) =>
+      evento === 'aprobado'
+        ? this.notificationsService.notifyDirectorBudgetApproved(email, nombre, data)
+        : this.notificationsService.notifyDirectorBudgetRejected(email, nombre, data),
+    );
+  }
+
+  private async construirDatosDeNotificacion(
+    budget: DirectorBudget,
+    actor?: User | null,
+  ): Promise<WorksNotificationData> {
+    const creador = budget.createdBy
+      ? await this.userRepo.findOne({ where: { userId: budget.createdBy } })
+      : null;
+
+    return {
+      entityType: 'presupuesto',
+      // El presupuesto no tiene número propio: se identifica por su acta, o por la obra.
+      identifier: budget.actaNumber || budget.workName || `#${budget.budgetId}`,
+      workName: budget.workId != null ? budget.workName ?? undefined : undefined,
+      municipality: budget.companyName ?? undefined,
+      createdBy: this.nombreParaMostrar(creador),
+      actorName: actor ? this.nombreParaMostrar(actor) : undefined,
+      actionUrl: this.urlDelFrontend(
+        `/dashboard/levantamiento-obras/presupuesto/${budget.budgetId}`,
+      ),
+    };
+  }
+
+  // Los cuatro ayudantes de abajo son gemelos de los de SurveysService. Se repiten aquí
+  // en vez de compartirlos porque son cuatro líneas cada uno y unificarlos obligaría a
+  // meter el repositorio de usuarios dentro de NotificationsModule.
+  private async usuariosActivosPorRol(nombresDeRol: string[]): Promise<User[]> {
+    const normalizados = nombresDeRol.map((rol) => rol.toLowerCase());
+    const usuarios = await this.userRepo.find({ where: { estado: true }, relations: ['role'] });
+    return usuarios.filter((u) => normalizados.includes(u.role?.nombreRol?.toLowerCase() || ''));
+  }
+
+  private async enviarSinRepetir(
+    usuarios: User[],
+    enviar: (email: string, nombre: string) => Promise<boolean>,
+  ): Promise<void> {
+    const enviados = new Set<string>();
+    for (const usuario of usuarios) {
+      const email = usuario.emailNotificacion || usuario.email;
+      if (!email || enviados.has(email.toLowerCase())) continue;
+      enviados.add(email.toLowerCase());
+      await enviar(email, this.nombreParaMostrar(usuario));
+    }
+  }
+
+  private nombreParaMostrar(usuario?: User | null): string {
+    if (!usuario) return 'Usuario';
+    const apellido = (usuario as any).apellido ? ` ${(usuario as any).apellido}` : '';
+    return `${usuario.nombre || 'Usuario'}${apellido}`.trim();
+  }
+
+  private urlDelFrontend(ruta: string): string | undefined {
+    const base = process.env.FRONTEND_URL || process.env.APP_URL || process.env.CLIENT_URL;
+    if (!base) return undefined;
+    return `${base.replace(/\/$/, '')}${ruta}`;
+  }
+
+  /**
+   * Cómo llegar del presupuesto a su acta. Ver `findActaForDirectorBudget` en
+   * `SurveysService` para el orden en que se prueban las pistas.
+   */
+  private enlaceAlActa(budget: DirectorBudget) {
+    // En los presupuestos agrupados anteriores a las columnas acta_*, el número del
+    // acta quedó en work_name (work_id va nulo ahí). Solo en ese caso sirve de pista:
+    // en un presupuesto de una sola obra, work_name es el nombre de la obra.
+    const numeroActaLegado = budget.workId == null ? budget.workName : null;
+    return {
+      actaCompanyId: budget.actaCompanyId,
+      actaProjectId: budget.actaProjectId,
+      actaNumber: budget.actaNumber ?? numeroActaLegado,
+      workId: budget.workId,
+    };
+  }
+
+  /**
+   * El presupuesto no sale a autorización si no cuelga de un acta que esté esperándolo.
+   *
+   * Antes nada lo exigía: se podía crear un Presupuesto del Director sin acta y llevarlo
+   * hasta Gerencia, que terminaba autorizando un presupuesto sin origen. Y como aprobar
+   * ahora cierra el presupuesto del acta, sin este control la aprobación no cerraría nada
+   * y el acta volvería a quedarse colgada.
+   *
+   * Se valida al **enviar**, no al crear: el borrador sigue siendo libre para trabajarlo.
+   */
+  private async validarActaAntesDeAutorizacion(budget: DirectorBudget): Promise<void> {
+    const acta = await this.surveysService.findActaForDirectorBudget(this.enlaceAlActa(budget));
+
+    if (!acta) {
+      throw new BadRequestException(
+        'El presupuesto no está asociado a un acta que esté pendiente de presupuesto. ' +
+          'Ábrelo, selecciona el acta y guárdalo antes de enviarlo a autorización.',
+      );
+    }
+
+    if (acta.presupuestoStatus === ActaBudgetStatus.PENDIENTE) {
+      throw new BadRequestException(
+        `El acta ${acta.actaNumber} no ha sido enviada a presupuesto. ` +
+          'El Director Técnico debe enviarla primero.',
+      );
+    }
+
+    if (acta.presupuestoStatus === ActaBudgetStatus.RECHAZADO) {
+      throw new BadRequestException(
+        `El presupuesto del acta ${acta.actaNumber} fue rechazado` +
+          (acta.presupuestoRechazoMotivo ? `: ${acta.presupuestoRechazoMotivo}` : '') +
+          '. El Director Técnico debe volver a enviarla a presupuesto.',
+      );
+    }
+
+    // `aprobado` se deja pasar: el acta ya cumplió su parte del trámite y bloquear ahí
+    // impediría rehacer un presupuesto sobre un acta ya cerrada. Aprobar simplemente no
+    // tendrá nada que cerrar.
   }
 
   /**

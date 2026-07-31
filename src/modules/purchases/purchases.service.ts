@@ -107,12 +107,25 @@ export class PurchasesService {
   ) {}
 
   // ============================================
+  // Requisición de póliza (proceso de G. Jurídica)
+  // ============================================
+  /**
+   * Solo para la requisición de póliza creada AUTOMÁTICAMENTE desde el proceso de
+   * G. Jurídica: la aprueba/rechaza la Dirección Administrativa y Financiera
+   * (Daniela) y Gerencia (Gloria) no participa. Se activa por bandera explícita
+   * desde ese proceso (opción `juridicaPoliza`/`polizaJuridica`), NUNCA por el
+   * contenido de la requisición: una requisición con ítem POLIZA creada a mano en
+   * Compras sigue las reglas normales (la aprueba Gerencia).
+   */
+  private static readonly ROL_APROBADOR_POLIZA = 'Director Financiero y Administrativo';
+
+  // ============================================
   // HELPER: Notificaciones por correo
   // ============================================
   private async sendRequisitionNotification(
     type: 'new_for_review' | 'reviewed' | 'for_approval' | 'for_authorization' | 'approved' | 'ready_for_quotation' | 'new_for_validation' | 'validated' | 'validation_rejected',
     requisition: Requisition,
-    options?: { approved?: boolean; comments?: string },
+    options?: { approved?: boolean; comments?: string; approverRoleOverride?: string },
   ): Promise<void> {
     try {
       // Preparar datos comunes de la notificación
@@ -162,12 +175,15 @@ export class PurchasesService {
           // El aprobador de requisiciones es únicamente el rol "Gerencia" (Gloria).
           // Antes el filtro incluía cualquier rol con "gerencia" o "director", por lo que
           // el correo llegaba también a Director de Proyecto, Director Técnico, etc.
+          // Excepción explícita (solo la requisición de póliza creada desde G. Jurídica):
+          // se notifica a la Dirección Administrativa y Financiera vía approverRoleOverride.
+          const rolAprobador = options?.approverRoleOverride ?? 'Gerencia';
           const managers = await this.userRepository.find({
             where: { estado: true },
             relations: ['role'],
           });
 
-          const approvers = managers.filter(u => u.role?.nombreRol?.trim() === 'Gerencia');
+          const approvers = managers.filter(u => u.role?.nombreRol?.trim() === rolAprobador);
 
           for (const approver of approvers) {
             const email = approver.emailNotificacion || approver.email;
@@ -589,7 +605,11 @@ export class PurchasesService {
   // MÉTODOS CRUD BÁSICOS
   // ============================================
 
-  async createRequisition(userId: number, dto: CreateRequisitionDto) {
+  async createRequisition(
+    userId: number,
+    dto: CreateRequisitionDto,
+    options?: { skipCreatePermission?: boolean; polizaJuridica?: boolean },
+  ) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -605,7 +625,13 @@ export class PurchasesService {
         throw new NotFoundException('Usuario no encontrado');
       }
 
-      await this.validateUserCanCreate(user);
+      // La requisición de la póliza la genera el sistema al iniciar la fase de
+      // pólizas (ya protegida por el flujo jurídico), así que puede omitir la
+      // validación del permiso de crear de Compras. El resto del flujo (revisión/
+      // aprobación) sigue igual.
+      if (!options?.skipCreatePermission) {
+        await this.validateUserCanCreate(user);
+      }
 
       // 2. Validar empresa
       const company = await this.companyRepository.findOne({
@@ -657,8 +683,16 @@ export class PurchasesService {
       // Verificar si tiene obra especial que requiere autorización de Gerencia de Proyectos
       const hasSpecialObra = dto.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(dto.obra.trim());
 
+      // La requisición de póliza creada desde el proceso de G. Jurídica salta revisión
+      // y va directo a aprobación, que resolverá la Dirección Administrativa y
+      // Financiera (Daniela), no Gerencia. Se activa por bandera explícita del proceso.
+      const esPoliza = !!options?.polizaJuridica;
+
       let initialStatusCode = 'pendiente';
-      if (requiresObraValidation) {
+      if (esPoliza) {
+        // Póliza → directo a aprobación (la aprueba Dirección Admin. y Financiera).
+        initialStatusCode = 'aprobada_revisor';
+      } else if (requiresObraValidation) {
         // PQRS/Coord.Op con obra especial → validación por Director de Proyecto
         initialStatusCode = 'pendiente_validacion';
       } else if (skipsReview && hasSpecialObra) {
@@ -685,8 +719,9 @@ export class PurchasesService {
         priority: dto.priority || 'normal',
       };
 
-      // Si salta revisión Y va directo a Gerencia (no a autorización), registrar auto-revisión
-      const goesDirectToGerencia = skipsReview && !hasSpecialObra;
+      // Si salta revisión Y va directo a aprobación (no a autorización), registrar
+      // auto-revisión. La póliza también entra por aquí (aprobación directa).
+      const goesDirectToGerencia = (skipsReview && !hasSpecialObra) || esPoliza;
       if (goesDirectToGerencia) {
         requisitionData.reviewedBy = userId;
         requisitionData.reviewedAt = new Date();
@@ -766,8 +801,13 @@ export class PurchasesService {
         // Obra especial: la AUTORIZA Gerencia de Proyectos (Lorena), no Gerencia (Gloria).
         this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
       } else if (goesDirectToGerencia) {
-        // Enviar notificación a Gerencia (roles de alto nivel saltan revisión)
-        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+        // Roles de alto nivel saltan revisión → Gerencia. La póliza (proceso jurídico)
+        // va a la Dirección Administrativa y Financiera (Daniela), no a Gerencia.
+        this.sendRequisitionNotification(
+          'for_approval',
+          fullRequisition as Requisition,
+          esPoliza ? { approverRoleOverride: PurchasesService.ROL_APROBADOR_POLIZA } : undefined,
+        ).catch(() => {});
       } else {
         // Enviar notificación al revisor normal
         this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
@@ -2234,8 +2274,8 @@ export class PurchasesService {
     requisitionId: number,
     userId: number,
     dto: { comments?: string; itemDecisions?: Array<{ itemId: number; decision: 'approve' | 'reject'; comments?: string }> },
+    options?: { juridicaPoliza?: boolean },
   ) {
-    // Validar permiso de aprobar
     const user = await this.userRepository.findOne({
       where: { userId },
       relations: ['role'],
@@ -2243,7 +2283,20 @@ export class PurchasesService {
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
-    await this.validatePermission(user.role.rolId, PERMISSION_IDS.APROBAR, 'aprobar requisiciones');
+
+    // Validar permiso de aprobar. Excepción SOLO cuando se aprueba la requisición
+    // de la póliza desde el proceso de G. Jurídica (bandera juridicaPoliza): la
+    // aprueba únicamente la Dirección Administrativa y Financiera (Daniela) y
+    // Gerencia (Gloria) no participa. Fuera de ese proceso rigen las reglas normales.
+    if (options?.juridicaPoliza) {
+      if (user.role?.nombreRol?.trim() !== PurchasesService.ROL_APROBADOR_POLIZA) {
+        throw new ForbiddenException(
+          'La requisición de la póliza solo la aprueba la Dirección Administrativa y Financiera',
+        );
+      }
+    } else {
+      await this.validatePermission(user.role.rolId, PERMISSION_IDS.APROBAR, 'aprobar requisiciones');
+    }
 
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -2346,6 +2399,7 @@ export class PurchasesService {
     requisitionId: number,
     userId: number,
     dto: { comments: string },
+    options?: { juridicaPoliza?: boolean },
   ) {
     const requisition = await this.requisitionRepository.findOne({
       where: { requisitionId },
@@ -2361,8 +2415,17 @@ export class PurchasesService {
       relations: ['role'],
     });
 
-    // Validar que el usuario es Gerencia
-    if (user?.role.nombreRol !== 'Gerencia') {
+    // Excepción SOLO cuando se rechaza la requisición de la póliza desde el proceso
+    // de G. Jurídica (juridicaPoliza): la resuelve únicamente la Dirección
+    // Administrativa y Financiera (Daniela) y Gerencia (Gloria) no participa. Fuera
+    // de ese proceso las requisiciones las rechaza Gerencia, como siempre.
+    if (options?.juridicaPoliza) {
+      if (user?.role?.nombreRol?.trim() !== PurchasesService.ROL_APROBADOR_POLIZA) {
+        throw new ForbiddenException(
+          'La requisición de la póliza solo la resuelve la Dirección Administrativa y Financiera',
+        );
+      }
+    } else if (user?.role.nombreRol !== 'Gerencia') {
       throw new ForbiddenException(
         'Solo Gerencia puede rechazar requisiciones',
       );
@@ -2895,7 +2958,10 @@ export class PurchasesService {
 
     const [pendingRequisitions, pendingTotal] = await pendingQueryBuilder.getManyAndCount();
 
-    // Query 2: Obtener últimas 20 requisiciones procesadas (cotizadas y posteriores)
+    // Query 2: Requisiciones procesadas (cotizadas y posteriores). Se mezclan varios
+    // estados (incluidos en_recepcion/recepcion_completa que no se listan en Órdenes de
+    // Compra); con un tope bajo las recepciones recientes desplazaban a las OC generadas
+    // más antiguas y solo se veían ~20. Se amplía el tope para mostrar muchas más.
     const processedQueryBuilder = queryBuilder.clone()
       .where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['cotizada', 'en_orden_compra', 'pendiente_recepcion', 'en_recepcion', 'recepcion_completa']
@@ -2903,7 +2969,7 @@ export class PurchasesService {
       .andWhere('requisition.createdAt >= :startDate', { startDate: new Date('2026-01-19') })
       .orderBy('requisition.priority', 'ASC')
       .addOrderBy('requisition.createdAt', 'DESC')
-      .take(90); // Limitar a 20 procesadas
+      .take(500);
 
     const [processedRequisitions, processedTotal] = await processedQueryBuilder.getManyAndCount();
 
@@ -3054,13 +3120,16 @@ export class PurchasesService {
     }
 
     // Validar estado - permitir visualizar en cualquier estado después de aprobación de gerencia
-    // Incluye estados con órdenes de compra para permitir visualización en modo solo lectura
+    // Incluye estados con órdenes de compra (incluidas las ya recibidas/completadas) para
+    // permitir la visualización en modo solo lectura desde el historial de Órdenes de Compra.
     const validStatuses = [
       'aprobada_gerencia',
       'en_cotizacion',
       'cotizada',
       'en_orden_compra',
       'pendiente_recepcion',
+      'en_recepcion',
+      'recepcion_completa',
     ];
     if (!validStatuses.includes(requisition.status.code)) {
       throw new BadRequestException(

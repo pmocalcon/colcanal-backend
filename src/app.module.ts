@@ -16,6 +16,7 @@ import { SurveysModule } from "./modules/surveys/surveys.module";
 import { DirectorBudgetsModule } from "./modules/director-budgets/director-budgets.module";
 import { SchedulesModule } from "./modules/schedules/schedules.module";
 import { CregModule } from "./modules/creg/creg.module";
+import { GestionConocimientoModule } from "./modules/gestion-conocimiento/gestion-conocimiento.module";
 import configuration from "./config/configuration";
 
 @Module({
@@ -44,6 +45,7 @@ import configuration from "./config/configuration";
     DirectorBudgetsModule,
     SchedulesModule,
     CregModule,
+    GestionConocimientoModule,
   ],
   controllers: [AppController],
   providers: [AppService],

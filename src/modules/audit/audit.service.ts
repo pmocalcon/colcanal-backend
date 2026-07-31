@@ -676,4 +676,79 @@ export class AuditService {
       years: years.map((y: { year: number }) => y.year),
     };
   }
+
+  /**
+   * Compras por proveedor: qué materiales se le han comprado a cada proveedor y
+   * la fecha de la orden de compra. Alimenta la pestaña "Proveedores" de
+   * Auditorías. Se puede filtrar por proveedor y por año de la orden.
+   */
+  async getSupplierPurchases(filters?: { supplierId?: number; year?: number }) {
+    const condiciones: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.supplierId) {
+      params.push(filters.supplierId);
+      condiciones.push(`s.supplier_id = $${params.length}`);
+    }
+    if (filters?.year) {
+      params.push(filters.year);
+      condiciones.push(`EXTRACT(YEAR FROM po.issue_date) = $${params.length}`);
+    }
+    const where = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+    const rows = await this.purchaseOrderRepository.manager.query(
+      `SELECT poi.po_item_id            AS "poItemId",
+              s.supplier_id             AS "supplierId",
+              s.name                    AS "supplierName",
+              s.nit_cc                  AS "supplierNit",
+              m.code                    AS "materialCode",
+              m.description             AS "materialDescription",
+              g.name                    AS "groupName",
+              poi.quantity              AS "quantity",
+              poi.unit_price            AS "unitPrice",
+              poi.total_amount          AS "totalAmount",
+              po.purchase_order_number  AS "purchaseOrderNumber",
+              po.issue_date             AS "orderDate",
+              co.name                   AS "companyName",
+              p.name                    AS "projectName"
+         FROM purchase_order_items poi
+         JOIN purchase_orders po    ON po.purchase_order_id = poi.purchase_order_id
+         JOIN suppliers s           ON s.supplier_id = po.supplier_id
+         JOIN requisitions r        ON r.requisition_id = po.requisition_id
+         JOIN requisition_items ri  ON ri.item_id = poi.requisition_item_id
+         JOIN materials m           ON m.material_id = ri.material_id
+         JOIN material_groups g     ON g.group_id = m.group_id
+         LEFT JOIN companies co     ON co.company_id = r.company_id
+         LEFT JOIN projects p       ON p.project_id = r.project_id
+         ${where}
+        ORDER BY s.name, po.issue_date DESC, po.purchase_order_number, m.description`,
+      params,
+    );
+
+    // Selectores sin una segunda llamada.
+    const suppliers = await this.purchaseOrderRepository.manager.query(
+      `SELECT DISTINCT s.supplier_id AS "supplierId", s.name AS "name", s.nit_cc AS "nit"
+         FROM suppliers s
+         JOIN purchase_orders po ON po.supplier_id = s.supplier_id
+        ORDER BY s.name`,
+    );
+    const years = await this.purchaseOrderRepository.manager.query(
+      `SELECT DISTINCT EXTRACT(YEAR FROM po.issue_date)::int AS "year"
+         FROM purchase_orders po
+        WHERE po.issue_date IS NOT NULL
+        ORDER BY 1 DESC`,
+    );
+
+    return {
+      data: rows.map((row: Record<string, unknown>) => ({
+        ...row,
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unitPrice),
+        totalAmount: Number(row.totalAmount),
+      })),
+      total: rows.length,
+      suppliers,
+      years: years.map((y: { year: number }) => y.year),
+    };
+  }
 }

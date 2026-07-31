@@ -37,6 +37,13 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 
+/**
+ * Quién decide el resumen del plan anual. Es una restricción por ROL, más estrecha que
+ * el permiso del decorador: `levantamientos:aprobar` lo tiene también el Director
+ * Técnico, que aprueba levantamientos pero no el plan anual.
+ */
+const ROLES_REVISION_PLAN_ANUAL = ['Gerencia de Proyectos', 'Analista PMO'];
+
 /** Query param opcional de proyecto: '', 'null' o ausente → null. */
 function parseNullableInt(value?: string): number | null {
   if (value === undefined || value === null || value === '' || value === 'null') {
@@ -214,9 +221,12 @@ export class SurveysController {
     return this.surveysService.getAnnualPlanReview(Number(year), municipio, zone);
   }
 
+  // Decide sobre el plan anual, así que pide permiso de decisión — el mismo par que
+  // aprobar un acta, no el de solo lectura que tenía antes. La restricción por rol de
+  // abajo sigue siendo la que manda; el decorador es la primera línea y ahora no miente.
   @Patch('annual-plan/review')
-  @Permissions('levantamientos:ver')
-  @ApiOperation({ summary: 'Approve or reject annual plan summary' })
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Approve or reject annual plan summary (Gerencia de Proyectos)' })
   async reviewAnnualPlan(
     @Body() body: {
       year: number;
@@ -228,7 +238,7 @@ export class SurveysController {
     @CurrentUser('userId') userId: number,
     @CurrentUser('role') role: { nombreRol?: string },
   ) {
-    if (!['Gerencia de Proyectos', 'Analista PMO'].includes(role?.nombreRol ?? '')) {
+    if (!ROLES_REVISION_PLAN_ANUAL.includes(role?.nombreRol ?? '')) {
       throw new ForbiddenException('Solo Gerencia de Proyectos o Analista PMO puede aprobar o rechazar el resumen del plan anual');
     }
 
@@ -316,14 +326,15 @@ export class SurveysController {
 
   @Patch(':id/approve-all')
   @Permissions('levantamientos:aprobar')
-  @ApiOperation({ summary: 'Approve all blocks of a survey at once' })
+  @ApiOperation({ summary: 'Approve all blocks of a survey at once (requires previous month IPP)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'All blocks approved successfully' })
   async approveAllBlocks(
     @Param('id', ParseIntPipe) id: number,
+    @Body() body: { previousMonthIpp?: number },
     @CurrentUser('userId') userId: number,
   ) {
-    return this.surveysService.approveAllBlocks(id, userId);
+    return this.surveysService.approveAllBlocks(id, userId, body?.previousMonthIpp);
   }
 
   @Patch(':id/reopen')

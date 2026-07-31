@@ -225,4 +225,28 @@ export class AuditController {
       onlyInvoiced: onlyInvoiced === "true",
     });
   }
+
+  @Get("supplier-purchases")
+  @ApiOperation({
+    summary: "Compras por proveedor",
+    description: `
+    Devuelve una fila por ítem de orden de compra con el proveedor, el material,
+    la cantidad, el valor y la fecha de la orden. Sirve para ver qué se le ha
+    comprado a cada proveedor.
+
+    Incluye los proveedores y los años disponibles, para poblar los filtros.
+    `,
+  })
+  @ApiQuery({ name: "supplierId", required: false, type: Number })
+  @ApiQuery({ name: "year", required: false, type: Number })
+  @ApiResponse({ status: 200, description: "Listado obtenido exitosamente" })
+  async getSupplierPurchases(
+    @Query("supplierId") supplierId?: string,
+    @Query("year") year?: string,
+  ) {
+    return this.auditService.getSupplierPurchases({
+      supplierId: supplierId ? parseInt(supplierId, 10) : undefined,
+      year: year ? parseInt(year, 10) : undefined,
+    });
+  }
 }
