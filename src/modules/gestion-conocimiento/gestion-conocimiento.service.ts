@@ -19,7 +19,7 @@ import {
   JURIDICA_TRANSICIONES,
   JURIDICA_ESTADOS,
   NOTIFICAR_AL_LLEGAR,
-  ROL_PMO,
+  esRolPmo,
   JuridicaEstado,
 } from "./juridica-workflow";
 import {
@@ -37,6 +37,12 @@ import {
   LEGALIZACION_CORTE_DIA_MES,
   LegalizacionEstado,
 } from "./legalizacion-workflow";
+import {
+  CUENTAS_TRANSICIONES,
+  CUENTAS_ESTADOS,
+  CUENTAS_NOTIFICAR_AL_LLEGAR,
+  CuentasEstado,
+} from "./cuentas-companias-workflow";
 
 @Injectable()
 export class GestionConocimientoService {
@@ -79,6 +85,17 @@ export class GestionConocimientoService {
     return (
       s.gestion === "contable" &&
       s.formato === GestionConocimientoService.FORMATO_LEGALIZACION
+    );
+  }
+
+  /** Formato de Autorización de pago mediante cuentas entre compañías (uso excepcional). */
+  private static readonly FORMATO_CUENTAS = "GF-004-F5";
+
+  /** True si la solicitud es una Autorización de cuentas entre compañías (GF-004-F5). */
+  private esCuentasCompanias(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "contable" &&
+      s.formato === GestionConocimientoService.FORMATO_CUENTAS
     );
   }
 
@@ -167,7 +184,7 @@ export class GestionConocimientoService {
       relations: ["role"],
     });
     const rol = user?.role?.nombreRol ?? "";
-    const esPmo = rol === ROL_PMO;
+    const esPmo = esRolPmo(rol);
 
     // A quiénes autoriza este usuario (es su "jefe"), en una sola consulta.
     const rels = await this.authorizationRepo.find({
@@ -195,7 +212,9 @@ export class GestionConocimientoService {
         ? ANTICIPO_TRANSICIONES
         : this.esLegalizacion(s)
           ? LEGALIZACION_TRANSICIONES
-          : JURIDICA_TRANSICIONES;
+          : this.esCuentasCompanias(s)
+            ? CUENTAS_TRANSICIONES
+            : JURIDICA_TRANSICIONES;
 
       const acciones = Object.entries(transiciones)
         .filter(([, t]) => t.from === s.estado)
@@ -254,32 +273,57 @@ export class GestionConocimientoService {
       where: { userId },
       relations: ["role"],
     });
-    const rol = (user?.role?.nombreRol ?? "").toLowerCase();
-    const permitido =
-      rol === "analista pmo" ||
-      rol.includes("juríd") ||
-      rol.includes("jurid") ||
-      rol.includes("administrativ");
-    if (!permitido) {
+    const nombreRol = user?.role?.nombreRol ?? "";
+    const rol = nombreRol.toLowerCase();
+    const esPmo = esRolPmo(nombreRol);
+    const esJuridica = rol.includes("juríd") || rol.includes("jurid");
+    const esAdmin = rol.includes("administrativ");
+    if (!esPmo && !esJuridica && !esAdmin) {
       throw new ForbiddenException(
         "Solo Jurídica o Administrativa pueden diligenciar la lista de chequeo",
       );
     }
 
-    // Firma automática de la revisión según la etapa activa de la solicitud:
-    // en trámite (Administrativa) → REVISIÓN DIRECCIÓN ADMINISTRATIVA;
-    // contrato en elaboración (Jurídica) → REVISIÓN DIRECCIÓN JURÍDICA.
-    // Se estampa quien revisa (nombre/cargo/fecha) sin sobrescribir lo ya firmado.
-    const cl: Record<string, any> = { ...checklist };
+    // La lista es secuencial: primero Administrativa verifica que los documentos
+    // estén, y solo después Jurídica los revisa. Fuera de esas dos etapas queda
+    // cerrada —es un registro firmado, no un borrador editable—.
+    const lado = GestionConocimientoService.ladoChecklist(solicitud.estado);
+    if (!lado) {
+      throw new BadRequestException(
+        "La lista de chequeo solo se diligencia en trámite (Administrativa) y en revisión del contrato (Jurídica).",
+      );
+    }
+    if (!esPmo) {
+      if (lado === "admin" && !esAdmin) {
+        throw new ForbiddenException(
+          "En esta etapa la lista de chequeo la diligencia la Dirección Administrativa",
+        );
+      }
+      if (lado === "juridica" && !esJuridica) {
+        throw new ForbiddenException(
+          "En esta etapa la lista de chequeo la revisa la Dirección Jurídica",
+        );
+      }
+    }
+
+    // Cada lado escribe solo sus columnas: lo que manda el cliente no puede pisar
+    // lo que ya verificó el otro.
+    const previo = (solicitud.data?.checklist ?? {}) as Record<string, any>;
+    const cl = GestionConocimientoService.fusionarChecklist(
+      previo,
+      checklist,
+      lado,
+    );
+
+    // Firma automática de la revisión del lado que guarda, sin sobrescribir lo ya
+    // firmado. Sale del servidor: el cliente no la puede fabricar.
     const hoy = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    if (solicitud.estado === "en_tramite_administrativa" && !cl.revAdminNombre) {
+    if (lado === "admin" && !cl.revAdminNombre) {
       cl.revAdminNombre = user?.nombre ?? "";
       cl.revAdminCargo = user?.cargo ?? "";
       cl.revAdminFecha = cl.revAdminFecha || hoy;
-    } else if (
-      solicitud.estado === "contrato_en_elaboracion" &&
-      !cl.revJurNombre
-    ) {
+    }
+    if (lado === "juridica" && !cl.revJurNombre) {
       cl.revJurNombre = user?.nombre ?? "";
       cl.revJurCargo = user?.cargo ?? "";
       cl.revJurFecha = cl.revJurFecha || hoy;
@@ -287,6 +331,67 @@ export class GestionConocimientoService {
 
     solicitud.data = { ...(solicitud.data ?? {}), checklist: cl };
     return this.solicitudRepo.save(solicitud);
+  }
+
+  /** Columnas del GA-25-F que le corresponden a cada lado. */
+  private static readonly CAMPOS_ADMIN = ["presentaSi", "presentaNo", "obsAdm"];
+  private static readonly CAMPOS_JUR = ["revSi", "revNo", "obsJur"];
+  /** Cabecera del formato: la diligencia Administrativa junto con su columna. */
+  private static readonly CAMPOS_CABECERA = [
+    "contratante",
+    "contratista",
+    "supervisor",
+    "docsUrl",
+  ];
+
+  /** Qué lado de la lista está abierto, según la etapa de la solicitud. */
+  private static ladoChecklist(estado: string): "admin" | "juridica" | null {
+    if (estado === "en_tramite_administrativa") return "admin";
+    if (estado === "contrato_en_elaboracion") return "juridica";
+    return null;
+  }
+
+  /**
+   * Mezcla lo que llega con lo guardado dejando que el lado que edita pise
+   * **solo** sus columnas. Las firmas vienen siempre de lo guardado: las estampa
+   * el servidor más abajo.
+   */
+  private static fusionarChecklist(
+    previo: Record<string, any>,
+    entrante: Record<string, any>,
+    lado: "admin" | "juridica",
+  ): Record<string, any> {
+    const base: Record<string, any> = { ...previo };
+    if (lado === "admin") {
+      for (const c of GestionConocimientoService.CAMPOS_CABECERA) {
+        base[c] = entrante[c] ?? previo[c] ?? "";
+      }
+    }
+
+    const mios =
+      lado === "admin"
+        ? GestionConocimientoService.CAMPOS_ADMIN
+        : GestionConocimientoService.CAMPOS_JUR;
+    const itemsPrevios = (previo.items ?? {}) as Record<string, any>;
+    const itemsEntrantes = (entrante.items ?? {}) as Record<string, any>;
+    const claves = Array.from(
+      new Set([...Object.keys(itemsPrevios), ...Object.keys(itemsEntrantes)]),
+    );
+    const items: Record<string, any> = {};
+    for (const clave of claves) {
+      const fila = { ...(itemsPrevios[clave] ?? {}) };
+      const nueva = (itemsEntrantes[clave] ?? {}) as Record<string, any>;
+      for (const c of mios) if (c in nueva) fila[c] = nueva[c];
+      items[clave] = fila;
+    }
+    base.items = items;
+    return base;
+  }
+
+  /** Las dos revisiones firmadas: Administrativa verificó y Jurídica revisó. */
+  private static checklistCompleto(solicitud: GcSolicitud): boolean {
+    const cl = (solicitud.data?.checklist ?? {}) as Record<string, any>;
+    return !!cl.revAdminNombre && !!cl.revJurNombre;
   }
 
   /** Documentos de fase 2 que viven en data[key] (los diligencia Jurídica). */
@@ -300,7 +405,7 @@ export class GestionConocimientoService {
 
   /**
    * Guarda un documento de fase 2 (designación de supervisor, acta de inicio) en
-   * data[key]. Los diligencia Jurídica (o el Analista PMO como comodín).
+   * data[key]. Los diligencia Jurídica (o el PMO como comodín).
    */
   async saveDocumento(
     id: number,
@@ -324,6 +429,21 @@ export class GestionConocimientoService {
         "Solo Jurídica puede diligenciar este documento",
       );
     }
+
+    // El contrato no se redacta hasta que la lista de chequeo esté revisada por los
+    // dos lados: es lo que garantiza que los documentos estén completos y verificados.
+    // Solo se exige en la etapa donde se redacta; más adelante el contrato ya existe
+    // y bloquear su edición no protegería nada.
+    if (
+      key === "contrato" &&
+      solicitud.estado === "contrato_en_elaboracion" &&
+      !GestionConocimientoService.checklistCompleto(solicitud)
+    ) {
+      throw new BadRequestException(
+        "La lista de chequeo debe estar revisada por la Dirección Administrativa y por la Dirección Jurídica antes de generar el contrato.",
+      );
+    }
+
     solicitud.data = { ...(solicitud.data ?? {}), [key]: docData };
     return this.solicitudRepo.save(solicitud);
   }
@@ -363,6 +483,11 @@ export class GestionConocimientoService {
       return this.transitionLegalizacion(solicitud, accion, userId, motivo, payload);
     }
 
+    // Y las cuentas entre compañías (GF-004-F5), que solo custodian y concilian.
+    if (this.esCuentasCompanias(solicitud)) {
+      return this.transitionCuentas(solicitud, accion, userId, motivo, payload);
+    }
+
     const t = JURIDICA_TRANSICIONES[accion];
     if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
 
@@ -390,8 +515,8 @@ export class GestionConocimientoService {
     });
     const rol = user?.role?.nombreRol ?? "";
 
-    // Autorización: el Analista PMO siempre puede; si no, se valida el rol o el creador.
-    const esPmo = rol === ROL_PMO;
+    // Autorización: el PMO siempre puede; si no, se valida el rol o el creador.
+    const esPmo = esRolPmo(rol);
     const rolPermitido = t.roles.includes(rol);
     const esCreador = solicitud.createdBy === userId;
     const autorizado = esPmo || rolPermitido || (t.soloCreador && esCreador);
@@ -717,7 +842,7 @@ export class GestionConocimientoService {
       relations: ["role"],
     });
     const rol = user?.role?.nombreRol ?? "";
-    const esPmo = rol === ROL_PMO;
+    const esPmo = esRolPmo(rol);
 
     // Autorización según el tipo de paso.
     let autorizado = esPmo;
@@ -829,7 +954,7 @@ export class GestionConocimientoService {
       relations: ["role"],
     });
     const rol = user?.role?.nombreRol ?? "";
-    const esPmo = rol === ROL_PMO;
+    const esPmo = esRolPmo(rol);
 
     let autorizado = esPmo;
     if (!autorizado) {
@@ -1004,6 +1129,152 @@ export class GestionConocimientoService {
         <p>Ingresa al sistema para continuar con el trámite.</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Flujo de Autorización de pago mediante cuentas entre compañías (GF-004-F5)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Flujo del GF-004-F5: borrador → pendiente_conciliacion → conciliado.
+   *
+   * No hay pasos de aprobación: la autorización previa de las dos Gerencias Generales
+   * se firma en papel (sección 2 del formato). El sistema custodia el documento y
+   * exige el control posterior — la conciliación mensual de la sección 3, que
+   * diligencia Contabilidad al cerrar y llega en el payload.
+   */
+  private async transitionCuentas(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+    payload?: Record<string, any>,
+  ): Promise<GcSolicitud> {
+    const t = CUENTAS_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `El formato está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+
+    let autorizado = esRolPmo(rol);
+    if (!autorizado) {
+      autorizado = t.soloCreador
+        ? solicitud.createdBy === userId
+        : t.roles.includes(rol);
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    // Sin las dos compañías y el valor, el formato no dice nada: no se envía.
+    if (accion === "enviar") {
+      const d = solicitud.data ?? {};
+      const falta = !String(d.companiaGasto ?? "").trim()
+        || !String(d.companiaPaga ?? "").trim()
+        || !String(d.valorOperacion ?? "").trim();
+      if (falta) {
+        throw new BadRequestException(
+          "Indica la compañía que registró el gasto, la que efectúa el pago y el valor de la operación.",
+        );
+      }
+    }
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    if (accion === "conciliar") {
+      // Sección 3: control posterior. La firma la estampa el servidor.
+      for (const k of ["mesConciliacion", "saldoCuenta", "fechaConciliacion"]) {
+        if (payload?.[k] !== undefined) data[k] = payload[k];
+      }
+      data.conciliadoPor = user?.nombre ?? "";
+      data.fechaConciliacion = data.fechaConciliacion || hoy;
+    }
+
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarCuentas(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar las cuentas entre compañías: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  private async notificarCuentas(
+    solicitud: GcSolicitud,
+    estado: CuentasEstado,
+    motivo?: string,
+  ): Promise<void> {
+    const destino = CUENTAS_NOTIFICAR_AL_LLEGAR[estado];
+    let usuarios: User[] = [];
+
+    if (destino === "creador") {
+      if (solicitud.createdBy) {
+        const creador = await this.userRepo.findOne({
+          where: { userId: solicitud.createdBy },
+        });
+        if (creador) usuarios = [creador];
+      }
+    } else {
+      const activos = await this.userRepo.find({
+        where: { estado: true },
+        relations: ["role"],
+      });
+      const objetivo = destino.map((r) => r.toLowerCase());
+      usuarios = activos.filter((u) =>
+        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      );
+    }
+
+    const label = CUENTAS_ESTADOS[estado].label;
+    const nro = String(solicitud.solicitudId);
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Cuentas entre compañías N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>La autorización de pago mediante cuentas entre compañías <b>N.º ${nro}</b>
+           (formato GF-004-F5) pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
   }
 
   /**

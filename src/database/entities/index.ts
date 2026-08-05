@@ -62,6 +62,8 @@ export { DirectorBudgetItem } from './director-budget-item.entity';
 // configuracion de porcentajes por municipio.
 export { CregMunicipioConfig } from './creg-municipio-config.entity';
 export { CregParametrizacion } from './creg-parametrizacion.entity';
+// El IPP no va por municipio: lo publica el DANE y sirve a todos los contratos.
+export { CregIppMensual } from './creg-ipp-mensual.entity';
 export { CregCenso } from './creg-censo.entity';
 export { CregLiquidacion } from './creg-liquidacion.entity';
 export { CregIddOff } from './creg-idd-off.entity';

@@ -97,6 +97,20 @@ export class PurchaseOrder {
   @Column({ name: 'reception_status', type: 'varchar', length: 50, default: 'pendiente_recepcion' })
   receptionStatus: string;
 
+  // ---- Recepción / rechazo de las facturas por Contabilidad ----
+  // Observación de la última acción de Contabilidad, sea recibir o rechazar.
+  @Column({ name: 'accounting_observations', type: 'text', nullable: true })
+  accountingObservations: string | null;
+
+  // Con fecha, la orden viene devuelta por Contabilidad; se limpia al recibirla
+  // o al volver a enviarla desde Compras. Sin relación a propósito: una FK aquí
+  // no aporta y synchronize es delicado con ellas.
+  @Column({ name: 'accounting_rejected_at', type: 'timestamptz', nullable: true })
+  accountingRejectedAt: Date | null;
+
+  @Column({ name: 'accounting_rejected_by', type: 'int', nullable: true })
+  accountingRejectedBy: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

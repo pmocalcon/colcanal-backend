@@ -1,12 +1,15 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, Repository, IsNull } from "typeorm";
 import { CregMunicipioConfig } from "../../database/entities/creg-municipio-config.entity";
 import { CregParametrizacion } from "../../database/entities/creg-parametrizacion.entity";
+import { CregIppMensual } from "../../database/entities/creg-ipp-mensual.entity";
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
 import { CregIddOff } from "../../database/entities/creg-idd-off.entity";
@@ -16,6 +19,10 @@ import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
 import { UcapApellido } from "../../database/entities/ucap-apellido.entity";
 import { Company } from "../../database/entities/company.entity";
 import { Project } from "../../database/entities/project.entity";
+import { User } from "../../database/entities/user.entity";
+import { SurveyReviewerAccess } from "../../database/entities/survey-reviewer-access.entity";
+import { NotificationsService } from "../notifications/notifications.service";
+import { ROLE_NAMES } from "../../common/constants/roles.constants";
 import {
   CreateCregUnitDto,
   SaveCregCensoDto,
@@ -23,9 +30,16 @@ import {
   SaveCregIddOffDto,
   SaveCregIddOnDto,
   SaveCregParametrizacionDto,
+  SaveCregIppMensualDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
 } from "./dto";
+
+/**
+ * Hojas del modulo que se llevan mes a mes y se pueden cerrar. Las tres guardan
+ * su contenido en `data.meses[YYYY-MM]`, asi que comparten el mismo candado.
+ */
+export type HojaMensual = "liquidacion" | "idd-off" | "idd-on";
 
 const DEFAULT_CONFIG = {
   pctTransport: 0,
@@ -47,6 +61,8 @@ export class CregService {
     private readonly configRepo: Repository<CregMunicipioConfig>,
     @InjectRepository(CregParametrizacion)
     private readonly paramRepo: Repository<CregParametrizacion>,
+    @InjectRepository(CregIppMensual)
+    private readonly ippRepo: Repository<CregIppMensual>,
     @InjectRepository(CregCenso)
     private readonly censoRepo: Repository<CregCenso>,
     @InjectRepository(CregLiquidacion)
@@ -65,8 +81,15 @@ export class CregService {
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(SurveyReviewerAccess)
+    private readonly accessRepo: Repository<SurveyReviewerAccess>,
+    private readonly notifications: NotificationsService,
     private readonly dataSource: DataSource,
   ) {}
+
+  private readonly logger = new Logger(CregService.name);
 
   /**
    * IPP base del municipio: el del proyecto si existe, si no el de la empresa.
@@ -230,6 +253,60 @@ export class CregService {
     return this.getParametrizacion(companyId, projectId);
   }
 
+  // ============ IPP mensual (global) ============
+
+  /**
+   * Toda la serie del IPP como { 'YYYY-MM': valor }.
+   * No recibe municipio: el índice lo publica el DANE y es el mismo para todos.
+   */
+  async getIppMensual(): Promise<{ valores: Record<string, number> }> {
+    const filas = await this.ippRepo.find({ order: { ym: "ASC" } });
+    const valores: Record<string, number> = {};
+    for (const f of filas) valores[f.ym] = Number(f.valor);
+    return { valores };
+  }
+
+  /**
+   * Reemplaza la serie completa. Los meses que no vengan en `valores` se borran,
+   * que es como el frontend representa "esta casilla quedó vacía".
+   */
+  async saveIppMensual(dto: SaveCregIppMensualDto) {
+    const entrada = dto.valores ?? {};
+    const limpios = new Map<string, number>();
+    for (const [ym, raw] of Object.entries(entrada)) {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) {
+        throw new BadRequestException(`Mes inválido: "${ym}" (se espera AAAA-MM)`);
+      }
+      const n = Number(raw);
+      if (raw === null || raw === undefined || String(raw).trim() === "" || Number.isNaN(n)) {
+        continue; // casilla vacía: no se guarda
+      }
+      limpios.set(ym, n);
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(CregIppMensual);
+      const existentes = await repo.find();
+      const porMes = new Map(existentes.map((f) => [f.ym, f]));
+
+      const sobran = existentes.filter((f) => !limpios.has(f.ym));
+      if (sobran.length > 0) await repo.remove(sobran);
+
+      const guardar: CregIppMensual[] = [];
+      for (const [ym, valor] of limpios) {
+        const fila = porMes.get(ym);
+        if (fila) {
+          if (fila.valor !== valor) { fila.valor = valor; guardar.push(fila); }
+        } else {
+          guardar.push(repo.create({ ym, valor }));
+        }
+      }
+      if (guardar.length > 0) await repo.save(guardar);
+    });
+
+    return this.getIppMensual();
+  }
+
   // ============ Censo fisico por municipio ============
 
   async getCenso(companyId: number, projectId?: number | null) {
@@ -274,20 +351,366 @@ export class CregService {
     };
   }
 
+  /** El IPP(m-1) del mes liquidado es potestad del Director Tecnico. */
+  private readonly ROL_IPP = ROLE_NAMES.DIRECTOR_TECNICO;
+
+  private async getRolDe(userId: number): Promise<string> {
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    return user?.role?.nombreRol?.trim() ?? "";
+  }
+
+  /** Compara IPPs tolerando null/undefined/string ("187.43" == 187.43). */
+  private mismoIpp(a: unknown, b: unknown): boolean {
+    const n = (v: unknown) =>
+      v === null || v === undefined || v === "" ? null : Number(v);
+    const na = n(a);
+    const nb = n(b);
+    if (na === null || nb === null) return na === nb;
+    return Math.abs(na - nb) < 1e-9;
+  }
+
   async saveLiquidacion(
     companyId: number,
     projectId: number | null,
     dto: SaveCregLiquidacionDto,
+    userId?: number,
   ) {
-    let row = await this.liquidacionRepo.findOne({
+    const row = await this.filaHoja("liquidacion", companyId, projectId);
+
+    // Candado propio de la Liquidacion: el IPP(m-1) solo lo mueve el Director
+    // Tecnico. Va aqui y no en la pantalla porque el front puede omitirse.
+    const guardados: Record<string, any> = row.data?.meses ?? {};
+    const entrantes: Record<string, any> = dto.data?.meses ?? {};
+    const cambiaIpp = Object.keys(entrantes).some(
+      (ym) => !this.mismoIpp(entrantes[ym]?.ippMes, guardados[ym]?.ippMes),
+    );
+    if (cambiaIpp) {
+      const rol = userId ? await this.getRolDe(userId) : "";
+      if (rol !== this.ROL_IPP) {
+        throw new ForbiddenException(
+          `El IPP(m-1) del mes liquidado solo lo puede modificar el ${this.ROL_IPP}.`,
+        );
+      }
+    }
+
+    return this.guardarHoja("liquidacion", companyId, projectId, dto.data);
+  }
+
+  // ============ Aprobacion de un mes (Liquidacion / ID OFF / ID ON) ============
+
+  /**
+   * Las tres hojas mensuales del modulo se cierran igual: el Director Tecnico
+   * aprueba un mes, ese mes queda congelado y se le avisa por correo al Director
+   * de Proyecto del municipio. La regla vive una sola vez aqui.
+   */
+  private hojaDe(hoja: HojaMensual): {
+    repo: Repository<any>;
+    label: string;
+    /** Que queda bloqueado, para decirlo en el correo. */
+    detalle: string;
+  } {
+    switch (hoja) {
+      case "liquidacion":
+        return {
+          repo: this.liquidacionRepo,
+          label: "Liquidación",
+          detalle: "el IPP(m-1) y los ajustes",
+        };
+      case "idd-off":
+        return {
+          repo: this.iddOffRepo,
+          label: "ID OFF (apagadas)",
+          detalle: "la potencia instalada (WT), las horas del periodo (T) y las fallas",
+        };
+      case "idd-on":
+        return {
+          repo: this.iddOnRepo,
+          label: "ID ON (encendidas)",
+          detalle:
+            "la potencia instalada (WT), las horas del periodo (T), la tarifa (TEEn) y las encendidas",
+        };
+    }
+  }
+
+  private async filaHoja(
+    hoja: HojaMensual,
+    companyId: number,
+    projectId: number | null,
+  ): Promise<{ data: any; [k: string]: any }> {
+    const { repo } = this.hojaDe(hoja);
+    const row = await repo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return row ?? repo.create({ companyId, projectId: projectId ?? null, data: null });
+  }
+
+  private async leerHoja(
+    hoja: HojaMensual,
+    companyId: number,
+    projectId: number | null,
+  ) {
+    const { repo } = this.hojaDe(hoja);
+    const row = await repo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return {
+      companyId,
+      projectId: projectId ?? null,
+      data: row?.data ?? null,
+      exists: !!row,
+    };
+  }
+
+  /**
+   * Guarda la hoja conservando los meses ya aprobados: gana lo guardado, venga
+   * lo que venga (incluso si el payload omite el mes, que lo borraria).
+   */
+  private async guardarHoja(
+    hoja: HojaMensual,
+    companyId: number,
+    projectId: number | null,
+    data: Record<string, any> | undefined,
+  ) {
+    const { repo } = this.hojaDe(hoja);
+    const row = await this.filaHoja(hoja, companyId, projectId);
+
+    const guardados: Record<string, any> = row.data?.meses ?? {};
+    const meses: Record<string, any> = { ...((data?.meses ?? {}) as object) };
+    const congelados: string[] = [];
+    for (const [ym, mes] of Object.entries(guardados)) {
+      if (mes?.aprobado) {
+        meses[ym] = mes;
+        congelados.push(ym);
+      }
+    }
+
+    row.data = { ...(data ?? {}), meses };
+    await repo.save(row);
+    const res = await this.leerHoja(hoja, companyId, projectId);
+    return { ...res, congelados };
+  }
+
+  /**
+   * Aprueba y cierra un mes. "Director de Proyecto responsable del municipio" se
+   * resuelve con survey_reviewer_access, que es donde ya vive el alcance por
+   * departamento de cada Director de Proyecto (los roles son "Director de
+   * Proyecto Antioquia", "... Valle", etc.).
+   */
+  async aprobarMes(
+    hoja: HojaMensual,
+    companyId: number,
+    projectId: number | null,
+    ym: string,
+    userId: number,
+  ) {
+    const { repo, label, detalle } = this.hojaDe(hoja);
+
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym ?? "")) {
+      throw new BadRequestException("Mes invalido: se espera YYYY-MM.");
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    if ((user?.role?.nombreRol?.trim() ?? "") !== ROLE_NAMES.DIRECTOR_TECNICO) {
+      throw new ForbiddenException(
+        `Solo el ${ROLE_NAMES.DIRECTOR_TECNICO} puede aprobar el mes.`,
+      );
+    }
+
+    const row = await repo.findOne({
       where: { companyId, projectId: projectId ?? IsNull() },
     });
     if (!row) {
-      row = this.liquidacionRepo.create({ companyId, projectId: projectId ?? null });
+      throw new NotFoundException(
+        `Este municipio todavia no tiene ${label} guardada: guarda el mes antes de aprobarlo.`,
+      );
     }
-    row.data = dto.data ?? {};
-    await this.liquidacionRepo.save(row);
-    return this.getLiquidacion(companyId, projectId);
+    const meses: Record<string, any> = row.data?.meses ?? {};
+    if (meses[ym]?.aprobado) {
+      throw new BadRequestException("Ese mes ya estaba aprobado.");
+    }
+
+    meses[ym] = {
+      ...(meses[ym] ?? {}),
+      aprobado: true,
+      aprobadoEn: new Date().toISOString(),
+      aprobadoPor: userId,
+      aprobadoPorNombre: user?.nombre ?? null,
+    };
+    row.data = { ...(row.data ?? {}), meses };
+    await repo.save(row);
+
+    const notificados = await this.notificarMesAprobado(
+      companyId,
+      projectId,
+      ym,
+      user,
+      label,
+      detalle,
+    );
+
+    const res = await this.leerHoja(hoja, companyId, projectId);
+    return { ...res, notificados };
+  }
+
+  /**
+   * Reabre un mes cerrado. Solo el Director Tecnico, el mismo que lo aprobo.
+   *
+   * Guarda quien y cuando reabrio en `reaperturas[]` en vez de borrar el rastro:
+   * un mes que se cerro y se volvio a abrir es justo lo que hay que poder
+   * auditar despues.
+   */
+  async reabrirMes(
+    hoja: HojaMensual,
+    companyId: number,
+    projectId: number | null,
+    ym: string,
+    userId: number,
+    motivo?: string,
+  ) {
+    const { repo, label } = this.hojaDe(hoja);
+
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym ?? "")) {
+      throw new BadRequestException("Mes invalido: se espera YYYY-MM.");
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    if ((user?.role?.nombreRol?.trim() ?? "") !== ROLE_NAMES.DIRECTOR_TECNICO) {
+      throw new ForbiddenException(
+        `Solo el ${ROLE_NAMES.DIRECTOR_TECNICO} puede reabrir un mes cerrado.`,
+      );
+    }
+
+    const row = await repo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    const meses: Record<string, any> = row?.data?.meses ?? {};
+    if (!row || !meses[ym]?.aprobado) {
+      throw new BadRequestException(`Ese mes no esta aprobado en ${label}.`);
+    }
+
+    const {
+      aprobado: _ap,
+      aprobadoEn,
+      aprobadoPor,
+      aprobadoPorNombre,
+      ...resto
+    } = meses[ym];
+    meses[ym] = {
+      ...resto,
+      reaperturas: [
+        ...(resto.reaperturas ?? []),
+        {
+          aprobadoEn,
+          aprobadoPor,
+          aprobadoPorNombre,
+          reabiertoEn: new Date().toISOString(),
+          reabiertoPor: userId,
+          reabiertoPorNombre: user?.nombre ?? null,
+          motivo: motivo?.trim() || null,
+        },
+      ],
+    };
+    row.data = { ...(row.data ?? {}), meses };
+    await repo.save(row);
+
+    this.logger.warn(
+      `${label} ${ym} (company ${companyId}, project ${projectId ?? "-"}) reabierta por ${user?.nombre ?? userId}${motivo ? `: ${motivo}` : ""}`,
+    );
+
+    return this.leerHoja(hoja, companyId, projectId);
+  }
+
+  /** Directores de Proyecto con alcance sobre este municipio. */
+  private async directoresDelMunicipio(
+    companyId: number,
+    projectId: number | null,
+  ): Promise<User[]> {
+    const accesos = await this.accessRepo.find({
+      where: projectId
+        ? [{ projectId }, { companyId, projectId: IsNull() }]
+        : [{ companyId }],
+      relations: ["user", "user.role"],
+    });
+    const vistos = new Set<number>();
+    const out: User[] = [];
+    for (const a of accesos) {
+      const u = a.user;
+      if (!u || u.estado === false || vistos.has(u.userId)) continue;
+      if (!(u.role?.nombreRol ?? "").startsWith(ROLE_NAMES.DIRECTOR_PROYECTO)) continue;
+      vistos.add(u.userId);
+      out.push(u);
+    }
+    return out;
+  }
+
+  private async notificarMesAprobado(
+    companyId: number,
+    projectId: number | null,
+    ym: string,
+    aprobador: User | null,
+    hojaLabel: string,
+    detalle: string,
+  ): Promise<string[]> {
+    const [company, project, directores] = await Promise.all([
+      this.companyRepo.findOne({ where: { companyId } }),
+      projectId
+        ? this.projectRepo.findOne({ where: { projectId } })
+        : Promise.resolve(null),
+      this.directoresDelMunicipio(companyId, projectId),
+    ]);
+
+    const municipio = [company?.name, project?.name].filter(Boolean).join(" — ");
+    const MESES = [
+      "enero", "febrero", "marzo", "abril", "mayo", "junio",
+      "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    ];
+    const [anio, mes] = ym.split("-").map(Number);
+    const periodo = `${MESES[mes - 1]} de ${anio}`;
+
+    if (directores.length === 0) {
+      this.logger.warn(
+        `${hojaLabel} ${ym} de ${municipio} aprobada, pero no hay Director de Proyecto con acceso al municipio: nadie fue notificado.`,
+      );
+      return [];
+    }
+
+    const enviados: string[] = [];
+    for (const d of directores) {
+      const to = d.emailNotificacion || d.email;
+      if (!to) continue;
+      try {
+        await this.notifications.sendEmail({
+          to,
+          subject: `${hojaLabel} CREG aprobada · ${municipio} · ${periodo}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;color:#1f2937">
+              <p>Hola ${d.nombre ?? ""},</p>
+              <p>La hoja <b>${hojaLabel}</b> de <b>${periodo}</b> de <b>${municipio}</b>
+                 fue <b>aprobada</b> por ${aprobador?.nombre ?? "el Director Técnico"}.</p>
+              <p>Ese mes queda cerrado: ${detalle} ya no se pueden modificar.</p>
+              <p style="color:#6b7280;font-size:12px">
+                Mensaje automático del Sistema de Gestión Empresarial · módulo CREG.
+              </p>
+            </div>`,
+        });
+        enviados.push(to);
+      } catch (e: any) {
+        // El correo no debe tumbar la aprobacion: ya quedo guardada.
+        this.logger.error(
+          `No se pudo notificar a ${to} la aprobacion de ${ym} (${hojaLabel}, ${municipio}): ${e?.message}`,
+        );
+      }
+    }
+    return enviados;
   }
 
   // ============ IDD OFF (indice de disponibilidad, apagadas) ============
@@ -309,15 +732,7 @@ export class CregService {
     projectId: number | null,
     dto: SaveCregIddOffDto,
   ) {
-    let row = await this.iddOffRepo.findOne({
-      where: { companyId, projectId: projectId ?? IsNull() },
-    });
-    if (!row) {
-      row = this.iddOffRepo.create({ companyId, projectId: projectId ?? null });
-    }
-    row.data = dto.data ?? {};
-    await this.iddOffRepo.save(row);
-    return this.getIddOff(companyId, projectId);
+    return this.guardarHoja("idd-off", companyId, projectId, dto.data);
   }
 
   // ============ ID ON (indice de disponibilidad, encendidas) ============
@@ -339,15 +754,7 @@ export class CregService {
     projectId: number | null,
     dto: SaveCregIddOnDto,
   ) {
-    let row = await this.iddOnRepo.findOne({
-      where: { companyId, projectId: projectId ?? IsNull() },
-    });
-    if (!row) {
-      row = this.iddOnRepo.create({ companyId, projectId: projectId ?? null });
-    }
-    row.data = dto.data ?? {};
-    await this.iddOnRepo.save(row);
-    return this.getIddOn(companyId, projectId);
+    return this.guardarHoja("idd-on", companyId, projectId, dto.data);
   }
 
   // ============ Resumen agregado (dashboard) ============
@@ -396,6 +803,72 @@ export class CregService {
   }
 
   // ============ Hojas de costos (sobre UCAPs) ============
+
+  /**
+   * Una UCAP con hoja de costos esta cerrada mientras no la reabran.
+   *
+   * La hoja alimenta el censo, los presupuestos y la liquidacion: cambiarla
+   * mueve valores ya liquidados. Sin hoja no hay nada que proteger.
+   */
+  private estaBloqueada(ucap: Ucap, tieneHoja: boolean): boolean {
+    return tieneHoja && ucap.desbloqueada !== true;
+  }
+
+  /** Lanza si la UCAP esta cerrada. `accion` sale en el mensaje. */
+  private async assertUcapEditable(ucapId: number, accion: string): Promise<Ucap> {
+    const ucap = await this.ucapRepo.findOne({
+      where: { ucapId },
+      relations: ["costItems"],
+    });
+    if (!ucap) throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
+    if (this.estaBloqueada(ucap, (ucap.costItems || []).length > 0)) {
+      throw new ForbiddenException(
+        `La UCAP ${ucap.code} tiene hoja de costos y esta cerrada. ` +
+        `Solo el ${ROLE_NAMES.DIRECTOR_TECNICO} puede reabrirla para ${accion}.`,
+      );
+    }
+    return ucap;
+  }
+
+  /**
+   * Reabre una UCAP cerrada para poder editarla. Solo el Director Tecnico.
+   * Al guardar la hoja se vuelve a cerrar sola.
+   */
+  async reabrirUnit(ucapId: number, userId: number) {
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    if ((user?.role?.nombreRol?.trim() ?? "") !== ROLE_NAMES.DIRECTOR_TECNICO) {
+      throw new ForbiddenException(
+        `Solo el ${ROLE_NAMES.DIRECTOR_TECNICO} puede reabrir una UCAP.`,
+      );
+    }
+
+    const ucap = await this.ucapRepo.findOne({
+      where: { ucapId },
+      relations: ["costItems"],
+    });
+    if (!ucap) throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
+    if ((ucap.costItems || []).length === 0) {
+      throw new BadRequestException(
+        "Esa UCAP no tiene hoja de costos: ya se puede editar.",
+      );
+    }
+    if (ucap.desbloqueada === true) {
+      throw new BadRequestException("Esa UCAP ya estaba abierta.");
+    }
+
+    ucap.desbloqueada = true;
+    ucap.reabiertaPor = userId;
+    ucap.reabiertaEn = new Date();
+    await this.ucapRepo.save(ucap);
+
+    this.logger.warn(
+      `UCAP ${ucap.code} (${ucapId}) reabierta para edicion por ${user?.nombre ?? userId}`,
+    );
+    return this.findOne(ucapId);
+  }
 
   /**
    * Lista las UCAPs del municipio que ya tienen hoja de costos CREG definida.
@@ -493,15 +966,13 @@ export class CregService {
    * se pierde la hoja de costos existente.
    */
   async saveSheet(ucapId: number, dto: SaveUcapCostSheetDto) {
-    const ucap = await this.ucapRepo.findOne({
-      where: { ucapId },
-      relations: ["costItems"],
-    });
-    if (!ucap) {
-      throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
-    }
+    const ucap = await this.assertUcapEditable(ucapId, "editarla");
 
     const ippBase = await this.getCompanyIppBase(ucap.companyId, ucap.projectId ?? null);
+
+    // Al guardar se vuelve a cerrar: la reapertura vale para UNA edicion, no
+    // deja la UCAP abierta para siempre.
+    ucap.desbloqueada = false;
 
     // ---- Datos de la propia UCAP (editables desde la hoja) ----
     if (dto.code !== undefined) {
@@ -677,11 +1148,17 @@ export class CregService {
    * sin borrar la UCAP.
    */
   async clearSheet(ucapId: number) {
-    const ucap = await this.ucapRepo.findOne({ where: { ucapId } });
-    if (!ucap) {
-      throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
-    }
+    // Sin este candado, borrar la hoja seria la puerta de atras para editar una
+    // UCAP cerrada: se borra la hoja y queda libre.
+    const ucap = await this.assertUcapEditable(ucapId, "borrar su hoja de costos");
     await this.itemRepo.delete({ ucapId });
+    // La entidad viene con las líneas cargadas y la relación es cascade: si se
+    // guarda así, TypeORM las vuelve a insertar justo después de borrarlas.
+    ucap.costItems = [];
+    // Sin hoja no hay nada que cerrar: vuelve al estado de una UCAP nueva.
+    ucap.desbloqueada = null;
+    ucap.reabiertaPor = null;
+    ucap.reabiertaEn = null;
     ucap.pctEngineering = null;
     ucap.pctAdministration = null;
     ucap.pctInspection = null;
@@ -702,10 +1179,8 @@ export class CregService {
    * un error claro en vez de un 500.
    */
   async deleteUnit(ucapId: number) {
-    const ucap = await this.ucapRepo.findOne({ where: { ucapId } });
-    if (!ucap) {
-      throw new NotFoundException(`UCAP ${ucapId} no encontrada`);
-    }
+    // Igual que clearSheet: borrar tambien es editar.
+    await this.assertUcapEditable(ucapId, "eliminarla");
     try {
       await this.dataSource.transaction(async (m) => {
         await m.getRepository(UcapCostItem).delete({ ucapId });
@@ -873,6 +1348,9 @@ export class CregService {
       efficiencyLmW: ucap.efficiencyLmW ?? null,
       ippFactor: totals.ippFactor,
       hasCostSheet: items.length > 0,
+      /** Cerrada: tiene hoja y nadie la reabrió. La pantalla la pone solo lectura. */
+      bloqueada: this.estaBloqueada(ucap, items.length > 0),
+      reabiertaEn: ucap.reabiertaEn ?? null,
       items,
       totals,
       createdAt: ucap.createdAt,

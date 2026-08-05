@@ -5,6 +5,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Min,
   ValidateNested,
 } from "class-validator";
@@ -17,6 +18,17 @@ export class SaveCregParametrizacionDto {
   @ApiProperty({ type: Object, description: "Parametros CREG del municipio (JSON libre)" })
   @IsObject()
   data: Record<string, any>;
+}
+
+// ============ IPP mensual (global, no va por municipio) ============
+
+export class SaveCregIppMensualDto {
+  @ApiProperty({
+    type: Object,
+    description: "Mapa { 'YYYY-MM': valor }. Reemplaza la tabla completa: un mes ausente se borra.",
+  })
+  @IsObject()
+  valores: Record<string, number>;
 }
 
 // ============ Censo fisico por municipio ============
@@ -33,6 +45,19 @@ export class SaveCregLiquidacionDto {
   @ApiProperty({ type: Object, description: "Datos propios de cada mes liquidado (ajustes, IPP usado)" })
   @IsObject()
   data: Record<string, any>;
+}
+
+/** Aprobar/reabrir un mes: sirve para Liquidacion, ID OFF e ID ON. */
+export class AprobarCregMesDto {
+  @ApiProperty({ example: "2026-07", description: "Mes a cerrar o reabrir (YYYY-MM)" })
+  @IsString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: "El mes debe venir como YYYY-MM." })
+  ym: string;
+
+  @ApiProperty({ required: false, description: "Motivo de la reapertura (queda en el historial)" })
+  @IsOptional()
+  @IsString()
+  motivo?: string;
 }
 
 export class SaveCregIddOffDto {

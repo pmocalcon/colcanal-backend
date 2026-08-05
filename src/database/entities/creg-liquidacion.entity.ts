@@ -29,6 +29,14 @@ import { Project } from "./project.entity";
  *       ajusteAom?:  number,   // AJUSTE AOM (puede ser negativo)
  *       ajusteInv?:  number,   // AJUSTE INVERSION
  *       observacion?: string,
+ *
+ *       // Aprobacion del mes (solo Director Tecnico). Un mes aprobado queda
+ *       // congelado: saveLiquidacion conserva lo guardado e ignora lo que
+ *       // llegue para ese mes.
+ *       aprobado?:        true,
+ *       aprobadoEn?:      string,  // ISO
+ *       aprobadoPor?:     number,  // userId
+ *       aprobadoPorNombre?: string,
  *     }
  *   }
  * }

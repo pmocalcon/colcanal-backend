@@ -31,13 +31,13 @@ export const ROL_GERENCIA_PROYECTOS = 'Gerencia de Proyectos';
 export const ROL_GERENCIA = 'Gerencia';
 /** Tesorería (Aurora): recibe el anticipo aprobado y registra el pago. */
 export const ROL_TESORERIA = 'Coordinador Financiero';
-/** Comodín transversal del sistema. */
-export const ROL_PMO = 'Analista PMO';
+/** Comodín transversal del sistema: Analista y Director PMO, con igual alcance. */
+export { ROLES_PMO, esRolPmo } from '../../common/constants/roles.constants';
 
 export interface AnticipoTransicion {
   from: AnticipoEstado;
   to: AnticipoEstado;
-  /** Roles autorizados (además del Analista PMO, que siempre puede). */
+  /** Roles autorizados (además del PMO, que siempre puede). */
   roles: string[];
   /** Si es true, solo el creador (o PMO) puede ejecutarla. */
   soloCreador?: boolean;

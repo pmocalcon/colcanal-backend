@@ -12,7 +12,10 @@ import { Requisition } from "../../database/entities/requisition.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
 import { SendToAccountingDto } from "./dto/send-to-accounting.dto";
-import { ReceivedByAccountingDto } from "./dto/received-by-accounting.dto";
+import {
+  ReceivedByAccountingDto,
+  RejectedByAccountingDto,
+} from "./dto/received-by-accounting.dto";
 import { REQUISITION_STATUS } from "../../common/constants";
 
 @Injectable()
@@ -360,6 +363,10 @@ export class InvoicesService {
 
     // Actualizar estado de la orden de compra
     purchaseOrder.invoiceStatus = "enviada_contabilidad";
+    // Si venía devuelta por Contabilidad, el reenvío cierra ese rechazo: deja de
+    // ser lo pendiente. La observación se conserva como rastro de lo que pasó.
+    purchaseOrder.accountingRejectedAt = null;
+    purchaseOrder.accountingRejectedBy = null;
     await this.purchaseOrderRepository.save(purchaseOrder);
 
     return {
@@ -540,6 +547,11 @@ export class InvoicesService {
 
     // Actualizar estado de la orden de compra al estado final
     purchaseOrder.invoiceStatus = "recibida_contabilidad";
+    purchaseOrder.accountingObservations =
+      receivedByAccountingDto.observations?.trim() || null;
+    // Si venía de un rechazo anterior, ese rechazo queda saldado.
+    purchaseOrder.accountingRejectedAt = null;
+    purchaseOrder.accountingRejectedBy = null;
     await this.purchaseOrderRepository.save(purchaseOrder);
 
     return {
@@ -547,6 +559,63 @@ export class InvoicesService {
       receivedDate: receivedDate.toISOString().split("T")[0],
       invoicesCount: purchaseOrder.invoices.length,
       receivedBy: userId,
+    };
+  }
+
+  /**
+   * Contabilidad rechaza las facturas y las devuelve a Compras.
+   *
+   * No hay un estado "rechazada": la orden vuelve a `factura_completa`, que es
+   * justo donde Compras tiene habilitado el botón de enviar a contabilidad. Lo
+   * que la distingue de una que nunca se ha enviado es `accountingRejectedAt`,
+   * con el motivo al lado.
+   */
+  async rejectByAccounting(
+    purchaseOrderId: number,
+    userId: number,
+    rejectedByAccountingDto: RejectedByAccountingDto,
+  ) {
+    const purchaseOrder = await this.purchaseOrderRepository.findOne({
+      where: { purchaseOrderId },
+      relations: ["invoices"],
+    });
+
+    if (!purchaseOrder) {
+      throw new NotFoundException(
+        `Orden de compra con ID ${purchaseOrderId} no encontrada`,
+      );
+    }
+
+    if (purchaseOrder.invoiceStatus !== "enviada_contabilidad") {
+      throw new BadRequestException(
+        "Solo se pueden rechazar las facturas que ya fueron enviadas a contabilidad. " +
+          `Estado actual: ${purchaseOrder.invoiceStatus}`,
+      );
+    }
+
+    const motivo = rejectedByAccountingDto.observations?.trim();
+    if (!motivo) {
+      throw new BadRequestException("Debe indicar el motivo del rechazo");
+    }
+
+    // Se deshace el envío: Compras vuelve a tener las facturas en sus manos.
+    for (const invoice of purchaseOrder.invoices ?? []) {
+      invoice.sentToAccounting = false;
+      invoice.sentToAccountingDate = null;
+      await this.invoiceRepository.save(invoice);
+    }
+
+    purchaseOrder.invoiceStatus = "factura_completa";
+    purchaseOrder.accountingObservations = motivo;
+    purchaseOrder.accountingRejectedAt = new Date();
+    purchaseOrder.accountingRejectedBy = userId;
+    await this.purchaseOrderRepository.save(purchaseOrder);
+
+    return {
+      message: "Facturas devueltas a Compras",
+      observations: motivo,
+      invoicesCount: purchaseOrder.invoices?.length ?? 0,
+      rejectedBy: userId,
     };
   }
 }

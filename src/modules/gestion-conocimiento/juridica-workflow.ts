@@ -54,13 +54,13 @@ export const ROLES_GERENCIA_PROYECTOS = ['Gerencia de Proyectos'];
 /** Gerencia aprueba/firma el contrato ("Aprobado por" · Dra. Gloria). */
 export const ROLES_GERENCIA = ['Gerencia'];
 
-/** Comodín transversal del sistema. */
-export const ROL_PMO = 'Analista PMO';
+/** Comodín transversal del sistema: Analista y Director PMO, con igual alcance. */
+export { ROLES_PMO, esRolPmo } from '../../common/constants/roles.constants';
 
 export interface Transicion {
   from: JuridicaEstado;
   to: JuridicaEstado;
-  /** Roles autorizados (además del Analista PMO, que siempre puede). */
+  /** Roles autorizados (además del PMO, que siempre puede). */
   roles: string[];
   /** Si es true, solo el creador (o PMO) puede ejecutarla. */
   soloCreador?: boolean;

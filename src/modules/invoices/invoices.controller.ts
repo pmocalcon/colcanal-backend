@@ -24,7 +24,10 @@ import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
 import { SendToAccountingDto } from "./dto/send-to-accounting.dto";
-import { ReceivedByAccountingDto } from "./dto/received-by-accounting.dto";
+import {
+  ReceivedByAccountingDto,
+  RejectedByAccountingDto,
+} from "./dto/received-by-accounting.dto";
 import { User } from "../../database/entities/user.entity";
 
 @ApiTags("Invoices - Facturas")
@@ -208,6 +211,32 @@ export class InvoicesController {
       purchaseOrderId,
       user.userId,
       receivedByAccountingDto,
+    );
+  }
+
+  @Post("accounting/reject/:purchaseOrderId")
+  @ApiOperation({
+    summary: "Rechazar las facturas y devolverlas a Compras",
+    description:
+      "Contabilidad devuelve las facturas de una orden a Compras con un motivo obligatorio. " +
+      "La orden vuelve al estado 'factura_completa' para que Compras corrija y reenvíe.",
+  })
+  @ApiParam({ name: "purchaseOrderId", type: Number })
+  @ApiResponse({ status: 200, description: "Facturas devueltas a Compras" })
+  @ApiResponse({
+    status: 400,
+    description: "Las facturas no están en contabilidad o falta el motivo",
+  })
+  @ApiResponse({ status: 404, description: "Orden de compra no encontrada" })
+  async rejectByAccounting(
+    @Param("purchaseOrderId", ParseIntPipe) purchaseOrderId: number,
+    @GetUser() user: User,
+    @Body() rejectedByAccountingDto: RejectedByAccountingDto,
+  ) {
+    return this.invoicesService.rejectByAccounting(
+      purchaseOrderId,
+      user.userId,
+      rejectedByAccountingDto,
     );
   }
 }

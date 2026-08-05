@@ -100,6 +100,27 @@ export class Ucap {
   @Column({ name: "is_active", type: "boolean", default: true })
   isActive: boolean;
 
+  /**
+   * Reapertura para edicion (solo Director Tecnico).
+   *
+   * Una UCAP con hoja de costos esta CERRADA: la hoja alimenta el censo, los
+   * presupuestos y la liquidacion, asi que cambiarla mueve plata ya liquidada.
+   * El bloqueo no se guarda como tal; se deriva de tener hoja:
+   *
+   *   bloqueada = tiene hoja de costos  Y  NO esta desbloqueada
+   *
+   * Asi las UCAPs que ya existen en produccion quedan cerradas sin migracion
+   * (desbloqueada llega en null), y al guardar se vuelve a cerrar sola.
+   */
+  @Column({ name: "desbloqueada", type: "boolean", nullable: true })
+  desbloqueada: boolean | null;
+
+  @Column({ name: "reabierta_por", type: "int", nullable: true })
+  reabiertaPor: number | null;
+
+  @Column({ name: "reabierta_en", type: "timestamptz", nullable: true })
+  reabiertaEn: Date | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;
 

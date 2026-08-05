@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from "@nestjs/swagger";
 import { CregService } from "./creg.service";
 import {
   AddUcapApellidoDto,
+  AprobarCregMesDto,
   CreateCregUnitDto,
   RenameUcapApellidoDto,
   SaveCregCensoDto,
@@ -22,12 +23,14 @@ import {
   SaveCregIddOffDto,
   SaveCregIddOnDto,
   SaveCregParametrizacionDto,
+  SaveCregIppMensualDto,
   SaveUcapCostSheetDto,
   UpsertCregConfigDto,
 } from "./dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { Permissions } from "../../common/decorators/permissions.decorator";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
 function parseOptionalInt(value?: string): number | null {
   if (value === undefined || value === null || value === "" || value === "null") {
@@ -105,6 +108,24 @@ export class CregController {
     );
   }
 
+  // ---- IPP mensual (global, no va por municipio) ----
+
+  // Lo leen la Liquidacion y el Flujo de Caja de cualquier municipio, por eso el
+  // GET abre los mismos permisos que la parametrizacion.
+  @Get("ipp-mensual")
+  @Permissions("creg:parametros", "creg:censo", "creg:liquidacion")
+  @ApiOperation({ summary: "Serie del IPP mes a mes (global)" })
+  getIppMensual() {
+    return this.service.getIppMensual();
+  }
+
+  @Put("ipp-mensual")
+  @Permissions("creg:parametros")
+  @ApiOperation({ summary: "Guardar la serie del IPP mes a mes (global)" })
+  saveIppMensual(@Body() dto: SaveCregIppMensualDto) {
+    return this.service.saveIppMensual(dto);
+  }
+
   // ---- Censo fisico por municipio ----
 
   // La Liquidacion toma de aqui las cantidades del mes liquidado.
@@ -149,12 +170,102 @@ export class CregController {
   saveLiquidacion(
     @Param("companyId", ParseIntPipe) companyId: number,
     @Body() dto: SaveCregLiquidacionDto,
+    @CurrentUser("userId") userId: number,
     @Query("projectId") projectId?: string,
   ) {
     return this.service.saveLiquidacion(
       companyId,
       parseOptionalInt(projectId),
       dto,
+      userId,
+    );
+  }
+
+  // ---- Cierre mensual: Liquidacion, ID OFF e ID ON ----
+
+  // El permiso solo abre la pantalla; que sea el Director Tecnico lo valida el
+  // servicio, que es quien conoce el rol.
+  @Post("liquidacion/:companyId/aprobar")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Aprobar y cerrar el mes liquidado (Director Tecnico)" })
+  aprobarLiquidacion(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.aprobarMes(
+      "liquidacion", companyId, parseOptionalInt(projectId), dto.ym, userId,
+    );
+  }
+
+  @Post("liquidacion/:companyId/reabrir")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Reabrir un mes liquidado ya cerrado (Director Tecnico)" })
+  reabrirLiquidacion(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.reabrirMes(
+      "liquidacion", companyId, parseOptionalInt(projectId), dto.ym, userId, dto.motivo,
+    );
+  }
+
+  @Post("idd-off/:companyId/aprobar")
+  @Permissions("creg:iddoff")
+  @ApiOperation({ summary: "Aprobar y cerrar el mes de ID OFF (Director Tecnico)" })
+  aprobarIddOff(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.aprobarMes(
+      "idd-off", companyId, parseOptionalInt(projectId), dto.ym, userId,
+    );
+  }
+
+  @Post("idd-off/:companyId/reabrir")
+  @Permissions("creg:iddoff")
+  @ApiOperation({ summary: "Reabrir un mes de ID OFF ya cerrado (Director Tecnico)" })
+  reabrirIddOff(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.reabrirMes(
+      "idd-off", companyId, parseOptionalInt(projectId), dto.ym, userId, dto.motivo,
+    );
+  }
+
+  @Post("idd-on/:companyId/aprobar")
+  @Permissions("creg:iddon")
+  @ApiOperation({ summary: "Aprobar y cerrar el mes de ID ON (Director Tecnico)" })
+  aprobarIddOn(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.aprobarMes(
+      "idd-on", companyId, parseOptionalInt(projectId), dto.ym, userId,
+    );
+  }
+
+  @Post("idd-on/:companyId/reabrir")
+  @Permissions("creg:iddon")
+  @ApiOperation({ summary: "Reabrir un mes de ID ON ya cerrado (Director Tecnico)" })
+  reabrirIddOn(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: AprobarCregMesDto,
+    @CurrentUser("userId") userId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.reabrirMes(
+      "idd-on", companyId, parseOptionalInt(projectId), dto.ym, userId, dto.motivo,
     );
   }
 
@@ -277,6 +388,18 @@ export class CregController {
   @ApiOperation({ summary: "Eliminar un apellido/variante" })
   deleteApellido(@Param("apellidoId", ParseIntPipe) apellidoId: number) {
     return this.service.deleteApellido(apellidoId);
+  }
+
+  // Una UCAP con hoja de costos queda cerrada. Reabrirla es del Director
+  // Tecnico; el permiso solo abre la pantalla, el rol lo valida el servicio.
+  @Post("units/:ucapId/reabrir")
+  @Permissions("creg:unidades")
+  @ApiOperation({ summary: "Reabrir una UCAP cerrada para editarla (Director Tecnico)" })
+  reabrirUnit(
+    @Param("ucapId", ParseIntPipe) ucapId: number,
+    @CurrentUser("userId") userId: number,
+  ) {
+    return this.service.reabrirUnit(ucapId, userId);
   }
 
   @Delete("units/:ucapId/sheet")

@@ -23,8 +23,8 @@ export type LegalizacionEstado = keyof typeof LEGALIZACION_ESTADOS;
 
 /** Contabilidad recibe la legalización, valida el soporte y la causa. */
 export const ROL_CONTABILIDAD = "Contabilidad";
-/** Comodín transversal del sistema. */
-export const ROL_PMO = "Analista PMO";
+/** Comodín transversal del sistema: Analista y Director PMO, con igual alcance. */
+export { ROLES_PMO, esRolPmo } from "../../common/constants/roles.constants";
 
 /**
  * Plazo máximo para legalizar el anticipo: tres (3) días calendario después de
@@ -42,7 +42,7 @@ export const LEGALIZACION_CORTE_DIA_MES = 5;
 export interface LegalizacionTransicion {
   from: LegalizacionEstado;
   to: LegalizacionEstado;
-  /** Roles autorizados (además del Analista PMO, que siempre puede). */
+  /** Roles autorizados (además del PMO, que siempre puede). */
   roles: string[];
   /** Si es true, solo el creador (o PMO) puede ejecutarla. */
   soloCreador?: boolean;

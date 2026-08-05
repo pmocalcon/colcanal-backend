@@ -58,6 +58,20 @@ export const USER_ADMIN_ALLOWED_ROLES = [
   ROLE_SLUGS.GERENCIA,
 ] as const;
 
+/**
+ * El PMO es el comodín transversal del sistema: puede ejecutar cualquier paso
+ * de un flujo sin importar a qué área le corresponda. El Director y el Analista
+ * tienen exactamente el mismo alcance, así que los flujos preguntan por el
+ * grupo y no por un nombre suelto.
+ */
+export const ROLES_PMO: readonly string[] = [
+  ROLE_NAMES.ANALISTA_PMO,
+  ROLE_NAMES.DIRECTOR_PMO,
+];
+
+export const esRolPmo = (nombreRol?: string | null): boolean =>
+  ROLES_PMO.includes((nombreRol ?? "").trim());
+
 export type RoleName = (typeof ROLE_NAMES)[keyof typeof ROLE_NAMES];
 export type RoleSlug = (typeof ROLE_SLUGS)[keyof typeof ROLE_SLUGS];
 export type RoleCategory =
