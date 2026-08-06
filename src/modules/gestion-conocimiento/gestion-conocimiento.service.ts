@@ -21,6 +21,7 @@ import {
   JURIDICA_ESTADOS,
   NOTIFICAR_AL_LLEGAR,
   esRolPmo,
+  estadoAlcanzo,
   JuridicaEstado,
 } from "./juridica-workflow";
 import {
@@ -299,31 +300,50 @@ export class GestionConocimientoService implements OnModuleInit {
       );
     }
 
-    // La lista es secuencial: primero Administrativa verifica que los documentos
-    // estén, y solo después Jurídica los revisa. Fuera de esas dos etapas queda
-    // cerrada —es un registro firmado, no un borrador editable—.
-    const lado = GestionConocimientoService.ladoChecklist(solicitud.estado);
-    if (!lado) {
-      throw new BadRequestException(
-        "La lista de chequeo solo se diligencia en trámite (Administrativa) y en revisión del contrato (Jurídica).",
-      );
+    const previo = (solicitud.data?.checklist ?? {}) as Record<string, any>;
+    const firmadaAdmin = !!previo.revAdminNombre;
+    const firmadaJur = !!previo.revJurNombre;
+    const etapa = GestionConocimientoService.ladoChecklist(solicitud.estado);
+
+    // Qué lado escribe lo dice el **rol**, no la etapa. Cuando lo decidía la etapa,
+    // Jurídica escribía en la cabecera —que es de Administrativa— y ese texto se
+    // descartaba al fusionar, sin que nada lo dijera. El PMO es comodín y escribe el
+    // lado que esté abierto.
+    const lado: "admin" | "juridica" | null = esPmo
+      ? etapa
+      : esAdmin
+        ? "admin"
+        : "juridica";
+
+    // La lista sigue siendo secuencial —Administrativa verifica que los documentos
+    // estén y solo después Jurídica los revisa—, pero cada lado se cierra **al
+    // firmar**, no al avanzar la etapa. Cerrarlo al avanzar dejaba sin salida a la
+    // solicitud que pasó a Jurídica con la Etapa previa a medias: el contrato exige
+    // las dos firmas y la que faltaba ya no se podía dar.
+    let abierto = false;
+    if (lado === "admin") {
+      abierto =
+        estadoAlcanzo(solicitud.estado, "en_tramite_administrativa") &&
+        (etapa === "admin" || !firmadaAdmin);
+    } else if (lado === "juridica") {
+      abierto =
+        estadoAlcanzo(solicitud.estado, "contrato_en_elaboracion") &&
+        (etapa === "juridica" || !firmadaJur);
     }
-    if (!esPmo) {
-      if (lado === "admin" && !esAdmin) {
-        throw new ForbiddenException(
-          "En esta etapa la lista de chequeo la diligencia la Dirección Administrativa",
-        );
-      }
-      if (lado === "juridica" && !esJuridica) {
-        throw new ForbiddenException(
-          "En esta etapa la lista de chequeo la revisa la Dirección Jurídica",
-        );
-      }
+    // `!lado` es redundante —sin lado nunca hay `abierto`— pero deja el tipo cerrado
+    // para lo que sigue: la fusión necesita saber de qué lado escribe.
+    if (!lado || !abierto) {
+      throw new BadRequestException(
+        GestionConocimientoService.porQueCerrada(
+          lado,
+          solicitud.estado,
+          previo,
+        ),
+      );
     }
 
     // Cada lado escribe solo sus columnas: lo que manda el cliente no puede pisar
     // lo que ya verificó el otro.
-    const previo = (solicitud.data?.checklist ?? {}) as Record<string, any>;
     const cl = GestionConocimientoService.fusionarChecklist(
       previo,
       checklist,
@@ -358,6 +378,31 @@ export class GestionConocimientoService implements OnModuleInit {
     "supervisor",
     "docsUrl",
   ];
+
+  /**
+   * Por qué la lista no admite este guardado. Se separa del control de acceso para
+   * poder decir qué pasó: "no puedes" sin motivo obliga a adivinar entre tres causas
+   * distintas —el lado ya firmó, la etapa no ha llegado, o el rol no participa—.
+   */
+  private static porQueCerrada(
+    lado: "admin" | "juridica" | null,
+    estado: string,
+    previo: Record<string, any>,
+  ): string {
+    if (!lado) {
+      return "La lista de chequeo solo se diligencia en trámite (Administrativa) y en revisión del contrato (Jurídica).";
+    }
+    if (lado === "admin") {
+      if (!estadoAlcanzo(estado, "en_tramite_administrativa")) {
+        return "La Etapa previa se abre cuando la solicitud llega a trámite (Administrativa).";
+      }
+      return `La Etapa previa ya está firmada por ${previo.revAdminNombre}: es un registro del trámite, no un borrador.`;
+    }
+    if (!estadoAlcanzo(estado, "contrato_en_elaboracion")) {
+      return "La Etapa contractual se abre cuando la solicitud pasa a revisión del contrato (Jurídica).";
+    }
+    return `La Etapa contractual ya está firmada por ${previo.revJurNombre}: es un registro del trámite, no un borrador.`;
+  }
 
   /** Qué lado de la lista está abierto, según la etapa de la solicitud. */
   private static ladoChecklist(estado: string): "admin" | "juridica" | null {
@@ -409,14 +454,26 @@ export class GestionConocimientoService implements OnModuleInit {
     return !!cl.revAdminNombre && !!cl.revJurNombre;
   }
 
-  /** Documentos de fase 2 que viven en data[key] (los diligencia Jurídica). */
+  /** Documentos que viven en data[key]. */
   private static readonly DOC_KEYS = [
     "designacionSupervisor",
     "actaInicio",
     "contrato",
     // Lista de verificación de garantías + matriz resumen de riesgo contractual.
     "verificacionGarantias",
+    // Solicitud de Requisición de Personal (GTH-001-F).
+    "requisicionPersonal",
   ];
+
+  /**
+   * Documentos que **no** son de Jurídica.
+   *
+   * La requisición de personal la diligencia el área que pide la vacante, con 15 días
+   * de anticipación, para que Gestión Humana alcance a hacer la selección: exigir que
+   * la escriba Jurídica invertiría el orden real del trámite. Por eso aquí también
+   * pueden el creador de la solicitud y Administrativa, además de Jurídica y el PMO.
+   */
+  private static readonly DOCS_DEL_SOLICITANTE = new Set(["requisicionPersonal"]);
 
   /**
    * Guarda un documento de fase 2 (designación de supervisor, acta de inicio) en
@@ -441,11 +498,17 @@ export class GestionConocimientoService implements OnModuleInit {
     // por fuera de los documentos de fase 2 sin ninguna razón.
     const nombreRol = user?.role?.nombreRol ?? "";
     const rol = nombreRol.toLowerCase();
-    const permitido =
-      esRolPmo(nombreRol) || rol.includes("juríd") || rol.includes("jurid");
+    const esJuridica = rol.includes("juríd") || rol.includes("jurid");
+    let permitido = esRolPmo(nombreRol) || esJuridica;
+    if (!permitido && GestionConocimientoService.DOCS_DEL_SOLICITANTE.has(key)) {
+      permitido =
+        solicitud.createdBy === userId || rol.includes("administrativ");
+    }
     if (!permitido) {
       throw new ForbiddenException(
-        "Solo Jurídica puede diligenciar este documento",
+        GestionConocimientoService.DOCS_DEL_SOLICITANTE.has(key)
+          ? "Este documento lo diligencia quien pide la vacante, Administrativa o Jurídica"
+          : "Solo Jurídica puede diligenciar este documento",
       );
     }
 

@@ -37,6 +37,18 @@ export const JURIDICA_ESTADOS = {
 
 export type JuridicaEstado = keyof typeof JURIDICA_ESTADOS;
 
+/**
+ * Los estados en el orden en que ocurren. `JURIDICA_ESTADOS` se declara siguiendo el
+ * flujo, así que de ahí sale sin repetir la lista.
+ */
+export const ORDEN_ESTADOS = Object.keys(JURIDICA_ESTADOS) as JuridicaEstado[];
+
+/** ¿El trámite ya pasó por `desde` (o está en él)? Falso si el estado no existe. */
+export const estadoAlcanzo = (estado: string, desde: JuridicaEstado): boolean => {
+  const i = ORDEN_ESTADOS.indexOf(estado as JuridicaEstado);
+  return i >= 0 && i >= ORDEN_ESTADOS.indexOf(desde);
+};
+
 /** Administrativa (AD): tramita la RQ — documentos, remisión y validación de campos. */
 export const ROLES_ADMINISTRATIVA = [
   'Director Financiero y Administrativo',
