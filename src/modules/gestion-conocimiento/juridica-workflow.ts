@@ -21,6 +21,8 @@ export const JURIDICA_ESTADOS = {
   contrato_firmado: { label: 'Contrato firmado', sla: null as number | null },
   // ── Pólizas (tras la firma del contrato) ────────────────
   en_solicitud_polizas: { label: 'Solicitud de pólizas (Administrativa)', sla: 1 },
+  // Heredado: ya no se entra aquí. Se conserva para las solicitudes que quedaron
+  // en este estado y para que su historial siga siendo legible.
   en_aprobacion_polizas: { label: 'Aprobación de pólizas (Jurídica)', sla: 1 },
   en_pago_polizas: { label: 'Pago de pólizas (Administrativa)', sla: 1 },
   // Verificación formal de la garantía recibida, ya pagada: tomador, asegurado, objeto,
@@ -145,24 +147,23 @@ export const JURIDICA_TRANSICIONES: Record<string, Transicion> = {
     roles: [...ROLES_ADMINISTRATIVA, ...ROLES_JURIDICA],
     label: 'Iniciar solicitud de pólizas',
   },
+  // Jurídica no aprueba pólizas: la requisición sale directo a cotización por
+  // Compras y de ahí a pago. Lo que Jurídica sí revisa es la garantía recibida,
+  // más adelante, en "Verificación de garantías".
   polizas_solicitadas: {
     from: 'en_solicitud_polizas',
-    to: 'en_aprobacion_polizas',
+    to: 'en_pago_polizas',
     roles: ROLES_ADMINISTRATIVA,
-    label: 'Pólizas solicitadas · enviar a aprobación (Jurídica)',
+    label: 'Póliza expedida · pasar a pago',
   },
+  // Paso heredado: solicitudes que quedaron en "Aprobación de pólizas (Jurídica)"
+  // antes de que el paso se eliminara. No entra ninguna nueva; la salida se
+  // conserva para que las que estén ahí no queden trancadas.
   aprobar_polizas: {
     from: 'en_aprobacion_polizas',
     to: 'en_pago_polizas',
-    roles: ROLES_JURIDICA,
-    label: 'Aprobar pólizas · enviar a pago',
-  },
-  rechazar_polizas: {
-    from: 'en_aprobacion_polizas',
-    to: 'en_solicitud_polizas',
-    roles: ROLES_JURIDICA,
-    requiereMotivo: true,
-    label: 'Devolver pólizas (rechazar)',
+    roles: [...ROLES_ADMINISTRATIVA, ...ROLES_JURIDICA],
+    label: 'Continuar · registrar el pago',
   },
   pagar_polizas: {
     from: 'en_pago_polizas',

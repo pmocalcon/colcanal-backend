@@ -683,15 +683,17 @@ export class PurchasesService {
       // Verificar si tiene obra especial que requiere autorización de Gerencia de Proyectos
       const hasSpecialObra = dto.obra && this.OBRA_VALUES_REQUIRING_VALIDATION.includes(dto.obra.trim());
 
-      // La requisición de póliza creada desde el proceso de G. Jurídica salta revisión
-      // y va directo a aprobación, que resolverá la Dirección Administrativa y
-      // Financiera (Daniela), no Gerencia. Se activa por bandera explícita del proceso.
+      // La requisición de póliza creada desde el proceso de G. Jurídica no pasa por
+      // revisión ni por aprobación: nace lista para cotización, en la bandeja de
+      // Compras. La decisión de contratar la póliza ya se tomó en el proceso
+      // jurídico (el contrato está firmado y la garantía es exigible), así que
+      // volver a aprobarla aquí solo agregaba una espera. Se activa por bandera
+      // explícita del proceso, nunca por el contenido de la requisición.
       const esPoliza = !!options?.polizaJuridica;
 
       let initialStatusCode = 'pendiente';
       if (esPoliza) {
-        // Póliza → directo a aprobación (la aprueba Dirección Admin. y Financiera).
-        initialStatusCode = 'aprobada_revisor';
+        initialStatusCode = 'aprobada_gerencia';
       } else if (requiresObraValidation) {
         // PQRS/Coord.Op con obra especial → validación por Director de Proyecto
         initialStatusCode = 'pendiente_validacion';
@@ -726,6 +728,13 @@ export class PurchasesService {
         requisitionData.reviewedBy = userId;
         requisitionData.reviewedAt = new Date();
       }
+      // La póliza además nace aprobada. Se firma con quien la originó desde
+      // Jurídica: nadie la aprobó a mano, pero alguien respondió por ella, y dejar
+      // el aprobador en blanco rompería el rastro en las pantallas de Compras.
+      if (esPoliza) {
+        requisitionData.approvedBy = userId;
+        requisitionData.approvedAt = new Date();
+      }
 
       const requisition = queryRunner.manager.create(Requisition, requisitionData);
 
@@ -748,7 +757,10 @@ export class PurchasesService {
       let logAction = 'crear_requisicion';
       let logComments = `Requisición creada: ${requisitionNumber}`;
 
-      if (requiresObraValidation) {
+      if (esPoliza) {
+        logAction = 'crear_requisicion_poliza';
+        logComments = `Requisición de póliza creada desde G. Jurídica: ${requisitionNumber}. Pasa directo a cotización por Compras, sin revisión ni aprobación (la decisión se tomó en el proceso jurídico).`;
+      } else if (requiresObraValidation) {
         logAction = 'crear_requisicion_obra';
         logComments = `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`;
       } else if (skipsReview && hasSpecialObra) {
@@ -783,8 +795,31 @@ export class PurchasesService {
             userId,
             'reviewed', // Auto-revisión
             1, // step_order = 1 para revisión
-            initialStatusCode, // aprobada_revisor
-            `Auto-revisión: Requisición creada por ${user.role.nombreRol}, va directo a Gerencia.`,
+            initialStatusCode,
+            esPoliza
+              ? `Auto-revisión: requisición de póliza del proceso jurídico, creada por ${user.role.nombreRol}.`
+              : `Auto-revisión: Requisición creada por ${user.role.nombreRol}, va directo a Gerencia.`,
+          ],
+        );
+      }
+
+      // La póliza nace en "aprobada por gerencia" sin que nadie la aprobara. El
+      // paso queda registrado igual, y el comentario dice por qué: si no, en
+      // Compras aparecería aprobada y sin rastro de quién ni cuándo.
+      if (esPoliza) {
+        await queryRunner.manager.query(
+          `INSERT INTO requisition_approvals
+           (requisition_id, user_id, action, step_order, previous_status_id, new_status_id, comments, created_at)
+           VALUES ($1, $2, $3, $4, NULL,
+             (SELECT status_id FROM requisition_statuses WHERE code = $5),
+             $6, NOW())`,
+          [
+            savedRequisition.requisitionId,
+            userId,
+            'approved',
+            3, // step_order = 3: aprobación final
+            initialStatusCode, // aprobada_gerencia
+            'Póliza del proceso jurídico: pasa directo a cotización sin aprobación de Gerencia ni de la Dirección Administrativa.',
           ],
         );
       }
@@ -800,14 +835,13 @@ export class PurchasesService {
       } else if (skipsReview && hasSpecialObra) {
         // Obra especial: la AUTORIZA Gerencia de Proyectos (Lorena), no Gerencia (Gloria).
         this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
+      } else if (esPoliza) {
+        // La póliza no espera aprobación: se le avisa directamente a Compras, que
+        // es quien tiene que cotizarla.
+        this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch(() => {});
       } else if (goesDirectToGerencia) {
-        // Roles de alto nivel saltan revisión → Gerencia. La póliza (proceso jurídico)
-        // va a la Dirección Administrativa y Financiera (Daniela), no a Gerencia.
-        this.sendRequisitionNotification(
-          'for_approval',
-          fullRequisition as Requisition,
-          esPoliza ? { approverRoleOverride: PurchasesService.ROL_APROBADOR_POLIZA } : undefined,
-        ).catch(() => {});
+        // Roles de alto nivel saltan revisión → Gerencia.
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
       } else {
         // Enviar notificación al revisor normal
         this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});

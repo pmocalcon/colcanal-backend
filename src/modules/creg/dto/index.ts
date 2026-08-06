@@ -69,6 +69,16 @@ export class SaveCregIddOffDto {
   data: Record<string, any>;
 }
 
+export class SaveCregFacturaEnergiaDto {
+  @ApiProperty({
+    type: Object,
+    description:
+      "Facturas por mes: { meses: { 'YYYY-MM': { consumoKwh, costoUnitario, componentes, ... } } }",
+  })
+  @IsObject()
+  data: Record<string, any>;
+}
+
 export class SaveCregIddOnDto {
   @ApiProperty({
     type: Object,

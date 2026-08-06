@@ -8,6 +8,7 @@ import { CregIppMensual } from "../../database/entities/creg-ipp-mensual.entity"
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
 import { CregIddOff } from "../../database/entities/creg-idd-off.entity";
+import { CregFacturaEnergia } from "../../database/entities/creg-factura-energia.entity";
 import { CregIddOn } from "../../database/entities/creg-idd-on.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
@@ -30,6 +31,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
       CregCenso,
       CregLiquidacion,
       CregIddOff,
+      CregFacturaEnergia,
       CregIddOn,
       Ucap,
       UcapCostItem,

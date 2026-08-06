@@ -13,6 +13,7 @@ import { CregIppMensual } from "../../database/entities/creg-ipp-mensual.entity"
 import { CregCenso } from "../../database/entities/creg-censo.entity";
 import { CregLiquidacion } from "../../database/entities/creg-liquidacion.entity";
 import { CregIddOff } from "../../database/entities/creg-idd-off.entity";
+import { CregFacturaEnergia } from "../../database/entities/creg-factura-energia.entity";
 import { CregIddOn } from "../../database/entities/creg-idd-on.entity";
 import { Ucap } from "../../database/entities/ucap.entity";
 import { UcapCostItem } from "../../database/entities/ucap-cost-item.entity";
@@ -28,6 +29,7 @@ import {
   SaveCregCensoDto,
   SaveCregLiquidacionDto,
   SaveCregIddOffDto,
+  SaveCregFacturaEnergiaDto,
   SaveCregIddOnDto,
   SaveCregParametrizacionDto,
   SaveCregIppMensualDto,
@@ -69,6 +71,8 @@ export class CregService {
     private readonly liquidacionRepo: Repository<CregLiquidacion>,
     @InjectRepository(CregIddOff)
     private readonly iddOffRepo: Repository<CregIddOff>,
+    @InjectRepository(CregFacturaEnergia)
+    private readonly facturaEnergiaRepo: Repository<CregFacturaEnergia>,
     @InjectRepository(CregIddOn)
     private readonly iddOnRepo: Repository<CregIddOn>,
     @InjectRepository(Ucap)
@@ -335,6 +339,41 @@ export class CregService {
     row.data = dto.data ?? {};
     await this.censoRepo.save(row);
     return this.getCenso(companyId, projectId);
+  }
+
+  // ============ Facturas de energia del municipio ============
+
+  /**
+   * Facturas del comercializador, una por mes. No tienen cierre mensual como la
+   * liquidacion o los ID: una factura es un documento externo, no un calculo que
+   * se apruebe, asi que se guarda sin pasar por `guardarHoja`.
+   */
+  async getFacturaEnergia(companyId: number, projectId?: number | null) {
+    const row = await this.facturaEnergiaRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    return {
+      companyId,
+      projectId: projectId ?? null,
+      data: row?.data ?? null,
+      exists: !!row,
+    };
+  }
+
+  async saveFacturaEnergia(
+    companyId: number,
+    projectId: number | null,
+    dto: SaveCregFacturaEnergiaDto,
+  ) {
+    let row = await this.facturaEnergiaRepo.findOne({
+      where: { companyId, projectId: projectId ?? IsNull() },
+    });
+    if (!row) {
+      row = this.facturaEnergiaRepo.create({ companyId, projectId: projectId ?? null });
+    }
+    row.data = dto.data ?? {};
+    await this.facturaEnergiaRepo.save(row);
+    return this.getFacturaEnergia(companyId, projectId);
   }
 
   // ============ Liquidacion mensual por municipio ============

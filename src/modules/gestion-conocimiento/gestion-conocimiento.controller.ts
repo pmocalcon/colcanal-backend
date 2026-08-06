@@ -57,6 +57,29 @@ export class GestionConocimientoController {
     return this.service.findAll(gestion, mine === "1" || mine === "true", userId);
   }
 
+  // Va antes de @Get(":id") por ruta y además es POST: así no lo captura el
+  // comodín del id, que lo mandaría al ParseIntPipe.
+  @Post("vencimientos/revisar")
+  @ApiOperation({
+    summary:
+      "Revisar ahora los vencimientos de contratos y avisar a la Dirección Administrativa",
+  })
+  async revisarVencimientos() {
+    return this.service.revisarVencimientos();
+  }
+
+  @Post(":id/requisicion-poliza")
+  @ApiOperation({
+    summary:
+      "Solicitar la requisición de la póliza sin mover el flujo (contratos ya firmados)",
+  })
+  async solicitarRequisicionPoliza(
+    @Param("id", ParseIntPipe) id: number,
+    @CurrentUser("userId") userId: number,
+  ) {
+    return this.service.solicitarRequisicionPoliza(id, userId);
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "Obtener una solicitud" })
   async findOne(@Param("id", ParseIntPipe) id: number) {

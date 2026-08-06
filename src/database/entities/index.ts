@@ -64,6 +64,8 @@ export { CregMunicipioConfig } from './creg-municipio-config.entity';
 export { CregParametrizacion } from './creg-parametrizacion.entity';
 // El IPP no va por municipio: lo publica el DANE y sirve a todos los contratos.
 export { CregIppMensual } from './creg-ipp-mensual.entity';
+export { RecursoEconomico } from './recurso-economico.entity';
+export { CregFacturaEnergia } from './creg-factura-energia.entity';
 export { CregCenso } from './creg-censo.entity';
 export { CregLiquidacion } from './creg-liquidacion.entity';
 export { CregIddOff } from './creg-idd-off.entity';

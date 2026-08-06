@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  OnModuleInit,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
@@ -43,9 +44,23 @@ import {
   CUENTAS_NOTIFICAR_AL_LLEGAR,
   CuentasEstado,
 } from "./cuentas-companias-workflow";
+import {
+  SIGLA_CONTRATO,
+  SIGLA_SIN_TIPO,
+  ACCION_ALERTA_VENCIMIENTO,
+  ACCION_RQ_POLIZA,
+  ACCION_NOTIFICACION_INICIO,
+  DIAS_ALERTA_VENCIMIENTO,
+  ESTADOS_CONTRATO_VIGENTE,
+  formatearConsecutivo,
+  mismoNombre,
+  numeroDeConsecutivo,
+  vencimientoDe,
+} from "./juridica-contratos";
+import { ROLES_ADMINISTRATIVA, ROLES_JURIDICA } from "./juridica-workflow";
 
 @Injectable()
-export class GestionConocimientoService {
+export class GestionConocimientoService implements OnModuleInit {
   private readonly logger = new Logger(GestionConocimientoService.name);
 
   constructor(
@@ -421,9 +436,13 @@ export class GestionConocimientoService {
       where: { userId },
       relations: ["role"],
     });
-    const rol = (user?.role?.nombreRol ?? "").toLowerCase();
+    // El comodín es el grupo PMO completo, no un nombre suelto: tenía escrito
+    // "analista pmo" a mano, y con eso el Director PMO —mismo alcance— quedaba
+    // por fuera de los documentos de fase 2 sin ninguna razón.
+    const nombreRol = user?.role?.nombreRol ?? "";
+    const rol = nombreRol.toLowerCase();
     const permitido =
-      rol === "analista pmo" || rol.includes("juríd") || rol.includes("jurid");
+      esRolPmo(nombreRol) || rol.includes("juríd") || rol.includes("jurid");
     if (!permitido) {
       throw new ForbiddenException(
         "Solo Jurídica puede diligenciar este documento",
@@ -444,8 +463,38 @@ export class GestionConocimientoService {
       );
     }
 
-    solicitud.data = { ...(solicitud.data ?? {}), [key]: docData };
+    const data: Record<string, any> = { ...(solicitud.data ?? {}), [key]: docData };
+
+    // El contrato recibe su consecutivo la primera vez que se guarda, y no se
+    // vuelve a tocar: el número sale a firma y a archivo, así que reasignarlo
+    // rompería la referencia de un documento que ya circuló.
+    if (key === "contrato" && !data.consecutivoContrato) {
+      data.consecutivoContrato = await this.nextConsecutivoContrato(
+        String(data.tipoContrato ?? ""),
+      );
+    }
+
+    solicitud.data = data;
     return this.solicitudRepo.save(solicitud);
+  }
+
+  /**
+   * Siguiente consecutivo del contrato para su tipología: "PS - 0001".
+   *
+   * Cada tipo cuenta aparte, así que solo se miran los consecutivos que ya llevan
+   * su sigla. Se calcula sobre lo emitido (máximo + 1) igual que el consecutivo de
+   * la Solicitud de Anticipo: sin tabla de secuencias, que con `synchronize: true`
+   * es una estructura menos que mantener.
+   */
+  private async nextConsecutivoContrato(tipo: string): Promise<string> {
+    const sigla = SIGLA_CONTRATO[tipo] ?? SIGLA_SIN_TIPO;
+    const previas = await this.solicitudRepo.find({ where: { gestion: "juridica" } });
+    let max = 0;
+    for (const p of previas) {
+      const n = numeroDeConsecutivo(p.data?.consecutivoContrato, sigla);
+      if (n !== null && n > max) max = n;
+    }
+    return formatearConsecutivo(sigla, max + 1);
   }
 
   async remove(id: number): Promise<void> {
@@ -552,6 +601,27 @@ export class GestionConocimientoService {
     } else if (accion === "aprobar_gerencia") {
       data.aprobadoNombre = user?.nombre ?? "";
       data.aprobadoCargo = user?.cargo ?? "";
+    } else if (accion === "pagar_polizas") {
+      // El pago de la póliza deja constancia, no solo un cambio de estado: la
+      // verificación de garantías que sigue coteja número y vigencias, y sin
+      // ellos no tiene contra qué verificar.
+      const numero = String(payload?.polizaNumero ?? "").trim();
+      const fecha = String(payload?.pagoFecha ?? "").trim();
+      if (!numero || !fecha) {
+        throw new BadRequestException(
+          "Para registrar el pago hacen falta el número de la póliza y la fecha de pago.",
+        );
+      }
+      data.poliza = {
+        ...(data.poliza ?? {}),
+        numero,
+        vigenciaDesde: String(payload?.polizaVigenciaDesde ?? "").trim(),
+        vigenciaHasta: String(payload?.polizaVigenciaHasta ?? "").trim(),
+        pagoFecha: fecha,
+        pagoValor: String(payload?.pagoValor ?? "").trim(),
+        registradoPor: user?.nombre ?? "",
+        registradoEn: ahora.toISOString(),
+      };
     }
     solicitud.data = data;
 
@@ -564,6 +634,18 @@ export class GestionConocimientoService {
       this.crearRequisicionPoliza(guardada, userId).catch((e) =>
         this.logger.warn(
           `No se pudo crear la requisición de la póliza: ${e.message}`,
+        ),
+      );
+    }
+
+    // Con el acta de inicio firmada el contrato arranca: se avisa a quienes tienen
+    // que actuar desde el día uno. Va aparte de `notificar` porque no es el aviso
+    // "te toca el siguiente paso" del flujo —el flujo terminó— y porque uno de los
+    // destinatarios es el contratista, que está fuera de la empresa.
+    if (accion === "acta_inicio_lista") {
+      this.notificarInicioContrato(guardada.solicitudId, userId).catch((e) =>
+        this.logger.warn(
+          `No se pudo notificar el inicio del contrato: ${e.message}`,
         ),
       );
     }
@@ -624,9 +706,14 @@ export class GestionConocimientoService {
     }
 
     const objeto = String(data.objetoProyecto ?? "").trim();
+    // La observación la lee Compras, que no sabe de solicitudes jurídicas: lo que
+    // les sirve es el número del contrato. Los contratos anteriores al consecutivo
+    // no tienen uno, y para ésos se conserva el número de solicitud en vez de
+    // dejar la póliza sin referencia.
+    const nroContrato = String(data.consecutivoContrato ?? "").trim();
+    const referencia = nroContrato || `Solicitud jurídica N.º ${solicitud.solicitudId}`;
     const observacion =
-      `Póliza del contrato · Solicitud jurídica N.º ${solicitud.solicitudId}` +
-      (objeto ? ` — ${objeto}` : "");
+      `Póliza del contrato ${referencia}` + (objeto ? ` — ${objeto}` : "");
 
     try {
       const requisicion: any = await this.purchases.createRequisition(
@@ -654,6 +741,10 @@ export class GestionConocimientoService {
         requisitionId: requisicion?.requisitionId ?? null,
         requisitionNumber: requisicion?.requisitionNumber ?? null,
         fecha: new Date().toISOString(),
+        // Nace en la bandeja de Compras, sin aprobación previa. Marcarla resuelta
+        // desde el arranque es lo que quita de la pantalla los botones de aprobar
+        // y rechazar, que ya no tienen a quién esperar.
+        estado: "en_cotizacion",
       });
     } catch (e: any) {
       await this.registrarResultadoPoliza(solicitud.solicitudId, {
@@ -662,6 +753,80 @@ export class GestionConocimientoService {
       });
       throw e;
     }
+  }
+
+  /**
+   * Crea la requisición de la póliza a pedido, sin mover el flujo.
+   *
+   * La rama de pólizas se recorre normalmente desde "Contrato firmado", pero hay
+   * contratos que ya pasaron de ahí sin RQ: los que se firmaron antes de que la rama
+   * existiera, y aquellos donde la póliza se exige más tarde. Para ésos la transición
+   * `solicitar_polizas` ya no está disponible y quedaban sin forma de pedirla.
+   *
+   * Esta acción no cambia el estado a propósito: un contrato con acta de inicio
+   * firmada no debería retroceder a "Solicitud de pólizas" solo para emitir una
+   * requisición. Queda registrada en la bitácora, que es donde se audita.
+   */
+  async solicitarRequisicionPoliza(
+    id: number,
+    userId: number,
+  ): Promise<GcSolicitud> {
+    const solicitud = await this.findOne(id);
+
+    if (!ESTADOS_CONTRATO_VIGENTE.has(solicitud.estado)) {
+      throw new BadRequestException(
+        "La póliza se solicita sobre un contrato ya firmado.",
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+    const permitido =
+      esRolPmo(rol) ||
+      [...ROLES_ADMINISTRATIVA, ...ROLES_JURIDICA].includes(rol);
+    if (!permitido) {
+      throw new ForbiddenException(
+        "Solo la Dirección Administrativa o Jurídica puede solicitar la póliza.",
+      );
+    }
+
+    const previa = solicitud.data?.requisicionPoliza;
+    if (previa?.requisitionId) {
+      throw new BadRequestException(
+        `Esta solicitud ya tiene la requisición de póliza ${previa.requisitionNumber ?? previa.requisitionId}.`,
+      );
+    }
+
+    await this.crearRequisicionPoliza(solicitud, userId);
+
+    // crearRequisicionPoliza deja el motivo en data cuando no puede crearla (sin
+    // centro de costo, sin centro de operación, sin el material POLIZA) y no
+    // levanta excepción. Se relee para poder devolver ese motivo a la pantalla en
+    // vez de un "listo" que no creó nada.
+    const actualizada = await this.findOne(id);
+    const rp = actualizada.data?.requisicionPoliza;
+    if (!rp?.requisitionId) {
+      throw new BadRequestException(
+        rp?.error ?? "No se pudo crear la requisición de la póliza.",
+      );
+    }
+
+    actualizada.historial = [
+      ...(actualizada.historial ?? []),
+      {
+        estado: actualizada.estado,
+        accion: ACCION_RQ_POLIZA,
+        fecha: new Date().toISOString(),
+        userId,
+        userName: user?.nombre ?? null,
+        requisicion: rp.requisitionNumber ?? String(rp.requisitionId),
+        motivo: "Requisición de póliza solicitada fuera del flujo automático.",
+      },
+    ];
+    return this.solicitudRepo.save(actualizada);
   }
 
   /** Guarda en data.requisicionPoliza el resultado (éxito o error) de la creación. */
@@ -697,6 +862,13 @@ export class GestionConocimientoService {
     if (!reqId) {
       throw new BadRequestException(
         "Esta solicitud no tiene una requisición de póliza creada.",
+      );
+    }
+    if (info?.estado === "en_cotizacion") {
+      // Las nuevas nacen en Compras: aprobarlas aquí no tendría efecto (Compras
+      // rechazaría el cambio de estado) y el mensaje genérico confundiría.
+      throw new BadRequestException(
+        "Esta requisición de póliza ya está en Compras para cotización: no requiere aprobación.",
       );
     }
     if (info?.estado === "aprobada" || info?.estado === "rechazada") {
@@ -810,6 +982,291 @@ export class GestionConocimientoService {
         <p>Ingresa al sistema para continuar con el trámite.</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`;
+  }
+
+  // ============================================
+  // Inicio del contrato (G. Jurídica)
+  // ============================================
+
+  /**
+   * Avisa que el contrato arrancó, al firmarse el acta de inicio.
+   *
+   * Tres destinatarios y cada uno por una razón distinta: el **supervisor**, porque
+   * el seguimiento empieza el día uno; la **Dirección Administrativa**, porque de
+   * ahí cuelgan el anticipo y su legalización; y el **contratista**, que es el
+   * único correo que sale de la empresa y por eso lleva un texto propio, sin datos
+   * internos del trámite.
+   *
+   * El supervisor se guarda como texto en la designación, no como usuario, así que
+   * se empareja por nombre. Si no aparece, se deja constancia en la bitácora en vez
+   * de dar por enviado un aviso que nadie recibió.
+   */
+  private async notificarInicioContrato(
+    solicitudId: number,
+    userId: number,
+  ): Promise<void> {
+    const solicitud = await this.findOne(solicitudId);
+    const data: Record<string, any> = solicitud.data ?? {};
+    const des = data.designacionSupervisor ?? {};
+    const acta = data.actaInicio ?? {};
+    const contrato = data.contrato ?? {};
+
+    const nro = String(data.consecutivoContrato ?? "").trim() || `N.º ${solicitudId}`;
+    const contratista = String(data.contratista ?? acta.contratista ?? "").trim();
+    const objeto = String(data.objetoProyecto ?? "").trim();
+    const inicio = String(acta.fechaInicio ?? contrato.inicio ?? "").trim();
+    const fin = String(contrato.terminacion ?? acta.fechaFinal ?? "").trim();
+    const supervisorNombre = String(
+      des.supervisorNombre ?? acta.supervisorNombre ?? "",
+    ).trim();
+
+    const activos = await this.userRepo.find({
+      where: { estado: true },
+      relations: ["role"],
+    });
+
+    const objetivo = ROLES_ADMINISTRATIVA.map((r) => r.toLowerCase());
+    const internos = activos.filter((u) =>
+      objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+    );
+
+    const pendientes: string[] = [];
+    const supervisor = supervisorNombre
+      ? activos.find((u) => mismoNombre(supervisorNombre, u.nombre ?? ""))
+      : undefined;
+    if (supervisorNombre && !supervisor) {
+      pendientes.push(`supervisor "${supervisorNombre}" sin usuario en el sistema`);
+    }
+    if (supervisor) internos.push(supervisor);
+
+    const enviados: string[] = [];
+    for (const u of internos) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.includes(to.toLowerCase())) continue;
+      enviados.push(to.toLowerCase());
+      const esSupervisor = supervisor && u.userId === supervisor.userId;
+      await this.notifications.sendEmail({
+        to,
+        subject: `Inicio de contrato ${nro}${contratista ? ` · ${contratista}` : ""}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>El contrato <b>${nro}</b>${contratista ? ` con <b>${contratista}</b>` : ""}
+           inició${inicio ? ` el <b>${inicio}</b>` : ""}: el acta de inicio quedó firmada.</p>
+        ${objeto ? `<p><b>Objeto:</b> ${objeto}</p>` : ""}
+        ${fin ? `<p><b>Terminación pactada:</b> ${fin}</p>` : ""}
+        ${supervisorNombre ? `<p><b>Supervisor:</b> ${supervisorNombre}</p>` : ""}
+        ${esSupervisor
+          ? "<p>Como supervisor designado, el seguimiento del contrato empieza desde esta fecha.</p>"
+          : "<p>Desde aquí siguen, cuando apliquen, la solicitud de anticipo y su legalización.</p>"}
+        <p style="color:#6b7280;font-size:12px">
+          Aviso automático · Gestión del conocimiento · G. Jurídica
+        </p>
+      </div>`,
+      });
+    }
+
+    // El contratista va aparte: es un correo externo y no debe llevar el detalle
+    // interno del trámite.
+    const correoContratista = String(
+      contrato.contratistaCorreo ?? acta.correo ?? data.contratistaCorreo ?? "",
+    ).trim();
+    if (correoContratista && !enviados.includes(correoContratista.toLowerCase())) {
+      enviados.push(correoContratista.toLowerCase());
+      await this.notifications.sendEmail({
+        to: correoContratista,
+        subject: `Inicio del contrato ${nro}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Cordial saludo${contratista ? ` , ${contratista}` : ""},</p>
+        <p>Le informamos que el contrato <b>${nro}</b> suscrito con nuestra compañía
+           inició${inicio ? ` el <b>${inicio}</b>` : ""}, con la firma del acta de inicio.</p>
+        ${objeto ? `<p><b>Objeto:</b> ${objeto}</p>` : ""}
+        ${fin ? `<p><b>Fecha de terminación pactada:</b> ${fin}</p>` : ""}
+        ${supervisorNombre
+          ? `<p>La supervisión del contrato está a cargo de <b>${supervisorNombre}</b>, con quien podrá coordinar la ejecución.</p>`
+          : ""}
+        <p style="color:#6b7280;font-size:12px">
+          Canales y Contactos S.A.S · Este mensaje se generó automáticamente.
+        </p>
+      </div>`,
+      });
+    } else if (!correoContratista) {
+      pendientes.push("el contratista no tiene correo registrado en el contrato");
+    }
+
+    // La constancia se agrega releyendo la solicitud: la transición ya la guardó y
+    // este aviso corre después, así que escribir sobre la copia vieja la pisaría.
+    const actual = await this.findOne(solicitudId);
+    actual.historial = [
+      ...(actual.historial ?? []),
+      {
+        estado: actual.estado,
+        accion: ACCION_NOTIFICACION_INICIO,
+        fecha: new Date().toISOString(),
+        userId,
+        userName: "Sistema",
+        notificados: enviados,
+        pendientes: pendientes.length > 0 ? pendientes : undefined,
+        motivo: `Aviso de inicio del contrato ${nro}.`,
+      },
+    ];
+    await this.solicitudRepo.save(actual);
+  }
+
+  // ============================================
+  // Vencimiento de contratos (G. Jurídica)
+  // ============================================
+
+  /** Evita que dos revisiones se pisen si una se demora más de lo previsto. */
+  private revisandoVencimientos = false;
+
+  /**
+   * Arranca la vigilancia diaria de vencimientos.
+   *
+   * Es un temporizador propio y no `@nestjs/schedule` a propósito: la única tarea
+   * programada del sistema es ésta, y agregar la dependencia obliga a mover
+   * `node_modules`, que en este repo va versionado. La primera pasada se retrasa un
+   * minuto para no competir con el arranque de la aplicación.
+   */
+  onModuleInit(): void {
+    const UN_DIA = 24 * 60 * 60 * 1000;
+    setTimeout(() => {
+      void this.revisarVencimientos();
+      setInterval(() => void this.revisarVencimientos(), UN_DIA);
+    }, 60_000);
+  }
+
+  /**
+   * Revisa los contratos vigentes y avisa a la Dirección Administrativa de los que
+   * vencen dentro de los próximos 15 días.
+   *
+   * Se avisa **una sola vez por fecha de terminación**: la alerta queda en el
+   * historial de la solicitud y ésa es la que impide repetirla, así que da igual
+   * cuántas veces corra la revisión. Si el contrato se prorroga y la terminación
+   * cambia, es una fecha nueva y vuelve a avisar, que es justo lo que se espera.
+   *
+   * Un contrato que ya se venció sin que nadie avisara también se reporta: llegar
+   * tarde es mejor que no llegar.
+   */
+  async revisarVencimientos(): Promise<{
+    revisados: number;
+    alertados: number;
+    sinLeer: number;
+  }> {
+    if (this.revisandoVencimientos) {
+      return { revisados: 0, alertados: 0, sinLeer: 0 };
+    }
+    this.revisandoVencimientos = true;
+    try {
+      const solicitudes = await this.solicitudRepo.find({
+        where: { gestion: "juridica" },
+      });
+      let revisados = 0;
+      let alertados = 0;
+      let sinLeer = 0;
+
+      for (const s of solicitudes) {
+        const v = vencimientoDe(s.estado, s.data);
+        if (!v) continue;
+        revisados++;
+
+        // La fecha está escrita pero no se entiende: no se adivina. Se cuenta
+        // para poder decirlo en pantalla y que alguien la corrija.
+        if (!v.fecha || v.dias === null) {
+          sinLeer++;
+          continue;
+        }
+        if (!v.enVentana) continue;
+
+        const yaAvisado = (s.historial ?? []).some(
+          (h) => h.accion === ACCION_ALERTA_VENCIMIENTO && h.vence === v.texto,
+        );
+        if (yaAvisado) continue;
+
+        const destinatarios = await this.notificarVencimiento(s, v.texto, v.dias);
+        s.historial = [
+          ...(s.historial ?? []),
+          {
+            estado: s.estado,
+            accion: ACCION_ALERTA_VENCIMIENTO,
+            fecha: new Date().toISOString(),
+            userId: null,
+            userName: "Sistema",
+            vence: v.texto,
+            diasRestantes: v.dias,
+            notificados: destinatarios,
+            motivo:
+              v.dias >= 0
+                ? `El contrato vence en ${v.dias} día(s) (${v.texto}).`
+                : `El contrato venció hace ${Math.abs(v.dias)} día(s) (${v.texto}).`,
+          },
+        ];
+        await this.solicitudRepo.save(s);
+        alertados++;
+      }
+
+      if (alertados > 0 || sinLeer > 0) {
+        this.logger.log(
+          `Vencimientos: ${revisados} contrato(s) vigente(s), ${alertados} alerta(s) enviada(s), ${sinLeer} con fecha ilegible.`,
+        );
+      }
+      return { revisados, alertados, sinLeer };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`No se pudo revisar los vencimientos: ${msg}`);
+      return { revisados: 0, alertados: 0, sinLeer: 0 };
+    } finally {
+      this.revisandoVencimientos = false;
+    }
+  }
+
+  /** Avisa a la Dirección Administrativa. Devuelve a quiénes se les envió. */
+  private async notificarVencimiento(
+    solicitud: GcSolicitud,
+    vence: string,
+    dias: number,
+  ): Promise<string[]> {
+    const activos = await this.userRepo.find({
+      where: { estado: true },
+      relations: ["role"],
+    });
+    const objetivo = ROLES_ADMINISTRATIVA.map((r) => r.toLowerCase());
+    const usuarios = activos.filter((u) =>
+      objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+    );
+
+    const nro = solicitud.data?.consecutivoContrato || `N.º ${solicitud.solicitudId}`;
+    const contratista = String(solicitud.data?.contratista ?? "").trim();
+    const objeto = String(solicitud.data?.objetoProyecto ?? "").trim();
+    const titulo =
+      dias >= 0
+        ? `vence en ${dias} día(s)`
+        : `venció hace ${Math.abs(dias)} día(s)`;
+
+    const enviados: string[] = [];
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.includes(to.toLowerCase())) continue;
+      enviados.push(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Contrato ${nro} · ${titulo} (${vence})`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>El contrato <b>${nro}</b>${contratista ? ` con <b>${contratista}</b>` : ""}
+           <b>${titulo}</b>: la terminación pactada es el <b>${vence}</b>.</p>
+        ${objeto ? `<p><b>Objeto:</b> ${objeto}</p>` : ""}
+        <p>Conviene definir si se prorroga, se liquida o se deja terminar.</p>
+        <p style="color:#6b7280;font-size:12px">
+          Aviso automático con ${DIAS_ALERTA_VENCIMIENTO} días de anticipación ·
+          Gestión del conocimiento · G. Jurídica
+        </p>
+      </div>`,
+      });
+    }
+    return enviados;
   }
 
   // ============================================

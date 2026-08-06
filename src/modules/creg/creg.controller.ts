@@ -21,6 +21,7 @@ import {
   SaveCregCensoDto,
   SaveCregLiquidacionDto,
   SaveCregIddOffDto,
+  SaveCregFacturaEnergiaDto,
   SaveCregIddOnDto,
   SaveCregParametrizacionDto,
   SaveCregIppMensualDto,
@@ -292,6 +293,31 @@ export class CregController {
     @Query("projectId") projectId?: string,
   ) {
     return this.service.saveIddOff(companyId, parseOptionalInt(projectId), dto);
+  }
+
+  // ---- Facturas de energia del comercializador ----
+
+  @Get("factura-energia/:companyId")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Obtener las facturas de energia del municipio" })
+  getFacturaEnergia(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.getFacturaEnergia(companyId, parseOptionalInt(projectId));
+  }
+
+  @Put("factura-energia/:companyId")
+  @Permissions("creg:liquidacion")
+  @ApiOperation({ summary: "Guardar las facturas de energia del municipio" })
+  saveFacturaEnergia(
+    @Param("companyId", ParseIntPipe) companyId: number,
+    @Body() dto: SaveCregFacturaEnergiaDto,
+    @Query("projectId") projectId?: string,
+  ) {
+    return this.service.saveFacturaEnergia(
+      companyId, parseOptionalInt(projectId), dto,
+    );
   }
 
   // ---- ID ON: indice de disponibilidad (encendidas) ----
