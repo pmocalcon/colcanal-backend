@@ -476,6 +476,32 @@ export class GestionConocimientoService implements OnModuleInit {
   private static readonly DOCS_DEL_SOLICITANTE = new Set(["requisicionPersonal"]);
 
   /**
+   * Documentos que al guardarse avisan por correo a la Dirección Administrativa.
+   *
+   * Los dos cierran la fase de Jurídica y abren trabajo de Administrativa, que hoy se
+   * entera por fuera del sistema: sin el supervisor no hay con quién coordinar el
+   * seguimiento, y sin el acta no se sabe desde cuándo corre el plazo —de ahí cuelgan
+   * el anticipo y su legalización—.
+   */
+  private static readonly DOCS_AVISAN_ADMINISTRATIVA: Record<
+    string,
+    { nombre: string; formato: string; porque: string }
+  > = {
+    designacionSupervisor: {
+      nombre: "Designación de supervisor",
+      formato: "GJ-003-F",
+      porque:
+        "el supervisor designado es con quien se coordina el seguimiento del contrato y los informes para pagos",
+    },
+    actaInicio: {
+      nombre: "Acta de inicio",
+      formato: "GJ-006-F",
+      porque:
+        "con el acta arranca el plazo de ejecución, y sobre él van el anticipo y su legalización",
+    },
+  };
+
+  /**
    * Guarda un documento de fase 2 (designación de supervisor, acta de inicio) en
    * data[key]. Los diligencia Jurídica (o el PMO como comodín).
    */
@@ -526,7 +552,25 @@ export class GestionConocimientoService implements OnModuleInit {
       );
     }
 
-    const data: Record<string, any> = { ...(solicitud.data ?? {}), [key]: docData };
+    let cuerpo = docData;
+
+    // La constancia de quién verificó la garantía la estampa el servidor, igual que
+    // las revisiones de la lista de chequeo: es el respaldo de que alguien reviso la
+    // póliza, y un campo escribible sería una constancia que cualquiera puede poner a
+    // nombre de otro. Se pone una sola vez —no la pisa un guardado posterior— y lo que
+    // mande el cliente en esos tres campos se ignora.
+    if (key === "verificacionGarantias") {
+      const previo = (solicitud.data?.[key] ?? {}) as Record<string, any>;
+      cuerpo = {
+        ...docData,
+        verificoNombre: previo.verificoNombre || user?.nombre || "",
+        verificoCargo: previo.verificoCargo || user?.cargo || "",
+        verificoFecha:
+          previo.verificoFecha || new Date().toISOString().slice(0, 10),
+      };
+    }
+
+    const data: Record<string, any> = { ...(solicitud.data ?? {}), [key]: cuerpo };
 
     // El contrato recibe su consecutivo la primera vez que se guarda, y no se
     // vuelve a tocar: el número sale a firma y a archivo, así que reasignarlo
@@ -538,7 +582,88 @@ export class GestionConocimientoService implements OnModuleInit {
     }
 
     solicitud.data = data;
-    return this.solicitudRepo.save(solicitud);
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    // El aviso no bloquea el guardado: si el correo falla, el documento ya quedó
+    // guardado y lo que se pierde es la notificación, que se registra en el log.
+    const aviso = GestionConocimientoService.DOCS_AVISAN_ADMINISTRATIVA[key];
+    if (aviso) {
+      this.notificarDocumentoAdministrativa(guardada, aviso, user).catch((e) =>
+        this.logger.warn(
+          `No se pudo avisar a Administrativa de ${aviso.nombre} (solicitud ${guardada.solicitudId}): ${e.message}`,
+        ),
+      );
+    }
+
+    return guardada;
+  }
+
+  /**
+   * Avisa a la Dirección Administrativa que Jurídica guardó uno de sus documentos.
+   *
+   * Sale en cada guardado, no solo en el primero: una designación corregida o un acta
+   * con otra fecha de inicio cambian lo que Administrativa tiene que hacer, y un aviso
+   * único dejaría la corrección sin contar.
+   */
+  private async notificarDocumentoAdministrativa(
+    solicitud: GcSolicitud,
+    doc: { nombre: string; formato: string; porque: string },
+    autor?: User | null,
+  ): Promise<void> {
+    const activos = await this.userRepo.find({
+      where: { estado: true },
+      relations: ["role"],
+    });
+    const objetivo = ROLES_ADMINISTRATIVA.map((r) => r.toLowerCase());
+    const usuarios = activos.filter((u) =>
+      objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+    );
+    if (usuarios.length === 0) {
+      // Sin destinatarios el aviso no falla, pero tampoco puede pasar por enviado.
+      this.logger.warn(
+        `No hay usuarios activos de la Dirección Administrativa: ${doc.nombre} de la solicitud ${solicitud.solicitudId} no se avisó a nadie.`,
+      );
+      return;
+    }
+
+    const data: Record<string, any> = solicitud.data ?? {};
+    const nro =
+      String(data.consecutivoContrato ?? "").trim() ||
+      `N.º ${solicitud.solicitudId}`;
+    const contratista = String(data.contratista ?? "").trim();
+    const objeto = String(data.objetoProyecto ?? "").trim();
+    // El supervisor y la fecha de inicio son justamente el dato accionable de cada
+    // documento: se ponen en el cuerpo para no obligar a entrar a leerlos.
+    const supervisor = String(
+      data.designacionSupervisor?.supervisorNombre ?? "",
+    ).trim();
+    const inicio = String(data.actaInicio?.fechaInicio ?? "").trim();
+    const final = String(data.actaInicio?.fechaFinal ?? "").trim();
+
+    const enviados: string[] = [];
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.includes(to.toLowerCase())) continue;
+      enviados.push(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `${doc.nombre} · contrato ${nro}${contratista ? ` · ${contratista}` : ""}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>Jurídica guardó la <b>${doc.nombre}</b> (${doc.formato}) del contrato
+           <b>${nro}</b>${contratista ? ` con <b>${contratista}</b>` : ""}.</p>
+        ${objeto ? `<p><b>Objeto:</b> ${objeto}</p>` : ""}
+        ${supervisor ? `<p><b>Supervisor designado:</b> ${supervisor}</p>` : ""}
+        ${inicio ? `<p><b>Fecha de inicio:</b> ${inicio}${final ? ` · <b>termina:</b> ${final}` : ""}</p>` : ""}
+        <p>Te llega porque ${doc.porque}.</p>
+        <p style="color:#6b7280;font-size:12px">
+          ${autor?.nombre ? `Guardada por ${autor.nombre}${autor.cargo ? ` · ${autor.cargo}` : ""} · ` : ""}
+          Gestión del conocimiento · G. Jurídica
+        </p>
+      </div>`,
+      });
+    }
   }
 
   /**
