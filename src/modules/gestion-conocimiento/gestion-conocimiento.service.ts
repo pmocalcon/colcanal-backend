@@ -463,6 +463,10 @@ export class GestionConocimientoService implements OnModuleInit {
     "verificacionGarantias",
     // Solicitud de Requisición de Personal (GTH-001-F).
     "requisicionPersonal",
+    // Los otrosíes del contrato. A diferencia de los demás no es un documento sino una
+    // colección —{ lista: [...] }—: un mismo contrato puede prorrogarse o adicionarse
+    // varias veces, y cada otrosí numera y cita a los anteriores.
+    "otrosies",
   ];
 
   /**
