@@ -1239,6 +1239,19 @@ export class SurveysService {
     const accessibleCompanyIds = userAccess.companies.map((c) => c.companyId);
     const accessibleProjectIds = userAccess.projects.map((p) => p.projectId);
 
+    /*
+     * Esta es la vista de lista, no el detalle: por eso trae los ítems del presupuesto
+     * —de ahí sale `budgetTotal`— y **ningún** otro detalle de los levantamientos.
+     *
+     * Antes traía además las UCAP de cada ítem, los de inversión, los materiales con su
+     * material y los costos de viaje, y los devolvía enteros. Con `limit=500` eso es
+     * medio módulo de Obras hidratado como objetos en memoria: el proceso murió con
+     * `JavaScript heap out of memory` a los 251 MB y Render lo reinició, que es lo que en
+     * el navegador se veía como un error de CORS —sin respuesta no hay cabeceras—.
+     *
+     * Si algún día esta pantalla necesita el desglose, se pide por levantamiento, no de a
+     * quinientos.
+     */
     const query = this.surveyRepository.createQueryBuilder('survey')
       .leftJoinAndSelect('survey.work', 'work')
       .leftJoinAndSelect('work.company', 'company')
@@ -1246,12 +1259,7 @@ export class SurveysService {
       .leftJoinAndSelect('survey.creator', 'creator')
       .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer')
       .leftJoinAndSelect('survey.reviewer', 'reviewer')
-      .leftJoinAndSelect('survey.budgetItems', 'budgetItems')
-      .leftJoinAndSelect('budgetItems.ucap', 'ucap')
-      .leftJoinAndSelect('survey.investmentItems', 'investmentItems')
-      .leftJoinAndSelect('survey.materialItems', 'materialItems')
-      .leftJoinAndSelect('materialItems.material', 'material')
-      .leftJoinAndSelect('survey.travelExpenses', 'travelExpenses');
+      .leftJoinAndSelect('survey.budgetItems', 'budgetItems');
 
     // Apply user access filter (only companies/projects the user has access to)
     if (accessibleCompanyIds.length > 0 || accessibleProjectIds.length > 0) {
@@ -1410,21 +1418,13 @@ export class SurveysService {
       travelExpensesStatus: survey.travelExpensesStatus,
       travelExpensesComments: survey.travelExpensesComments,
 
-      // Budget summary
-      budgetItems: survey.budgetItems,
+      // Del presupuesto solo va el total: la lista muestra una cifra por fila, no el
+      // desglose, y devolver los ítems de quinientos levantamientos es lo que tumbaba
+      // el proceso.
       budgetTotal: survey.budgetItems?.reduce(
         (sum, item) => sum + Number(item.budgetedValue || 0),
         0,
       ),
-
-      // Investment items
-      investmentItems: survey.investmentItems,
-
-      // Materials
-      materialItems: survey.materialItems,
-
-      // Travel expenses
-      travelExpenses: survey.travelExpenses,
 
       // URLs
       sketchUrl: survey.sketchUrl,
