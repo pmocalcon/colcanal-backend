@@ -662,6 +662,17 @@ export class SurveysService {
     };
   }
 
+  /**
+   * Lista de levantamientos, paginada.
+   *
+   * **No hidrata colecciones hijas**, y esa es la regla de la que depende que el proceso
+   * siga en pie: `take(limit)` acota los levantamientos pero no sus hijos, así que traía
+   * las filas de material —con su material completo— de los 500 que pide la pantalla de
+   * crear requisición, para usar las de **uno**. Con 258 MB de heap eso es una caída.
+   *
+   * Quien necesite los materiales de un levantamiento pide su detalle en
+   * `GET /surveys/:id`, que sí los trae.
+   */
   async getSurveys(filters: FilterSurveysDto): Promise<{ data: any[]; total: number; page: number; limit: number }> {
     const page = filters.page || 1;
     const limit = filters.limit || 10;
@@ -672,9 +683,7 @@ export class SurveysService {
       .leftJoinAndSelect('work.company', 'company')
       .leftJoinAndSelect('work.project', 'project')
       .leftJoinAndSelect('survey.creator', 'creator')
-      .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer')
-      .leftJoinAndSelect('survey.materialItems', 'materialItems')
-      .leftJoinAndSelect('materialItems.material', 'material');
+      .leftJoinAndSelect('survey.assignedReviewer', 'assignedReviewer');
 
     const hasCompanyFilter = filters.companyId?.length;
     const hasProjectIdsFilter = filters.projectIds?.length;
