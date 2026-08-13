@@ -82,3 +82,7 @@ export { ScheduleItem } from './schedule-item.entity';
 export { ScheduleDailyPlan } from './schedule-daily-plan.entity';
 export { ScheduleMaterialLog } from './schedule-material-log.entity';
 export { ScheduleExecution } from './schedule-execution.entity';
+
+export * from "./th-persona.entity";
+export * from "./th-incapacidad.entity";
+export * from "./th-ausentismo.entity";

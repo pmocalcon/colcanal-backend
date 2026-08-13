@@ -18,6 +18,7 @@ import { SchedulesModule } from "./modules/schedules/schedules.module";
 import { CregModule } from "./modules/creg/creg.module";
 import { GestionConocimientoModule } from "./modules/gestion-conocimiento/gestion-conocimiento.module";
 import { RecursoEconomicoModule } from "./modules/recurso-economico/recurso-economico.module";
+import { TalentoHumanoModule } from "./modules/talento-humano/talento-humano.module";
 import configuration from "./config/configuration";
 
 @Module({
@@ -48,6 +49,7 @@ import configuration from "./config/configuration";
     CregModule,
     GestionConocimientoModule,
     RecursoEconomicoModule,
+    TalentoHumanoModule,
   ],
   controllers: [AppController],
   providers: [AppService],
