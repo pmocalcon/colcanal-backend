@@ -4,13 +4,16 @@ import { Repository, ILike, MoreThanOrEqual } from "typeorm";
 import { ThPersona } from "../../database/entities/th-persona.entity";
 import { ThIncapacidad } from "../../database/entities/th-incapacidad.entity";
 import { ThAusentismo } from "../../database/entities/th-ausentismo.entity";
+import { ThPrestamo } from "../../database/entities/th-prestamo.entity";
+import { ThPrestamoPago } from "../../database/entities/th-prestamo-pago.entity";
 
 /**
- * Talento humano: base de personal, incapacidades y ausentismos.
+ * Talento humano: personal, incapacidades, ausentismos y préstamos.
  *
- * Los **préstamos no viven acá**: se piden con el formato de G. de talento humano y se
- * guardan en `gc_solicitudes`. El listado del módulo los lee de ahí, así que un préstamo
- * se diligencia una sola vez y se ve en los dos sitios.
+ * Ojo con los préstamos, que son dos cosas distintas con el mismo nombre. El **formato**
+ * de solicitud de G. de talento humano vive en `gc_solicitudes` y es el papel con el que
+ * se pide uno nuevo; `th_prestamos` es la **cartera**: lo prestado, lo descontado por
+ * nómina y el saldo. Lo que se administra acá es la cartera.
  */
 
 export interface FiltroPersonal {
@@ -24,6 +27,13 @@ export interface FiltroPersonal {
 export interface FiltroIncapacidades {
   estado?: string;
   entidad?: string;
+  buscar?: string;
+}
+
+export interface FiltroPrestamos {
+  proyecto?: string;
+  /** true = solo los que aún deben; false = solo los saldados. */
+  conSaldo?: boolean;
   buscar?: string;
 }
 
@@ -44,6 +54,10 @@ export class TalentoHumanoService {
     private readonly incapacidadRepo: Repository<ThIncapacidad>,
     @InjectRepository(ThAusentismo)
     private readonly ausentismoRepo: Repository<ThAusentismo>,
+    @InjectRepository(ThPrestamo)
+    private readonly prestamoRepo: Repository<ThPrestamo>,
+    @InjectRepository(ThPrestamoPago)
+    private readonly pagoRepo: Repository<ThPrestamoPago>,
   ) {}
 
   // ============================================================
@@ -254,5 +268,135 @@ export class TalentoHumanoService {
       cantidad: Number(f.cantidad),
       horas: Number(f.horas),
     }));
+  }
+
+  // ============================================================
+  // PRÉSTAMOS
+  // ============================================================
+
+  /**
+   * La cartera completa: los que aún deben primero, y dentro de esos el saldo más alto.
+   *
+   * Sin paginar, como el personal: son unas decenas y lo que se mira al abrir es el total
+   * adeudado, que con páginas no se puede ver sin recorrerlas todas.
+   *
+   * **No trae las cuotas.** Son cientos de filas hijas y hidratarlas con
+   * `leftJoinAndSelect` es exactamente lo que tumbó el listado de levantamientos: con
+   * colecciones, acotar el padre no acota al hijo. Se piden por préstamo en `getPrestamo`.
+   */
+  async listPrestamos(filtros: FiltroPrestamos = {}): Promise<ThPrestamo[]> {
+    const q = this.prestamoRepo.createQueryBuilder("p");
+
+    if (filtros.proyecto) q.andWhere("p.proyecto = :proyecto", { proyecto: filtros.proyecto });
+    if (filtros.conSaldo !== undefined) {
+      q.andWhere(
+        filtros.conSaldo ? "COALESCE(p.saldo, 0) > 0" : "COALESCE(p.saldo, 0) <= 0",
+      );
+    }
+    if (filtros.buscar) {
+      q.andWhere("(p.nombre ILIKE :q OR p.identificacion ILIKE :q)", {
+        q: `%${filtros.buscar}%`,
+      });
+    }
+
+    return q
+      .orderBy("CASE WHEN COALESCE(p.saldo, 0) > 0 THEN 0 ELSE 1 END", "ASC")
+      .addOrderBy("p.saldo", "DESC")
+      .addOrderBy("p.nombre", "ASC")
+      .getMany();
+  }
+
+  /** El préstamo con su historia de descuentos, en orden cronológico. */
+  async getPrestamo(
+    id: number,
+  ): Promise<ThPrestamo & { pagos: ThPrestamoPago[] }> {
+    const prestamo = await this.prestamoRepo.findOne({ where: { prestamoId: id } });
+    if (!prestamo) throw new NotFoundException("Préstamo no encontrado");
+
+    const pagos = await this.pagoRepo.find({
+      where: { prestamoId: id },
+      order: { anio: "ASC", mes: "ASC" },
+    });
+    return { ...prestamo, pagos };
+  }
+
+  async createPrestamo(data: Partial<ThPrestamo>): Promise<ThPrestamo> {
+    return this.prestamoRepo.save(this.prestamoRepo.create(data));
+  }
+
+  async updatePrestamo(id: number, data: Partial<ThPrestamo>): Promise<ThPrestamo> {
+    const prestamo = await this.prestamoRepo.findOne({ where: { prestamoId: id } });
+    if (!prestamo) throw new NotFoundException("Préstamo no encontrado");
+    Object.assign(prestamo, data);
+    return this.prestamoRepo.save(prestamo);
+  }
+
+  /**
+   * Borra el préstamo y sus cuotas.
+   *
+   * Las cuotas se borran a mano porque `th_prestamo_pagos` apunta a `th_prestamos` sin
+   * llave foránea —las tablas `th_*` se crearon aisladas—, así que no hay cascada que las
+   * arrastre y quedarían huérfanas, sumando en los informes de un préstamo que ya no está.
+   */
+  async deletePrestamo(id: number): Promise<void> {
+    const prestamo = await this.prestamoRepo.findOne({ where: { prestamoId: id } });
+    if (!prestamo) throw new NotFoundException("Préstamo no encontrado");
+    await this.pagoRepo.delete({ prestamoId: id });
+    await this.prestamoRepo.remove(prestamo);
+  }
+
+  /**
+   * Registra el descuento de un mes.
+   *
+   * `valor` se guarda como texto porque así declara la entidad las columnas `numeric`:
+   * es lo que Postgres devuelve al leerlas, y tenerlo distinto al escribir que al leer
+   * es la forma de que un centavo se pierda en una conversión a `number`.
+   */
+  async registrarPago(
+    prestamoId: number,
+    data: { anio: number; mes: number; valor: number | string },
+  ): Promise<ThPrestamoPago> {
+    await this.getPrestamo(prestamoId); // valida que exista
+    return this.pagoRepo.save(
+      this.pagoRepo.create({
+        prestamoId,
+        anio: data.anio,
+        mes: data.mes,
+        valor: String(data.valor),
+      }),
+    );
+  }
+
+  /**
+   * Cuánto se prestó, cuánto se ha descontado y cuánto falta.
+   *
+   * `valor_cancelado` y `saldo` se suman **tal como están guardados** y no se recalculan
+   * desde las cuotas: no siempre cuadran, porque hay cruces con vacaciones y abonos
+   * extraordinarios anotados a mano, y el número de la hoja es el que la empresa da por
+   * bueno.
+   */
+  async resumenPrestamos(): Promise<{
+    prestamos: number;
+    activos: number;
+    prestado: number;
+    cancelado: number;
+    saldo: number;
+  }> {
+    const f = await this.prestamoRepo
+      .createQueryBuilder("p")
+      .select("COUNT(*)", "prestamos")
+      .addSelect("COUNT(*) FILTER (WHERE COALESCE(p.saldo, 0) > 0)", "activos")
+      .addSelect("COALESCE(SUM(p.valor_prestamo), 0)", "prestado")
+      .addSelect("COALESCE(SUM(p.valor_cancelado), 0)", "cancelado")
+      .addSelect("COALESCE(SUM(p.saldo), 0)", "saldo")
+      .getRawOne<Record<string, string>>();
+
+    return {
+      prestamos: Number(f?.prestamos ?? 0),
+      activos: Number(f?.activos ?? 0),
+      prestado: Number(f?.prestado ?? 0),
+      cancelado: Number(f?.cancelado ?? 0),
+      saldo: Number(f?.saldo ?? 0),
+    };
   }
 }

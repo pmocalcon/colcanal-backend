@@ -14,15 +14,20 @@ deja de ser la fuente.
 
 Tres archivos, tres destinos:
 
-  Base de personal 2026.xlsx  → th_personal      (hoja única, encabezado en la fila 6)
-  INCAPACIDADES.xlsx          → th_incapacidades (hoja GENERAL)
-  01. Ausentismos.xlsx        → th_ausentismos   (encabezado en la fila 1)
+  Base de personal 2026.xlsx           → th_personal      (encabezado en la fila 6)
+  INCAPACIDADES.xlsx                   → th_incapacidades (hoja GENERAL)
+  01. Ausentismos.xlsx                 → th_ausentismos   (encabezado en la fila 1)
+  01. Informe general de préstamos.xlsx→ th_prestamos +
+                                         th_prestamo_pagos (hoja «Prestamos»)
 
 **De INCAPACIDADES solo se lee GENERAL**, que es el registro controlado (GTH-31-R).
 Las demás hojas del libro quedan por fuera a propósito: 2023/2024/2025 y
 «COMP. ELIANA» son borradores ya consolidados en GENERAL —importarlos duplicaría, y
 donde difieren es porque GENERAL trae la fecha corregida—, y «jamundi» son 18
 registros de esa unión temporal que GENERAL no cubre y que se decidió no traer.
+
+**Del informe de préstamos solo se lee «Prestamos»**, que es la consolidada; las otras
+veinte hojas son cortes mensuales de 2023 a 2025 que esa ya recoge.
 """
 
 import json
@@ -354,27 +359,152 @@ def leer_ausentismos(ruta):
     return filas
 
 
+# ── Préstamos ──────────────────────────────────────────────────────────────────
+
+def indice_por_nombre(personal):
+    """
+    Nombre normalizado → cédula, para poder resolver a quién es cada préstamo.
+
+    Se indexa por el **conjunto de palabras** y no por la cadena: la base de personal
+    escribe «BAEZA MARÍN YAKI MICHELL» (apellidos primero, en mayúscula y con tildes) y la
+    hoja de préstamos «Yamile Rodriguez» (nombre primero, sin tildes y a veces sin el
+    segundo apellido). Como conjunto, «MINA MINA JOSE ARNU» y «Jose Arnu Mina» coinciden.
+
+    Los nombres que aparecen dos veces en la base —alguien que salió y volvió a entrar—
+    se descartan del índice: si no se sabe a cuál de los dos registros va, es mejor dejar
+    la cédula vacía que colgarle el préstamo al equivocado.
+    """
+    por_clave = {}
+    for p in personal:
+        clave = frozenset(_SIN_TILDES(p["nombre"]).upper().split())
+        if not clave:
+            continue
+        por_clave.setdefault(clave, set()).add(p["identificacion"])
+    return {k: next(iter(v)) for k, v in por_clave.items() if len(v) == 1}
+
+
+def buscar_cedula(nombre, indice):
+    """Coincidencia exacta, o por subconjunto cuando es la única candidata."""
+    palabras = frozenset(_SIN_TILDES(nombre).upper().split())
+    if not palabras:
+        return None
+    if palabras in indice:
+        return indice[palabras]
+    # «Jose Arnu Mina» ⊂ «MINA MINA JOSE ARNU»: se acepta solo si nadie más la contiene.
+    candidatas = {ced for clave, ced in indice.items() if palabras <= clave}
+    return candidatas.pop() if len(candidatas) == 1 else None
+
+
+def cuotas(v):
+    """
+    El «# CUOTAS» puede llegar como fecha.
+
+    Una fila quedó con formato de fecha y Excel muestra el 10 como 1900-01-10; el serial
+    de Excel arranca el 1900-01-01, así que el día del mes es el número que se digitó.
+    """
+    if isinstance(v, (datetime, date)):
+        return v.day if v.year == 1900 else None
+    return entero(v)
+
+
+#: La retícula de pagos: columnas J..BI, un mes cada una.
+#: J..M son los cuatro últimos meses de 2022 y de ahí en adelante corren doce por año.
+PRIMERA_COL_PAGO, ULTIMA_COL_PAGO = 10, 61
+
+
+def _mes_de_columna(c):
+    """Columna de la retícula → (año, mes)."""
+    if c <= 13:                       # J..M = septiembre a diciembre de 2022
+        return 2022, 9 + (c - 10)
+    desplazamiento = c - 14           # N = enero de 2023
+    return 2023 + desplazamiento // 12, desplazamiento % 12 + 1
+
+
+def leer_prestamos(ruta, personal):
+    """
+    Hoja «Prestamos»: encabezado en la fila 2, meses en la 3, datos de la 4 en adelante.
+
+    Se corta en cuanto la columna A dice «TOTALES»: debajo vienen los totales y unos
+    bloques de cuadre que no son préstamos.
+    """
+    ws = openpyxl.load_workbook(ruta, data_only=True)["Prestamos"]
+    indice = indice_por_nombre(personal)
+
+    prestamos, sin_cedula = [], 0
+    for r in range(4, ws.max_row + 1):
+        c = lambda i: ws.cell(r, i).value  # noqa: E731
+
+        if texto(c(1)) and "TOTAL" in _SIN_TILDES(texto(c(1))).upper():
+            break
+        nombre = texto(c(2), 160)
+        if not nombre:
+            continue
+
+        cedula_hallada = buscar_cedula(nombre, indice)
+        if not cedula_hallada:
+            sin_cedula += 1
+
+        # La retícula se endereza a filas y se descartan los ceros: en la hoja son
+        # «este mes no se descontó», no un pago de cero pesos.
+        pagos = []
+        for col in range(PRIMERA_COL_PAGO, ULTIMA_COL_PAGO + 1):
+            valor = numero(c(col))
+            if valor:
+                anio, mes = _mes_de_columna(col)
+                pagos.append({"anio": anio, "mes": mes, "valor": valor})
+
+        prestamos.append({
+            "numero": entero(c(1)),
+            "nombre": nombre,
+            "identificacion": cedula_hallada,
+            "proyecto": texto(c(3), 20),
+            "pagare": (texto(c(4), 10) or "").upper() or None,
+            "mesInicio": iso(c(5)),
+            "numeroCuotas": cuotas(c(6)),
+            "fechaVencimiento": iso(c(7)),
+            "valorPrestamo": numero(c(8)),
+            "valorCuota": numero(c(9)),
+            "valorCancelado": numero(c(62)),   # BJ
+            "saldo": numero(c(63)),            # BK
+            "observaciones": texto(c(64)),     # BL
+            "pagos": pagos,
+        })
+
+    if sin_cedula:
+        print("      (%d de %d préstamos quedaron sin cédula: el nombre no cuadró"
+              " con la base de personal)" % (sin_cedula, len(prestamos)))
+    return prestamos
+
+
 # ── Entrada ────────────────────────────────────────────────────────────────────
 
 def main():
     carpeta = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.getcwd(), "..")
     salida = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.getcwd(), "talento-humano.json")
 
-    archivos = {
-        "personal": ("Base de personal 2026.xlsx", leer_personal),
-        "incapacidades": ("INCAPACIDADES.xlsx", leer_incapacidades),
-        "ausentismos": ("01. Ausentismos.xlsx", leer_ausentismos),
-    }
-
     datos = {}
-    for clave, (nombre, leer) in archivos.items():
-        ruta = os.path.join(carpeta, nombre)
+
+    def leer(clave, archivo, funcion, *extra):
+        ruta = os.path.join(carpeta, archivo)
         if not os.path.exists(ruta):
-            print("  falta %s — se omite" % nombre)
+            print("  falta %s — se omite" % archivo)
             datos[clave] = []
-            continue
-        datos[clave] = leer(ruta)
-        print("  %-14s %4d registros  (%s)" % (clave, len(datos[clave]), nombre))
+            return []
+        datos[clave] = funcion(ruta, *extra)
+        print("  %-14s %4d registros  (%s)" % (clave, len(datos[clave]), archivo))
+        return datos[clave]
+
+    # El personal va de primero porque los préstamos lo usan para resolver la cédula:
+    # su hoja solo trae el nombre.
+    personal = leer("personal", "Base de personal 2026.xlsx", leer_personal)
+    leer("incapacidades", "INCAPACIDADES.xlsx", leer_incapacidades)
+    leer("ausentismos", "01. Ausentismos.xlsx", leer_ausentismos)
+    prestamos = leer("prestamos", "01. Informe general de préstamos.xlsx",
+                     leer_prestamos, personal)
+
+    if prestamos:
+        print("  %-14s %4d cuotas descontadas" % ("(pagos)",
+              sum(len(p["pagos"]) for p in prestamos)))
 
     with open(salida, "w", encoding="utf-8") as f:
         json.dump(datos, f, ensure_ascii=False, indent=1)

@@ -18,7 +18,7 @@ import { Roles } from "../../common/decorators/roles.decorator";
 import { ROLES_TALENTO_HUMANO } from "./talento-humano.roles";
 
 /**
- * Talento humano: base de personal, incapacidades y ausentismos.
+ * Talento humano: personal, incapacidades, ausentismos y préstamos.
  *
  * Se cierra **por rol y no por permiso**, igual que Recurso Económico: no hay permisos
  * `talento:*` en la tabla y crearlos obligaría a tocar `roles_permisos` en producción
@@ -161,5 +161,65 @@ export class TalentoHumanoController {
   @Roles(...ROLES_TALENTO_HUMANO)
   deleteAusentismo(@Param("id", ParseIntPipe) id: number) {
     return this.service.deleteAusentismo(id);
+  }
+
+  // ── Préstamos ──
+
+  @Get("prestamos")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Cartera de préstamos; los que aún deben van primero" })
+  listPrestamos(
+    @Query("proyecto") proyecto?: string,
+    @Query("conSaldo") conSaldo?: string,
+    @Query("buscar") buscar?: string,
+  ) {
+    return this.service.listPrestamos({
+      proyecto,
+      conSaldo: conSaldo === undefined ? undefined : conSaldo === "true",
+      buscar,
+    });
+  }
+
+  @Get("prestamos/resumen")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Prestado, cancelado y saldo pendiente" })
+  resumenPrestamos() {
+    return this.service.resumenPrestamos();
+  }
+
+  @Get("prestamos/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "El préstamo con su historia de descuentos" })
+  getPrestamo(@Param("id", ParseIntPipe) id: number) {
+    return this.service.getPrestamo(id);
+  }
+
+  @Post("prestamos")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  createPrestamo(@Body() body: Record<string, any>) {
+    return this.service.createPrestamo(body);
+  }
+
+  @Post("prestamos/:id/pagos")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Registra el descuento de un mes" })
+  registrarPago(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() body: { anio: number; mes: number; valor: number },
+  ) {
+    return this.service.registrarPago(id, body);
+  }
+
+  @Patch("prestamos/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  updatePrestamo(@Param("id", ParseIntPipe) id: number, @Body() body: Record<string, any>) {
+    return this.service.updatePrestamo(id, body);
+  }
+
+  @Delete("prestamos/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Borra el préstamo y sus cuotas" })
+  deletePrestamo(@Param("id", ParseIntPipe) id: number) {
+    return this.service.deletePrestamo(id);
   }
 }

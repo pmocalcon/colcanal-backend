@@ -1,10 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
-import { DataSource } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
 import { dataSourceOptions } from "../data-source";
 import { ThPersona } from "../entities/th-persona.entity";
 import { ThIncapacidad } from "../entities/th-incapacidad.entity";
 import { ThAusentismo } from "../entities/th-ausentismo.entity";
+import { ThPrestamo } from "../entities/th-prestamo.entity";
+import { ThPrestamoPago } from "../entities/th-prestamo-pago.entity";
 
 /**
  * Carga inicial de talento humano desde el JSON que produce
@@ -24,14 +26,26 @@ import { ThAusentismo } from "../entities/th-ausentismo.entity";
  * `--dry-run` recorre y cuenta sin escribir nada.
  */
 
+/** Un préstamo trae anidadas sus cuotas, que van a la tabla hija. */
+interface PrestamoJson extends Record<string, unknown> {
+  pagos?: { anio: number; mes: number; valor: number }[];
+}
+
 interface Json {
   personal: Record<string, unknown>[];
   incapacidades: Record<string, unknown>[];
   ausentismos: Record<string, unknown>[];
+  prestamos: PrestamoJson[];
 }
 
-/** Las tres tablas de este módulo. Nada de lo que haga el script sale de acá. */
-const TABLAS_TH = ["th_personal", "th_incapacidades", "th_ausentismos"];
+/** Las tablas de este módulo. Nada de lo que haga el script sale de acá. */
+const TABLAS_TH = [
+  "th_personal",
+  "th_incapacidades",
+  "th_ausentismos",
+  "th_prestamos",
+  "th_prestamo_pagos",
+];
 
 /**
  * Crea las tablas del módulo que falten, y **solo esas**.
@@ -77,6 +91,55 @@ function limpiar(fila: Record<string, unknown>): Record<string, unknown> {
   return salida;
 }
 
+/**
+ * Los préstamos van aparte porque son dos tablas: la cabecera y sus cuotas.
+ *
+ * Se insertan uno por uno para poder colgarle a cada préstamo el `prestamo_id` que
+ * Postgres acaba de asignarle. Son 52; hacerlo por lotes ahorraría un segundo y a cambio
+ * habría que adivinar los identificadores.
+ *
+ * Las hijas se borran **antes** que las cabeceras: al revés quedarían huérfanas si algo
+ * fallara entre los dos borrados.
+ */
+async function importarPrestamos(
+  manager: EntityManager,
+  prestamos: PrestamoJson[],
+): Promise<void> {
+  if (prestamos.length === 0) {
+    console.log("⏭️  th_prestamos: el JSON no trae filas, se deja como está");
+    return;
+  }
+
+  const repoPrestamo = manager.getRepository(ThPrestamo);
+  const repoPago = manager.getRepository(ThPrestamoPago);
+  const antes = await repoPrestamo.count();
+  const antesPagos = await repoPago.count();
+
+  await manager.createQueryBuilder().delete().from(ThPrestamoPago).execute();
+  await manager.createQueryBuilder().delete().from(ThPrestamo).execute();
+
+  let cuotas = 0;
+  for (const { pagos, ...cabecera } of prestamos) {
+    const guardado = await repoPrestamo.save(repoPrestamo.create(limpiar(cabecera)));
+    if (pagos?.length) {
+      // `valor` va como texto: así declara la entidad las columnas `numeric`, que es lo
+      // que Postgres devuelve al leerlas.
+      await repoPago.insert(
+        pagos.map((p) => ({
+          prestamoId: guardado.prestamoId,
+          anio: p.anio,
+          mes: p.mes,
+          valor: String(p.valor),
+        })),
+      );
+      cuotas += pagos.length;
+    }
+  }
+
+  console.log(`✅ th_prestamos: ${antes} → ${prestamos.length}`);
+  console.log(`✅ th_prestamo_pagos: ${antesPagos} → ${cuotas}`);
+}
+
 async function importar() {
   const jsonPath = path.resolve(
     process.argv[2] ?? path.join(process.cwd(), "talento-humano.json"),
@@ -95,15 +158,18 @@ async function importar() {
 
   const datos = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as Json;
 
+  const cuotas = (datos.prestamos ?? []).reduce((s, p) => s + (p.pagos?.length ?? 0), 0);
+
   console.log(`📂 ${jsonPath}`);
   console.log(`   personal       ${datos.personal?.length ?? 0}`);
   console.log(`   incapacidades  ${datos.incapacidades?.length ?? 0}`);
   console.log(`   ausentismos    ${datos.ausentismos?.length ?? 0}`);
+  console.log(`   prestamos      ${datos.prestamos?.length ?? 0} (${cuotas} cuotas)`);
 
   if (dryRun) {
     console.log("\n🔍 --dry-run: no se escribe nada.");
     console.log("Muestra del primer registro de cada tabla:");
-    for (const k of ["personal", "incapacidades", "ausentismos"] as const) {
+    for (const k of ["personal", "incapacidades", "ausentismos", "prestamos"] as const) {
       const primera = datos[k]?.[0];
       if (primera) console.log(`\n${k}:`, limpiar(primera));
     }
@@ -146,6 +212,8 @@ async function importar() {
 
         console.log(`✅ ${nombre}: ${antes} → ${filas.length}`);
       }
+
+      await importarPrestamos(manager, datos.prestamos ?? []);
     });
 
     console.log("\n🎉 Carga terminada.");
