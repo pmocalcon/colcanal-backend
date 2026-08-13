@@ -28,6 +28,8 @@ import {
   ANTICIPO_TRANSICIONES,
   ANTICIPO_ESTADOS,
   ANTICIPO_NOTIFICAR_AL_LLEGAR,
+  // La categoría de Director de Área la comparten los dos flujos: en el anticipo decide
+  // quién es su jefe y en la solicitud, si hay paso de autorización o no.
   CATEGORIA_DIRECTOR_AREA,
   ROL_GERENCIA,
   AnticipoEstado,
@@ -461,6 +463,9 @@ export class GestionConocimientoService implements OnModuleInit {
     "contrato",
     // Lista de verificación de garantías + matriz resumen de riesgo contractual.
     "verificacionGarantias",
+    // Acta de Aprobación de Garantías: la conclusión de la verificación —los datos de
+    // cada póliza y su CUMPLE / NO CUMPLE—, que es lo que se firma y se archiva.
+    "aprobacionGarantias",
     // Solicitud de Requisición de Personal (GTH-001-F).
     "requisicionPersonal",
     // Los otrosíes del contrato. A diferencia de los demás no es un documento sino una
@@ -769,16 +774,42 @@ export class GestionConocimientoService implements OnModuleInit {
       throw new BadRequestException("Debe indicar el motivo");
     }
 
+    /*
+     * Quién firma la solicitud depende de quién la monta, igual que en Compras.
+     *
+     * Si la monta un Director de Área no hay a quién pedirle autorización por encima:
+     * su jefe es la Gerencia. La solicitud salta el paso de Gerencia de Proyectos
+     * (Lorena) y va directo a la firma de la Dra. Gloria, y en el formato solo se
+     * firman «Solicitado por» y «Aprobado por». Cualquier otro rol —PQR, coordinación,
+     * analistas— sigue el orden completo: autoriza Lorena y aprueba Gerencia.
+     *
+     * Se deja constancia en `autorizacionGpOmitida` en vez de deducirlo después de que
+     * «Autorizado por» esté vacío: vacío también está mientras la autorización sigue
+     * pendiente, y el recuadro impreso no puede depender de en qué momento se mire.
+     */
+    let destino: JuridicaEstado = t.to;
+    let omitirAutorizacion = false;
+    if (accion === "enviar") {
+      const creador = solicitud.createdBy
+        ? await this.userRepo.findOne({
+            where: { userId: solicitud.createdBy },
+            relations: ["role"],
+          })
+        : null;
+      omitirAutorizacion = creador?.role?.category === CATEGORIA_DIRECTOR_AREA;
+      if (omitirAutorizacion) destino = "pendiente_firma_gerencia";
+    }
+
     const ahora = new Date();
     const entrada = {
-      estado: t.to,
+      estado: destino,
       accion,
       fecha: ahora.toISOString(),
       userId,
       userName: user?.nombre ?? null,
       motivo: motivo?.trim() || undefined,
     };
-    solicitud.estado = t.to;
+    solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
 
@@ -787,6 +818,7 @@ export class GestionConocimientoService implements OnModuleInit {
     //  - la firma de la solicitud por Gerencia (Dra. Gloria) llena "Aprobado por".
     // (La firma del contrato va en el formato del contrato, no en este recuadro.)
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+    if (omitirAutorizacion) data.autorizacionGpOmitida = true;
     if (accion === "autorizar_gp") {
       data.autorizadoNombre = user?.nombre ?? "";
       data.autorizadoCargo = user?.cargo ?? "";
