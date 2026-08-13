@@ -136,6 +136,25 @@ export const JURIDICA_TRANSICIONES: Record<string, Transicion> = {
     roles: ROLES_JURIDICA,
     label: 'Contrato listo · enviar a firma',
   },
+  /**
+   * El camino de vuelta de `tramitar`: Jurídica devuelve a Administrativa.
+   *
+   * Hasta ahora, si Jurídica abría la lista de chequeo y encontraba que a la Etapa
+   * previa le faltaba un documento, no tenía salida: la única acción de la etapa era
+   * "contrato listo", y elaborar el contrato sobre papeles incompletos era lo único
+   * que el sistema permitía.
+   *
+   * **No devuelve a borrador** como `devolver_tramite`, sino un solo paso atrás. Lo
+   * que hay que rehacer es la verificación de documentos, no la solicitud ni las dos
+   * firmas de autorización que ya se dieron.
+   */
+  devolver_juridica: {
+    from: 'contrato_en_elaboracion',
+    to: 'en_tramite_administrativa',
+    roles: ROLES_JURIDICA,
+    requiereMotivo: true,
+    label: 'Devolver a Administrativa',
+  },
   firmar_contrato: {
     from: 'pendiente_firma_contrato',
     to: 'contrato_firmado',
