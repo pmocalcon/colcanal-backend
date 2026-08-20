@@ -43,6 +43,79 @@ import {
  */
 export type HojaMensual = "liquidacion" | "idd-off" | "idd-on";
 
+/** Una columna del comparador: el municipio, sea empresa o proyecto de Canales. */
+export interface ComparadorMunicipio {
+  /** `companyId:projectId` (0 si no hay proyecto). Es la llave de `valores`. */
+  clave: string;
+  companyId: number;
+  projectId: number | null;
+  nombre: string;
+}
+
+/** Lo que un municipio tiene cargado para un elemento. */
+export interface ComparadorCelda {
+  valor: number | null;
+  /** El código local. Cada contrato numeró su catálogo aparte, así que difiere. */
+  code: string;
+  /** El texto tal como está escrito allí, que rara vez coincide letra a letra. */
+  descripcion: string;
+}
+
+/** Una fila del comparador: un elemento visto en todos los municipios. */
+export interface ComparadorFila {
+  /** Descripción normalizada. Es la llave con la que se cruzan los municipios. */
+  clave: string;
+  /** La descripción más frecuente, para mostrarla como nombre del elemento. */
+  elemento: string;
+  grupo: string | null;
+  /** Lo cargado en cada municipio. Ausente = ese municipio no lo tiene. */
+  celdas: Record<string, ComparadorCelda>;
+  /** En cuántos municipios existe. */
+  presentes: number;
+  minimo: number | null;
+  maximo: number | null;
+  /** Cuántas veces cabe el menor en el mayor. `null` si está en un solo municipio. */
+  veces: number | null;
+}
+
+export interface CregComparador {
+  municipios: ComparadorMunicipio[];
+  filas: ComparadorFila[];
+}
+
+/**
+ * Empresas que existen en la base pero por las que no se opera.
+ *
+ * Pueblorico (11), Ciudad Bolívar (12), Tarso (13) y Jericó (14) se manejan como
+ * proyectos de Canales & Contactos; Jamundí (5) solo tiene centro de costo. El
+ * frontend ya las esconde de sus selectores (`EMPRESAS_OCULTAS` en
+ * `master-data.service.ts`); si alguna de las dos listas cambia, hay que mover
+ * la otra.
+ */
+const EMPRESAS_SIN_OPERACION = new Set([5, 11, 12, 13, 14]);
+
+/**
+ * La descripción, reducida a lo que identifica al elemento.
+ *
+ * Es la llave con la que se cruzan los municipios, porque el código NO sirve:
+ * cada contrato numeró su catálogo por su cuenta y el mismo PROP-020 es una
+ * luminaria en un municipio y un poste en otro. Lo que sí se repite —con otras
+ * mayúsculas, otras tildes y a veces una coletilla— es el texto.
+ *
+ * Se quitan «EXISTENTE» y «NUEVA» porque describen el estado del elemento, no el
+ * elemento: la misma luminaria de sodio 70 W aparece de las dos formas y son la
+ * misma cosa a efectos de comparar su costo.
+ */
+export const normalizarDescripcion = (texto: string): string =>
+  (texto ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\s*\((estadio|siniestro)\)\s*/g, " ")
+    .replace(/\s+(existentes?|nuevas?|nuevo)\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const DEFAULT_CONFIG = {
   pctTransport: 0,
   pctEngineering: 15,
@@ -838,6 +911,140 @@ export class CregService {
       totalValue,
       municipios: byMunicipio.length,
       byMunicipio,
+    };
+  }
+
+  // ============ Comparador entre municipios ============
+
+  /**
+   * El mismo elemento, municipio por municipio.
+   *
+   * Se cruza por DESCRIPCIÓN, no por código. El código no identifica nada entre
+   * contratos: de los 93 códigos presentes en varios municipios, 92 designan
+   * elementos distintos —PROP-020 es una luminaria en Ciudad Bolívar, un
+   * proyector en Jericó y un poste en Pueblo Rico—, así que una matriz por
+   * código enfrentaría un brazo galvanizado contra un proyector de 900 W y
+   * llamaría «diferencia» al resultado. Lo que sí se repite es el texto.
+   *
+   * Puesto así, la fila dice algo real: la misma luminaria de sodio 70 W está en
+   * nueve municipios entre 331 mil y 582 mil pesos, y esa diferencia es una
+   * pregunta que alguien puede responder.
+   *
+   * Se compara `roundedValue` —total con indirectos, SIN IPP— a propósito. El
+   * valor final lleva el factor IPP de cada municipio, que es una diferencia
+   * legítima y esperada; incluirla aquí escondería las diferencias de costo,
+   * que son las que se buscan.
+   */
+  async getComparador(): Promise<CregComparador> {
+    const todas = await this.ucapRepo.find({
+      where: { isActive: true },
+      relations: ["company", "project"],
+    });
+
+    // Fuera las empresas por las que no se opera. Pueblorico, Ciudad Bolívar,
+    // Tarso y Jericó existen como empresa pero se manejan como proyectos de
+    // Canales & Contactos, y Jamundí no tiene operación; el frontend ya las
+    // esconde de todos sus selectores (`EMPRESAS_OCULTAS`). Aquí no basta con no
+    // pintarlas: si entraran al cálculo, el mínimo y el máximo de una fila
+    // podrían salir de un municipio que la pantalla no muestra, y la columna
+    // «veces» señalaría una diferencia que nadie puede ver.
+    const ucaps = todas.filter((u) => !EMPRESAS_SIN_OPERACION.has(u.companyId));
+
+    // Un municipio es la empresa, salvo en Canales & Contactos, que opera varios
+    // como proyectos. Es la misma regla de `getSummary`.
+    const claveDe = (u: Ucap) => `${u.companyId}:${u.projectId ?? 0}`;
+    const municipios = new Map<string, ComparadorMunicipio>();
+    for (const u of ucaps) {
+      const clave = claveDe(u);
+      if (municipios.has(clave)) continue;
+      municipios.set(clave, {
+        clave,
+        companyId: u.companyId,
+        projectId: u.projectId ?? null,
+        nombre: u.projectId
+          ? u.project?.name ?? `Proyecto ${u.projectId}`
+          : u.company?.name ?? `Empresa ${u.companyId}`,
+      });
+    }
+
+    const filas = new Map<string, ComparadorFila>();
+    // Cuántas veces se escribió cada variante del texto, para quedarse con la más
+    // usada como nombre del elemento en vez de con la primera que aparezca.
+    const variantes = new Map<string, Map<string, number>>();
+
+    for (const u of ucaps) {
+      const descripcion = (u.description ?? "").trim();
+      const clave = normalizarDescripcion(descripcion);
+      if (!clave) continue;
+
+      let fila = filas.get(clave);
+      if (!fila) {
+        fila = {
+          clave,
+          elemento: descripcion,
+          grupo: u.grupo?.trim() || null,
+          celdas: {},
+          presentes: 0,
+          minimo: null,
+          maximo: null,
+          veces: null,
+        };
+        filas.set(clave, fila);
+        variantes.set(clave, new Map());
+      }
+      if (!fila.grupo) fila.grupo = u.grupo?.trim() || null;
+
+      const cuenta = variantes.get(clave)!;
+      cuenta.set(descripcion, (cuenta.get(descripcion) ?? 0) + 1);
+
+      const valor = Number(u.roundedValue);
+      // Si un municipio tuviera dos UCAP para el mismo elemento —dos códigos que
+      // describen lo mismo—, se conserva la de mayor valor: dejar la última que
+      // pase por el bucle haría que el resultado dependiera del orden de lectura.
+      const claveMunicipio = claveDe(u);
+      const previa = fila.celdas[claveMunicipio];
+      const nuevo = Number.isFinite(valor) ? valor : null;
+      if (!previa || (nuevo ?? 0) > (previa.valor ?? 0)) {
+        fila.celdas[claveMunicipio] = {
+          valor: nuevo,
+          code: (u.code ?? "").trim(),
+          descripcion,
+        };
+      }
+    }
+
+    for (const fila of filas.values()) {
+      const cuenta = variantes.get(fila.clave)!;
+      fila.elemento = [...cuenta.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"),
+      )[0][0];
+
+      const valores = Object.values(fila.celdas)
+        .map((c) => c.valor)
+        .filter((v): v is number => v !== null && v > 0);
+      fila.presentes = Object.keys(fila.celdas).length;
+      if (valores.length > 0) {
+        fila.minimo = Math.min(...valores);
+        fila.maximo = Math.max(...valores);
+        // Cuántas veces cabe el menor en el mayor: la medida de cuánto se
+        // separan los municipios en el precio del mismo elemento.
+        fila.veces =
+          valores.length > 1 && fila.minimo > 0
+            ? Number((fila.maximo / fila.minimo).toFixed(2))
+            : null;
+      }
+    }
+
+    return {
+      municipios: [...municipios.values()].sort((a, b) =>
+        a.nombre.localeCompare(b.nombre, "es"),
+      ),
+      filas: [...filas.values()].sort(
+        (a, b) =>
+          b.presentes - a.presentes ||
+          (b.veces ?? 0) - (a.veces ?? 0) ||
+          a.elemento.localeCompare(b.elemento, "es"),
+      ),
     };
   }
 

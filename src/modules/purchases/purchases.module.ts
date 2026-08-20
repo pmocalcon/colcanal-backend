@@ -7,6 +7,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
 
 // Import all required entities
 import { Requisition } from "../../database/entities/requisition.entity";
+import { WorkActa } from "../../database/entities/work-acta.entity";
 import { RequisitionItem } from "../../database/entities/requisition-item.entity";
 import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 import { RequisitionStatus } from "../../database/entities/requisition-status.entity";
@@ -51,6 +52,8 @@ import { RoleGestion } from "../../database/entities/role-gestion.entity";
       RequisitionItemApproval,
       // Master data entities
       Company,
+      // Para validar la compra anticipada contra un acta provisional.
+      WorkActa,
       Project,
       OperationCenter,
       ProjectCode,

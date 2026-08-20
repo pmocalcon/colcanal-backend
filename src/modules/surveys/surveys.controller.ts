@@ -440,6 +440,138 @@ export class SurveysController {
     return this.surveysService.getActasPendingCronograma();
   }
 
+  // ── Acta provisional (Gerencia de Proyectos) ──────────────────────────────
+  // Rutas estáticas: van ANTES de 'actas/:actaNumber'.
+
+  @Get('actas/obras-sin-acta')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Obras del municipio que no están agrupadas en ningún acta' })
+  async getObrasSinActa(
+    @Query('companyId') companyId: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.surveysService.getObrasSinActa(
+      parseInt(companyId, 10),
+      parseNullableInt(projectId),
+    );
+  }
+
+  @Get('actas/provisionales')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Actas provisionales del municipio y cuántas obras agrupan' })
+  async getActasProvisionales(
+    @Query('companyId') companyId: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.surveysService.getActasProvisionales(
+      parseInt(companyId, 10),
+      parseNullableInt(projectId),
+    );
+  }
+
+  @Get('actas/compras-anticipadas-pendientes')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({
+    summary: 'Compras anticipadas esperando autorización de Gerencia',
+    description:
+      'Bandeja de Gerencia. Va sin filtro de municipio: quien autoriza no tiene por qué ' +
+      'buscar en qué municipio quedó la solicitud.',
+  })
+  async getComprasAnticipadasPendientes() {
+    return this.surveysService.getComprasAnticipadasPendientes();
+  }
+
+  @Get('actas/requisiciones-sin-codigo')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar', 'levantamientos:presupuesto')
+  @ApiOperation({
+    summary: 'Requisiciones anticipadas que siguen sin código de contabilidad',
+    description:
+      'Bandeja de control del camino anticipado. Es global (todas las empresas) a propósito: ' +
+      'sirve para ver qué compras se están quedando sin centro de costo porque su acta no avanza.',
+  })
+  async getRequisicionesSinCodigo() {
+    return this.surveysService.getRequisicionesSinCodigo();
+  }
+
+  @Post('actas/provisionales/asignar')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Agrupa obras sueltas bajo un número de acta provisional' })
+  async asignarActaProvisional(
+    @Body()
+    body: {
+      companyId: number;
+      projectId?: number | null;
+      actaNumber: string;
+      workIds: number[];
+    },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.asignarActaProvisional(
+      body.companyId,
+      body.projectId ?? null,
+      body.actaNumber,
+      body.workIds,
+      userId,
+    );
+  }
+
+  @Post('actas/provisionales/quitar')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Saca obras de un acta provisional (corregir la asignación)' })
+  async quitarDeActaProvisional(
+    @Body() body: { companyId: number; projectId?: number | null; workIds: number[] },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.quitarDeActaProvisional(
+      body.companyId,
+      body.projectId ?? null,
+      body.workIds,
+      userId,
+    );
+  }
+
+  @Patch('actas/:actaNumber/rq-anticipada/solicitar')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Pide a Gerencia autorización para comprar contra el acta provisional' })
+  async solicitarRequisicionAnticipada(
+    @Param('actaNumber') actaNumber: string,
+    @Body()
+    body: { companyId: number; projectId?: number | null; justificacion: string },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.solicitarRequisicionAnticipada(
+      body.companyId,
+      body.projectId ?? null,
+      actaNumber,
+      body.justificacion,
+      userId,
+    );
+  }
+
+  @Patch('actas/:actaNumber/rq-anticipada/resolver')
+  @Permissions('levantamientos:autorizar', 'levantamientos:aprobar')
+  @ApiOperation({ summary: 'Gerencia autoriza o niega la compra anticipada' })
+  async resolverRequisicionAnticipada(
+    @Param('actaNumber') actaNumber: string,
+    @Body()
+    body: {
+      companyId: number;
+      projectId?: number | null;
+      aprobar: boolean;
+      motivo?: string;
+    },
+    @CurrentUser('userId') userId: number,
+  ) {
+    return this.surveysService.resolverRequisicionAnticipada(
+      body.companyId,
+      body.projectId ?? null,
+      actaNumber,
+      body.aprobar,
+      body.motivo,
+      userId,
+    );
+  }
+
   @Get('actas/:actaNumber')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get acta workflow status' })

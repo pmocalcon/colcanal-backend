@@ -48,6 +48,25 @@ import {
   CuentasEstado,
 } from "./cuentas-companias-workflow";
 import {
+  PRESTAMO_TRANSICIONES,
+  PRESTAMO_ESTADOS,
+  PRESTAMO_NOTIFICAR_AL_LLEGAR,
+  PrestamoEstado,
+} from "./prestamo-workflow";
+import {
+  PERMISO_TRANSICIONES,
+  PERMISO_ESTADOS,
+  FILAS_APROBACION_POR_ROL,
+  PermisoEstado,
+} from "./permiso-workflow";
+import {
+  HORAS_EXTRAS_TRANSICIONES,
+  HORAS_EXTRAS_ESTADOS,
+  HORAS_EXTRAS_NOTIFICAR_AL_LLEGAR,
+  HORAS_EXTRAS_FIRMA_POR_ACCION,
+  HorasExtrasEstado,
+} from "./horas-extras-workflow";
+import {
   SIGLA_CONTRATO,
   SIGLA_SIN_TIPO,
   ACCION_ALERTA_VENCIMIENTO,
@@ -103,6 +122,39 @@ export class GestionConocimientoService implements OnModuleInit {
     return (
       s.gestion === "contable" &&
       s.formato === GestionConocimientoService.FORMATO_LEGALIZACION
+    );
+  }
+
+  /** Formato de la Solicitud de Préstamo: usa su propia máquina de estados. */
+  private static readonly FORMATO_PRESTAMO = "GTH-007-F";
+
+  /** True si la solicitud es una Solicitud de Préstamo (GTH-007-F). */
+  private esPrestamo(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "talento-humano" &&
+      s.formato === GestionConocimientoService.FORMATO_PRESTAMO
+    );
+  }
+
+  /** Formato de la Solicitud de Permiso: la aprueba el jefe de área del solicitante. */
+  private static readonly FORMATO_PERMISO = "GTH-009-F";
+
+  /** True si la solicitud es una Solicitud de Permiso (GTH-009-F). */
+  private esPermiso(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "talento-humano" &&
+      s.formato === GestionConocimientoService.FORMATO_PERMISO
+    );
+  }
+
+  /** Planilla de Horas Extras: PQRS → Director de Proyecto → Proyectos → Administrativa. */
+  private static readonly FORMATO_HORAS_EXTRAS = "GTH-016-F";
+
+  /** True si la solicitud es una planilla de Horas Extras (GTH-016-F). */
+  private esHorasExtras(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "talento-humano" &&
+      s.formato === GestionConocimientoService.FORMATO_HORAS_EXTRAS
     );
   }
 
@@ -210,11 +262,13 @@ export class GestionConocimientoService implements OnModuleInit {
     });
     const autorizados = new Set(rels.map((r) => r.usuarioAutorizadoId));
 
-    // Creadores que son Directores de Área (para la red de seguridad del paso jefe).
+    // Creadores que son Directores de Área (para la red de seguridad del paso jefe),
+    // y los que no tienen ningún autorizador, que si no se quedarían sin quién resuelva.
     const creadorIds = [
       ...new Set(solicitudes.map((s) => s.createdBy).filter(Boolean)),
     ] as number[];
     const directoresArea = new Set<number>();
+    const sinAutorizador = new Set<number>(creadorIds);
     if (creadorIds.length > 0) {
       const creadores = await this.userRepo.find({
         where: { userId: In(creadorIds) },
@@ -223,6 +277,10 @@ export class GestionConocimientoService implements OnModuleInit {
       for (const c of creadores) {
         if (c.role?.category === CATEGORIA_DIRECTOR_AREA) directoresArea.add(c.userId);
       }
+      const conJefe = await this.authorizationRepo.find({
+        where: { usuarioAutorizadoId: In(creadorIds), esActivo: true },
+      });
+      for (const r of conJefe) sinAutorizador.delete(r.usuarioAutorizadoId);
     }
 
     return solicitudes.map((s) => {
@@ -232,7 +290,13 @@ export class GestionConocimientoService implements OnModuleInit {
           ? LEGALIZACION_TRANSICIONES
           : this.esCuentasCompanias(s)
             ? CUENTAS_TRANSICIONES
-            : JURIDICA_TRANSICIONES;
+            : this.esPrestamo(s)
+              ? PRESTAMO_TRANSICIONES
+              : this.esPermiso(s)
+                ? PERMISO_TRANSICIONES
+                : this.esHorasExtras(s)
+                  ? HORAS_EXTRAS_TRANSICIONES
+                  : JURIDICA_TRANSICIONES;
 
       const acciones = Object.entries(transiciones)
         .filter(([, t]) => t.from === s.estado)
@@ -245,7 +309,7 @@ export class GestionConocimientoService implements OnModuleInit {
               (s.createdBy != null && autorizados.has(s.createdBy)) ||
               (rol === ROL_GERENCIA &&
                 s.createdBy != null &&
-                directoresArea.has(s.createdBy))
+                (directoresArea.has(s.createdBy) || sinAutorizador.has(s.createdBy)))
             );
           }
           return anyT.roles.includes(rol);
@@ -259,7 +323,29 @@ export class GestionConocimientoService implements OnModuleInit {
   async findOne(id: number): Promise<GcSolicitud> {
     const solicitud = await this.solicitudRepo.findOne({ where: { solicitudId: id } });
     if (!solicitud) throw new NotFoundException("Solicitud no encontrada");
-    return solicitud;
+    return this.conNombreDelCreador(solicitud);
+  }
+
+  /**
+   * Añade el nombre de quien creó la solicitud.
+   *
+   * El historial guarda `userName` en cada entrada, pero la creación no deja
+   * entrada —la solicitud nace con el historial vacío—, así que la primera línea
+   * de la bitácora no tenía a quién nombrar. `created_by` es un id plano, sin
+   * relación, para no tocar otras tablas; se resuelve acá.
+   *
+   * Va como campo suelto y no como columna: TypeORM ignora al guardar lo que no
+   * está mapeado, así que las mutaciones que pasan por `findOne` no lo escriben.
+   */
+  private async conNombreDelCreador(s: GcSolicitud): Promise<GcSolicitud> {
+    if (!s.createdBy) return s;
+    const creador = await this.userRepo.findOne({
+      where: { userId: s.createdBy },
+      select: { userId: true, nombre: true },
+    });
+    (s as GcSolicitud & { creadorNombre?: string | null }).creadorNombre =
+      creador?.nombre ?? null;
+    return s;
   }
 
   /** Edita el cuerpo del formato. Solo mientras está en borrador. */
@@ -732,6 +818,21 @@ export class GestionConocimientoService implements OnModuleInit {
     // Y las cuentas entre compañías (GF-004-F5), que solo custodian y concilian.
     if (this.esCuentasCompanias(solicitud)) {
       return this.transitionCuentas(solicitud, accion, userId, motivo, payload);
+    }
+
+    // La Solicitud de Préstamo (GTH-007-F) recorre las firmas de su propio formato.
+    if (this.esPrestamo(solicitud)) {
+      return this.transitionPrestamo(solicitud, accion, userId, motivo, payload);
+    }
+
+    // La Solicitud de Permiso (GTH-009-F) la resuelve el jefe de área del solicitante.
+    if (this.esPermiso(solicitud)) {
+      return this.transitionPermiso(solicitud, accion, userId, motivo, payload);
+    }
+
+    // La planilla de Horas Extras (GTH-016-F) pasa por cuatro manos.
+    if (this.esHorasExtras(solicitud)) {
+      return this.transitionHorasExtras(solicitud, accion, userId, motivo);
     }
 
     const t = JURIDICA_TRANSICIONES[accion];
@@ -1958,6 +2059,547 @@ export class GestionConocimientoService implements OnModuleInit {
     }
   }
 
+  // ============================================
+  // Flujo de la Solicitud de Préstamo (GTH-007-F)
+  // ============================================
+
+  /**
+   * Aplica una transición del flujo del préstamo. Todos los pasos van por rol: el
+   * empleado envía, Dirección Administrativa firma y Gerencia aprueba.
+   *
+   * Cada paso estampa la firma que le corresponde en el formato —el servidor pone el
+   * nombre y la fecha, no un campo que se pueda escribir a mano— y la aprobación de
+   * Gerencia guarda además el valor aprobado del bloque 3, que llega en el payload.
+   */
+  private async transitionPrestamo(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+    payload?: Record<string, any>,
+  ): Promise<GcSolicitud> {
+    const t = PRESTAMO_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `La solicitud está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+
+    let autorizado = esRolPmo(rol);
+    if (!autorizado) {
+      autorizado = t.soloCreador
+        ? solicitud.createdBy === userId
+        : t.roles.includes(rol);
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    // Sin nombre, cédula y valor el formato no dice a quién ni cuánto: no se envía.
+    if (accion === "enviar") {
+      const nombre = [data.primerNombre, data.segundoNombre, data.primerApellido, data.segundoApellido]
+        .map((s: unknown) => String(s ?? "").trim())
+        .filter(Boolean)
+        .join(" ");
+      if (!nombre || !String(data.numero ?? "").trim() || !String(data.valorSolicitado ?? "").trim()) {
+        throw new BadRequestException(
+          "Diligencia el nombre, el número de identificación y el valor del préstamo antes de enviar.",
+        );
+      }
+      data.nombreCompleto = nombre;
+      data.firmaEmpleado = nombre;
+      data.fechaFirmaEmpleado = data.fechaFirmaEmpleado || hoy;
+    } else if (accion === "aprobar_administrativa") {
+      // Las condiciones del préstamo las fija Dirección Administrativa al firmar: son
+      // suyas, no del empleado, y por eso llegan con la acción y no con el «Guardar»
+      // del formulario, que fuera del borrador ya está cerrado.
+      for (const k of ["fechaDesembolso", "numeroCuotas", "valorCuota"]) {
+        if (payload?.[k] !== undefined) data[k] = payload[k];
+      }
+      data.firmaAdministrativa = user?.nombre ?? "";
+      data.fechaFirmaAdministrativa = data.fechaFirmaAdministrativa || hoy;
+    } else if (accion === "aprobar_gerencia") {
+      // El valor aprobado es de Gerencia: puede ser menor que el solicitado. Si no lo
+      // manda, se toma el solicitado, que es lo que dice el papel cuando se aprueba tal cual.
+      data.valorAprobado =
+        (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
+      data.firmaGerencia = user?.nombre ?? "";
+      data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
+    }
+
+    // Al devolver al borrador se borran las firmas y las condiciones pactadas: el
+    // recorrido vuelve a empezar y dejarlas diría que alguien firmó algo que ya no
+    // existe, o que hay un desembolso acordado sobre un préstamo que nadie aprobó.
+    if (t.to === "borrador") {
+      data.firmaAdministrativa = "";
+      data.fechaFirmaAdministrativa = "";
+      data.firmaGerencia = "";
+      data.fechaFirmaGerencia = "";
+      data.valorAprobado = "";
+      data.fechaDesembolso = "";
+      data.numeroCuotas = "";
+      data.valorCuota = "";
+    }
+
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarPrestamo(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar el préstamo: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  /** Notifica por correo al actor que sigue en el flujo del préstamo. */
+  private async notificarPrestamo(
+    solicitud: GcSolicitud,
+    estado: PrestamoEstado,
+    motivo?: string,
+  ): Promise<void> {
+    const destino = PRESTAMO_NOTIFICAR_AL_LLEGAR[estado];
+    let usuarios: User[] = [];
+
+    if (destino === "creador") {
+      if (solicitud.createdBy) {
+        const creador = await this.userRepo.findOne({
+          where: { userId: solicitud.createdBy },
+        });
+        if (creador) usuarios = [creador];
+      }
+    } else {
+      const activos = await this.userRepo.find({
+        where: { estado: true },
+        relations: ["role"],
+      });
+      const objetivo = destino.map((r) => r.toLowerCase());
+      usuarios = activos.filter((u) =>
+        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      );
+    }
+
+    const label = PRESTAMO_ESTADOS[estado].label;
+    const nro = String(solicitud.solicitudId);
+    const empleado = String(solicitud.data?.nombreCompleto ?? "").trim();
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Solicitud de préstamo N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>La solicitud de préstamo <b>N.º ${nro}</b> (formato GTH-007-F)${
+          empleado ? ` de <b>${empleado}</b>` : ""
+        } pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
+  }
+
+  // ============================================
+  // Flujo de la Solicitud de Permiso (GTH-009-F)
+  // ============================================
+
+  /**
+   * Aplica una transición del flujo del permiso.
+   *
+   * Aprobar y negar los hace **el jefe del solicitante**, resuelto con la tabla de
+   * autorizaciones: al Analista PMO lo aprueba el Director PMO, al Analista Comercial
+   * la Directora Comercial, y así por área. No hay una lista de roles aprobadores
+   * porque la jerarquía ya está en la base y duplicarla aquí la haría envejecer.
+   *
+   * El cuadro «Aprobación interna» del formato lo diligencia el jefe, y solo mientras
+   * la solicitud está en su bandeja: llega en el payload junto con la decisión, no por
+   * el «Guardar» del formulario, que es del solicitante. Además se marca sola la fila
+   * de la dirección de quien aprueba, cuando su rol tiene fila en el papel.
+   */
+  private async transitionPermiso(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+    payload?: Record<string, any>,
+  ): Promise<GcSolicitud> {
+    const t = PERMISO_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `El permiso está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+    const esPmo = esRolPmo(rol);
+
+    let autorizado = esPmo;
+    if (!autorizado) {
+      if (t.jefeAutorizador) {
+        autorizado = await this.puedeAprobarComoJefe(solicitud, userId, rol);
+      } else if (t.soloCreador) {
+        autorizado = solicitud.createdBy === userId;
+      } else {
+        autorizado = t.roles.includes(rol);
+      }
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    // Sin nombre y sin fecha del permiso, el papel no dice quién falta ni cuándo.
+    if (accion === "enviar") {
+      const falta =
+        !String(data.nombre ?? "").trim() || !String(data.fechaPermiso ?? "").trim();
+      if (falta) {
+        throw new BadRequestException(
+          "Diligencia el nombre y la fecha del permiso antes de enviarlo a aprobación.",
+        );
+      }
+      data.nombreSolicitante = String(data.nombreSolicitante ?? "").trim() || data.nombre;
+      data.fechaSolicitud = String(data.fechaSolicitud ?? "").trim() || hoy;
+    }
+
+    if (t.jefeAutorizador) {
+      // Lo que el jefe marcó en el cuadro de aprobación interna.
+      const marcadas = (payload?.aprobaciones ?? {}) as Record<string, string>;
+      const previas = (data.aprobaciones ?? {}) as Record<string, string>;
+      const aprobaciones: Record<string, string> = { ...previas, ...marcadas };
+
+      // Las filas de quien decide se marcan solas, si su rol tiene fila en el papel.
+      const filas = FILAS_APROBACION_POR_ROL[user?.role?.rolId ?? -1] ?? [];
+      const marca = accion === "aprobar_jefe" ? "si" : "no";
+      for (const fila of filas) aprobaciones[fila] = marca;
+
+      data.aprobaciones = aprobaciones;
+      if (payload?.observaciones !== undefined) data.observaciones = payload.observaciones;
+      if (accion === "aprobar_jefe") {
+        data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
+        data.aprobadoPor = user?.nombre ?? "";
+      }
+    }
+
+    // Al negarlo vuelve al borrador: se limpia lo que el jefe había marcado para que un
+    // reenvío no arrastre la decisión anterior. El motivo queda en la bitácora.
+    if (t.to === "borrador") {
+      data.aprobaciones = {};
+      data.fechaAprobacion = "";
+      data.aprobadoPor = "";
+    }
+
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarPermiso(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar el permiso: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  /**
+   * Notifica el permiso a quien sigue: al jefe cuando entra a su bandeja, al
+   * solicitante cuando se resuelve.
+   *
+   * Al jefe se le avisa a **todos** sus autorizadores menos la Gerencia, que autoriza a
+   * toda la empresa y recibiría el permiso de cada persona. Si el solicitante no tiene
+   * ningún otro autorizador —hoy Gerencia y Contabilidad—, ahí sí va a la Gerencia,
+   * porque si no el permiso quedaría sin nadie a quien avisarle.
+   */
+  private async notificarPermiso(
+    solicitud: GcSolicitud,
+    estado: PermisoEstado,
+    motivo?: string,
+  ): Promise<void> {
+    let usuarios: User[] = [];
+
+    if (estado === "pendiente_jefe") {
+      usuarios = await this.jefesDelCreador(solicitud);
+    } else if (solicitud.createdBy) {
+      const creador = await this.userRepo.findOne({
+        where: { userId: solicitud.createdBy },
+      });
+      if (creador) usuarios = [creador];
+    }
+
+    const label = PERMISO_ESTADOS[estado].label;
+    const nro = String(solicitud.solicitudId);
+    const quien = String(solicitud.data?.nombre ?? "").trim();
+    const cuando = String(solicitud.data?.fechaPermiso ?? "").trim();
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Solicitud de permiso N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>La solicitud de permiso <b>N.º ${nro}</b> (formato GTH-009-F)${
+          quien ? ` de <b>${quien}</b>` : ""
+        }${cuando ? ` para el <b>${cuando}</b>` : ""} pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
+  }
+
+  // ============================================
+  // Flujo de la planilla de Horas Extras (GTH-016-F)
+  // ============================================
+
+  /**
+   * Aplica una transición del flujo de horas extras. Todos los pasos van por rol: la
+   * registra quien atiende el municipio, la revisa un Director de Proyecto, la avala
+   * Gerencia de Proyectos y la cierra Dirección Administrativa.
+   *
+   * Cada paso deja estampado quién lo hizo y cuándo, porque la planilla termina en
+   * nómina y hay que poder responder quién avaló cada liquidación.
+   */
+  private async transitionHorasExtras(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+  ): Promise<GcSolicitud> {
+    const t = HORAS_EXTRAS_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `La planilla está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+
+    let autorizado = esRolPmo(rol);
+    if (!autorizado) {
+      autorizado = t.soloCreador
+        ? solicitud.createdBy === userId
+        : t.roles.includes(rol);
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    // Una planilla sin trabajador, sin valor hora o sin renglones no se puede revisar:
+    // no hay nada que liquidar y el error se descubriría tres pasos más adelante.
+    if (accion === "enviar") {
+      const filas = Array.isArray(data.filas) ? data.filas : [];
+      if (
+        !String(data.nombre ?? "").trim() ||
+        !String(data.valorHora ?? "").trim() ||
+        filas.length === 0
+      ) {
+        throw new BadRequestException(
+          "Diligencia el nombre del trabajador, el valor hora y al menos un renglón antes de enviar.",
+        );
+      }
+    }
+
+    const firma = HORAS_EXTRAS_FIRMA_POR_ACCION[accion];
+    if (firma) {
+      data[firma.nombre] = user?.nombre ?? "";
+      data[firma.fecha] = data[firma.fecha] || hoy;
+    }
+
+    // Devolver la planilla borra las firmas: vuelve a recorrer el camino completo y
+    // dejarlas diría que alguien avaló unas horas que después cambiaron.
+    if (t.to === "borrador") {
+      for (const f of Object.values(HORAS_EXTRAS_FIRMA_POR_ACCION)) {
+        data[f.nombre] = "";
+        data[f.fecha] = "";
+      }
+    }
+
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarHorasExtras(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar la planilla de horas extras: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  /** Notifica por correo al actor que sigue en el flujo de horas extras. */
+  private async notificarHorasExtras(
+    solicitud: GcSolicitud,
+    estado: HorasExtrasEstado,
+    motivo?: string,
+  ): Promise<void> {
+    const destino = HORAS_EXTRAS_NOTIFICAR_AL_LLEGAR[estado];
+    let usuarios: User[] = [];
+
+    if (destino === "creador") {
+      if (solicitud.createdBy) {
+        const creador = await this.userRepo.findOne({
+          where: { userId: solicitud.createdBy },
+        });
+        if (creador) usuarios = [creador];
+      }
+    } else {
+      const activos = await this.userRepo.find({
+        where: { estado: true },
+        relations: ["role"],
+      });
+      const objetivo = destino.map((r) => r.toLowerCase());
+      usuarios = activos.filter((u) =>
+        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      );
+    }
+
+    const label = HORAS_EXTRAS_ESTADOS[estado].label;
+    const nro = String(solicitud.solicitudId);
+    const trabajador = String(solicitud.data?.nombre ?? "").trim();
+    const periodo = String(solicitud.data?.periodo ?? "").trim();
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Horas extras N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>La planilla de horas extras <b>N.º ${nro}</b> (formato GTH-016-F)${
+          trabajador ? ` de <b>${trabajador}</b>` : ""
+        }${periodo ? ` · periodo <b>${periodo}</b>` : ""} pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
+  }
+
+  /** Los jefes de quien creó la solicitud, con la Gerencia solo como último recurso. */
+  private async jefesDelCreador(solicitud: GcSolicitud): Promise<User[]> {
+    if (!solicitud.createdBy) return [];
+    const rels = await this.authorizationRepo.find({
+      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
+      relations: ["usuarioAutorizador"],
+    });
+    const jefes = rels
+      .map((r) => r.usuarioAutorizador)
+      .filter((u): u is User => !!u && u.estado);
+
+    const propios = jefes.filter(
+      (u) => u.role?.nombreRol?.toLowerCase() !== ROL_GERENCIA.toLowerCase(),
+    );
+    if (propios.length > 0) return propios;
+    if (jefes.length > 0) return jefes;
+
+    const activos = await this.userRepo.find({
+      where: { estado: true },
+      relations: ["role"],
+    });
+    return activos.filter(
+      (u) => u.role?.nombreRol?.toLowerCase() === ROL_GERENCIA.toLowerCase(),
+    );
+  }
+
+  /** True si el creador no tiene ningún autorizador activo: nadie por encima que resuelva. */
+  private async creadorSinAutorizador(solicitud: GcSolicitud): Promise<boolean> {
+    if (!solicitud.createdBy) return false;
+    const rel = await this.authorizationRepo.findOne({
+      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
+    });
+    return !rel;
+  }
+
   /**
    * True si el creador de la solicitud es un **Director de Área**.
    * Regla de negocio (igual que en Compras, donde los roles de alto nivel saltan la
@@ -1988,6 +2630,12 @@ export class GestionConocimientoService implements OnModuleInit {
   ): Promise<boolean> {
     if (await this.esAutorizadorDe(userId, solicitud.createdBy)) return true;
     if (rol === ROL_GERENCIA && (await this.creadorEsDirectorArea(solicitud))) {
+      return true;
+    }
+    // Quien no tiene autorizador —hoy Gerencia y Contabilidad— no tiene quién le
+    // apruebe: sin esto su solicitud se queda trabada para siempre. Solo amplía quién
+    // puede actuar, y solo cuando no hay nadie más.
+    if (rol === ROL_GERENCIA && (await this.creadorSinAutorizador(solicitud))) {
       return true;
     }
     return false;

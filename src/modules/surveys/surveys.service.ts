@@ -9,7 +9,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { SurveyReviewerAccess } from '../../database/entities/survey-reviewer-access.entity';
 import { Work } from '../../database/entities/work.entity';
-import { WorkActa, ActaStatus, ActaBudgetStatus, ActaCronogramaStatus } from '../../database/entities/work-acta.entity';
+import {
+  WorkActa,
+  ActaStatus,
+  ActaBudgetStatus,
+  ActaCronogramaStatus,
+  ActaRqAnticipadaStatus,
+} from '../../database/entities/work-acta.entity';
+import { Requisition } from '../../database/entities/requisition.entity';
 import { ActaSummaryDraft } from '../../database/entities/acta-summary-draft.entity';
 import { AnnualPlanReview, AnnualPlanReviewStatus } from '../../database/entities/annual-plan-review.entity';
 import { Survey, SurveyStatus } from '../../database/entities/survey.entity';
@@ -71,6 +78,11 @@ export class SurveysService {
     private actaSummaryDraftRepository: Repository<ActaSummaryDraft>,
     @InjectRepository(AnnualPlanReview)
     private annualPlanReviewRepository: Repository<AnnualPlanReview>,
+    // Solo para bajarle el código de contabilidad a las requisiciones anticipadas
+    // al aprobar el acta. Se usa el repositorio y no PurchasesService a propósito:
+    // purchases ya depende de este módulo y el servicio cerraría el círculo.
+    @InjectRepository(Requisition)
+    private requisitionRepository: Repository<Requisition>,
     private notificationsService: NotificationsService,
   ) {}
 
@@ -2151,11 +2163,507 @@ export class SurveysService {
     acta.projectCode = projectCode;
     acta.approvedBy = userId;
     acta.approvedAt = new Date();
+    // Deja de ser provisional: ya tiene número tramitado y código de contabilidad.
+    acta.esProvisional = false;
     await this.workActaRepository.save(acta);
+
+    // Aquí nace el código de contabilidad, y es el único lugar donde nace. Las
+    // requisiciones que se compraron por anticipado contra esta acta lo estaban
+    // esperando: se les estampa ahora, que es lo que cierra el camino anticipado.
+    await this.estamparCodigoEnRequisiciones(acta).catch((e) =>
+      this.logger.error(`No se pudo estampar el código en las requisiciones: ${e.message}`),
+    );
 
     this.sendActaNotification('approved', acta, { actor: user }).catch(() => {});
 
     return acta;
+  }
+
+  /**
+   * Baja el código de contabilidad del acta a las requisiciones que se crearon
+   * contra ella cuando todavía no lo tenía (camino anticipado).
+   *
+   * La llave es (empresa, proyecto, número de acta): la requisición ya vive en la
+   * empresa y el proyecto, así que con el número queda identificada sin
+   * ambigüedad —la misma restricción única que tiene `work_actas`—.
+   *
+   * Solo toca las que siguen sin código. Una requisición a la que ya se le puso
+   * el código a mano no se pisa: puede haberse imputado a otra cosa a propósito.
+   */
+  private async estamparCodigoEnRequisiciones(acta: WorkActa): Promise<void> {
+    if (!acta.projectCode) return;
+
+    const resultado = await this.requisitionRepository
+      .createQueryBuilder()
+      .update(Requisition)
+      .set({ codigoObra: acta.projectCode })
+      .where('acta_number = :actaNumber', { actaNumber: acta.actaNumber })
+      .andWhere('company_id = :companyId', { companyId: acta.companyId })
+      .andWhere(
+        acta.projectId === null ? 'project_id IS NULL' : 'project_id = :projectId',
+        acta.projectId === null ? {} : { projectId: acta.projectId },
+      )
+      .andWhere("(codigo_obra IS NULL OR btrim(codigo_obra) = '')")
+      .execute();
+
+    if (resultado.affected) {
+      this.logger.log(
+        `Acta ${acta.actaNumber}: código ${acta.projectCode} estampado en ${resultado.affected} requisición(es) anticipada(s).`,
+      );
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Acta provisional · comprar materiales antes de que exista el acta
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Solo Gerencia de Proyectos agrupa obras sueltas y pide comprar contra ellas. */
+  private async assertEsGerenciaDeProyectos(userId: number): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    if (user?.role?.nombreRol !== 'Gerencia de Proyectos') {
+      throw new ForbiddenException(
+        'Solo la Gerencia de Proyectos puede manejar actas provisionales',
+      );
+    }
+    return user;
+  }
+
+  /**
+   * Obras del municipio que no están agrupadas en ningún acta.
+   *
+   * Son las candidatas de la pantalla: se listan con su levantamiento —si ya lo
+   * tienen— porque de ahí sale qué materiales se van a pedir.
+   */
+  async getObrasSinActa(companyId: number, projectId: number | null): Promise<Work[]> {
+    return this.workRepository
+      .createQueryBuilder('w')
+      .leftJoinAndSelect('w.company', 'company')
+      .leftJoinAndSelect('w.project', 'project')
+      .where('w.company_id = :companyId', { companyId })
+      .andWhere(
+        projectId === null ? 'w.project_id IS NULL' : 'w.project_id = :projectId',
+        projectId === null ? {} : { projectId },
+      )
+      .andWhere("(w.record_number IS NULL OR btrim(w.record_number) = '')")
+      .orderBy('w.created_at', 'DESC')
+      .getMany();
+  }
+
+  /**
+   * Agrupa obras bajo un número de acta provisional.
+   *
+   * El número es el mismo campo con el que se agrupan todas las actas
+   * (`work.record_number`), así que a partir de aquí el acta existe para todo el
+   * sistema: cuando se tramite y reciba su código, las obras y las requisiciones
+   * que cuelgan de ella quedan enganchadas sin hacer nada más.
+   *
+   * Se puede corregir: volver a llamarlo con otras obras las mueve. Lo que no se
+   * puede es tocar un acta que ya salió de borrador —ahí ya hay gente revisándola—.
+   */
+  async asignarActaProvisional(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    workIds: number[],
+    userId: number,
+  ): Promise<WorkActa> {
+    await this.assertEsGerenciaDeProyectos(userId);
+
+    const numero = (actaNumber || '').trim();
+    if (!numero) throw new BadRequestException('El número de acta provisional es obligatorio');
+    if (!workIds?.length) throw new BadRequestException('Debe seleccionar al menos una obra');
+
+    const acta = await this.getOrCreateActaProvisional(companyId, projectId, numero, userId);
+    if (acta.status !== ActaStatus.BORRADOR) {
+      throw new BadRequestException(
+        `El acta ${numero} ya está en trámite (${acta.status}); no se le pueden asignar obras por esta vía`,
+      );
+    }
+
+    const obras = await this.workRepository.find({
+      where: workIds.map((workId) => ({ workId })),
+    });
+    if (obras.length !== workIds.length) {
+      throw new NotFoundException('Alguna de las obras seleccionadas no existe');
+    }
+
+    for (const obra of obras) {
+      if (obra.companyId !== companyId || (obra.projectId ?? null) !== projectId) {
+        throw new BadRequestException(
+          `La obra "${obra.name}" no pertenece al municipio seleccionado`,
+        );
+      }
+      // Mover una obra de un acta ya tramitada le cambiaría el expediente a otra
+      // gente. Solo se admite la que está suelta o la que está en otra provisional.
+      const actual = (obra.recordNumber || '').trim();
+      if (actual && actual !== numero) {
+        const actaActual = await this.workActaRepository.findOne({
+          where: { companyId, projectId: projectId ?? IsNull(), actaNumber: actual },
+        });
+        if (actaActual && actaActual.status !== ActaStatus.BORRADOR) {
+          throw new BadRequestException(
+            `La obra "${obra.name}" ya está en el acta ${actual}, que está en trámite`,
+          );
+        }
+      }
+      obra.recordNumber = numero;
+    }
+
+    await this.workRepository.save(obras);
+    return acta;
+  }
+
+  /** Quita obras de un acta provisional, para corregir una asignación equivocada. */
+  async quitarDeActaProvisional(
+    companyId: number,
+    projectId: number | null,
+    workIds: number[],
+    userId: number,
+  ): Promise<{ quitadas: number }> {
+    await this.assertEsGerenciaDeProyectos(userId);
+    if (!workIds?.length) throw new BadRequestException('Debe seleccionar al menos una obra');
+
+    const obras = await this.workRepository.find({
+      where: workIds.map((workId) => ({ workId })),
+    });
+
+    for (const obra of obras) {
+      const numero = (obra.recordNumber || '').trim();
+      if (!numero) continue;
+      const acta = await this.workActaRepository.findOne({
+        where: { companyId, projectId: projectId ?? IsNull(), actaNumber: numero },
+      });
+      if (!acta?.esProvisional || acta.status !== ActaStatus.BORRADOR) {
+        throw new BadRequestException(
+          `La obra "${obra.name}" está en el acta ${numero}, que ya no es provisional`,
+        );
+      }
+      obra.recordNumber = null as unknown as string;
+    }
+
+    await this.workRepository.save(obras);
+    return { quitadas: obras.length };
+  }
+
+  /** Busca el acta provisional o la crea en borrador. */
+  private async getOrCreateActaProvisional(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    userId: number,
+  ): Promise<WorkActa> {
+    const existente = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
+    if (existente) return existente;
+
+    return this.workActaRepository.save(
+      this.workActaRepository.create({
+        companyId,
+        projectId,
+        actaNumber,
+        status: ActaStatus.BORRADOR,
+        esProvisional: true,
+        createdBy: userId,
+      }),
+    );
+  }
+
+  /**
+   * Gerencia de Proyectos pide autorización para comprar contra el acta provisional.
+   *
+   * Es lo único que abre la puerta a una requisición sin código de contabilidad,
+   * así que la decisión no puede quedar en quien la pide: la toma Gerencia.
+   */
+  async solicitarRequisicionAnticipada(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    justificacion: string,
+    userId: number,
+  ): Promise<WorkActa> {
+    const user = await this.assertEsGerenciaDeProyectos(userId);
+
+    const motivo = (justificacion || '').trim();
+    if (!motivo) {
+      throw new BadRequestException(
+        'Debe justificar por qué hay que comprar antes de tramitar el acta',
+      );
+    }
+
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
+    if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
+    if (acta.rqAnticipadaStatus === ActaRqAnticipadaStatus.PENDIENTE) {
+      throw new BadRequestException('Ya hay una solicitud pendiente de autorización');
+    }
+    if (acta.rqAnticipadaStatus === ActaRqAnticipadaStatus.APROBADA) {
+      throw new BadRequestException('La compra anticipada ya está autorizada');
+    }
+
+    const obras = await this.workRepository.count({
+      where: { companyId, projectId: projectId ?? IsNull(), recordNumber: actaNumber },
+    });
+    if (!obras) {
+      throw new BadRequestException(
+        'El acta no tiene obras asignadas: primero agrupe las obras que se van a intervenir',
+      );
+    }
+
+    acta.rqAnticipadaStatus = ActaRqAnticipadaStatus.PENDIENTE;
+    acta.rqAnticipadaJustificacion = motivo;
+    acta.rqAnticipadaMotivo = null;
+    acta.rqAnticipadaSolicitadaPor = userId;
+    acta.rqAnticipadaSolicitadaAt = new Date();
+    acta.rqAnticipadaResueltaPor = null;
+    acta.rqAnticipadaResueltaAt = null;
+    await this.workActaRepository.save(acta);
+
+    this.notificarRqAnticipada('solicitada', acta, user).catch(() => {});
+    return acta;
+  }
+
+  /**
+   * Gerencia autoriza o niega la compra anticipada.
+   *
+   * Autorizar es lo que habilita a crear la requisición sin código; negar exige
+   * motivo, porque quien pidió tiene que saber qué corregir.
+   */
+  async resolverRequisicionAnticipada(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+    aprobar: boolean,
+    motivo: string | undefined,
+    userId: number,
+  ): Promise<WorkActa> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      relations: ['role'],
+    });
+    if (user?.role?.nombreRol !== 'Gerencia') {
+      throw new ForbiddenException('Solo Gerencia puede autorizar una compra anticipada');
+    }
+
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
+    if (!acta) throw new NotFoundException(`Acta "${actaNumber}" no encontrada`);
+    if (acta.rqAnticipadaStatus !== ActaRqAnticipadaStatus.PENDIENTE) {
+      throw new BadRequestException('No hay una solicitud pendiente sobre esta acta');
+    }
+    if (!aprobar && !(motivo || '').trim()) {
+      throw new BadRequestException('Negar la compra anticipada exige un motivo');
+    }
+
+    acta.rqAnticipadaStatus = aprobar
+      ? ActaRqAnticipadaStatus.APROBADA
+      : ActaRqAnticipadaStatus.RECHAZADA;
+    acta.rqAnticipadaMotivo = aprobar ? null : (motivo || '').trim();
+    acta.rqAnticipadaResueltaPor = userId;
+    acta.rqAnticipadaResueltaAt = new Date();
+    await this.workActaRepository.save(acta);
+
+    this.notificarRqAnticipada(aprobar ? 'aprobada' : 'rechazada', acta, user).catch(() => {});
+    return acta;
+  }
+
+  /**
+   * ¿Se puede crear una requisición sin código contra esta acta?
+   *
+   * Lo consulta Compras antes de dejar pasar una requisición sin código de
+   * contabilidad. Devuelve el acta solo si Gerencia la autorizó.
+   */
+  async getActaConCompraAutorizada(
+    companyId: number,
+    projectId: number | null,
+    actaNumber: string,
+  ): Promise<WorkActa | null> {
+    const acta = await this.workActaRepository.findOne({
+      where: { companyId, projectId: projectId ?? IsNull(), actaNumber },
+    });
+    return acta?.rqAnticipadaStatus === ActaRqAnticipadaStatus.APROBADA ? acta : null;
+  }
+
+  /** Actas provisionales del municipio, con cuántas obras agrupan. */
+  async getActasProvisionales(
+    companyId: number,
+    projectId: number | null,
+  ): Promise<Array<WorkActa & { obras: number }>> {
+    const actas = await this.workActaRepository.find({
+      where: { companyId, projectId: projectId ?? IsNull(), esProvisional: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return Promise.all(
+      actas.map(async (acta) => ({
+        ...acta,
+        obras: await this.workRepository.count({
+          where: {
+            companyId,
+            projectId: projectId ?? IsNull(),
+            recordNumber: acta.actaNumber,
+          },
+        }),
+      })),
+    ) as Promise<Array<WorkActa & { obras: number }>>;
+  }
+
+  /**
+   * Requisiciones anticipadas que siguen esperando el código de contabilidad.
+   *
+   * Es el vigilante del camino anticipado: si el acta nunca se tramita, la compra
+   * se queda sin centro de costo y nadie se entera —el correo del enganche solo
+   * sale cuando el acta se aprueba, así que el silencio es indistinguible del
+   * caso normal—. Por eso la bandeja es global, no por municipio: sirve para ver
+   * de un vistazo lo que se está quedando atrás.
+   *
+   * No filtra por antigüedad; devuelve los días y deja que la pantalla decida qué
+   * resaltar.
+   */
+  async getRequisicionesSinCodigo(): Promise<
+    Array<{
+      requisitionId: number;
+      requisitionNumber: string;
+      empresa: string;
+      municipio: string | null;
+      actaNumber: string;
+      actaStatus: string | null;
+      estado: string;
+      creadaPor: string | null;
+      createdAt: string;
+      dias: number;
+    }>
+  > {
+    return this.requisitionRepository.query(`
+      SELECT r.requisition_id                         AS "requisitionId",
+             r.requisition_number                     AS "requisitionNumber",
+             c.name                                   AS "empresa",
+             p.name                                   AS "municipio",
+             r.acta_number                            AS "actaNumber",
+             a.status                                 AS "actaStatus",
+             COALESCE(rs.name, rs.code, '')           AS "estado",
+             u.nombre                                 AS "creadaPor",
+             r.created_at                             AS "createdAt",
+             (CURRENT_DATE - r.created_at::date)      AS "dias"
+        FROM requisitions r
+        JOIN companies c            ON c.company_id = r.company_id
+        LEFT JOIN projects p        ON p.project_id = r.project_id
+        LEFT JOIN requisition_statuses rs ON rs.status_id = r.status_id
+        LEFT JOIN users u           ON u.user_id = r.created_by
+        LEFT JOIN work_actas a      ON a.company_id = r.company_id
+                                   AND a.acta_number = r.acta_number
+                                   AND (a.project_id = r.project_id
+                                        OR (a.project_id IS NULL AND r.project_id IS NULL))
+       WHERE r.acta_number IS NOT NULL
+         AND (r.codigo_obra IS NULL OR btrim(r.codigo_obra) = '')
+       ORDER BY r.created_at ASC
+    `);
+  }
+
+  /**
+   * Bandeja de Gerencia: compras anticipadas esperando su autorización.
+   *
+   * Va sin filtro de municipio, como las otras bandejas del módulo. Quien
+   * autoriza no tiene por qué adivinar en qué municipio quedó la solicitud: la
+   * decisión llega a ella, no al revés.
+   */
+  async getComprasAnticipadasPendientes(): Promise<
+    Array<{
+      actaId: number;
+      companyId: number;
+      projectId: number | null;
+      actaNumber: string;
+      empresa: string;
+      municipio: string | null;
+      obras: number;
+      justificacion: string | null;
+      solicitadaPor: string | null;
+      solicitadaAt: string | null;
+      dias: number;
+    }>
+  > {
+    return this.workActaRepository.query(
+      `
+      SELECT a.acta_id                              AS "actaId",
+             a.company_id                           AS "companyId",
+             a.project_id                           AS "projectId",
+             a.acta_number                          AS "actaNumber",
+             c.name                                 AS "empresa",
+             p.name                                 AS "municipio",
+             (SELECT COUNT(*)::int FROM works w
+               WHERE w.company_id = a.company_id
+                 AND w.record_number = a.acta_number
+                 AND (w.project_id = a.project_id
+                      OR (w.project_id IS NULL AND a.project_id IS NULL))) AS "obras",
+             a.rq_anticipada_justificacion          AS "justificacion",
+             u.nombre                               AS "solicitadaPor",
+             a.rq_anticipada_solicitada_at          AS "solicitadaAt",
+             (CURRENT_DATE - a.rq_anticipada_solicitada_at::date) AS "dias"
+        FROM work_actas a
+        JOIN companies c     ON c.company_id = a.company_id
+        LEFT JOIN projects p ON p.project_id = a.project_id
+        LEFT JOIN users u    ON u.user_id = a.rq_anticipada_solicitada_por
+       WHERE a.rq_anticipada_status = $1
+       ORDER BY a.rq_anticipada_solicitada_at ASC
+    `,
+      [ActaRqAnticipadaStatus.PENDIENTE],
+    );
+  }
+
+  /** Correo de ida (a Gerencia) y de vuelta (a quien pidió). */
+  private async notificarRqAnticipada(
+    tipo: 'solicitada' | 'aprobada' | 'rechazada',
+    acta: WorkActa,
+    actor: User | null,
+  ): Promise<void> {
+    try {
+      // El enlace por defecto de las actas apunta al Resumen de Acta, donde esto
+      // no se decide. Se manda a la pantalla de actas provisionales, con el
+      // municipio ya puesto, que es la única en la que hay botón para autorizar.
+      const data = await this.buildActaNotificationData(acta, actor, {
+        actionUrl: this.buildFrontendUrl(
+          `/dashboard/levantamiento-obras/actas-provisionales?company=${acta.companyId}` +
+            (acta.projectId != null ? `&project=${acta.projectId}` : ''),
+        ),
+      });
+
+      if (tipo === 'solicitada') {
+        const gerencia = await this.findActiveUsersByRoleNames(['Gerencia']);
+        await this.notifyUniqueUsers(gerencia, (email, name) =>
+          this.notificationsService.notifyRqAnticipadaSolicitada(
+            email,
+            name,
+            data,
+            acta.rqAnticipadaJustificacion || '',
+          ),
+        );
+        return;
+      }
+
+      // La respuesta va a la persona que pidió, no al rol: es quien está esperando
+      // para poder crear la requisición.
+      if (!acta.rqAnticipadaSolicitadaPor) return;
+      const solicitante = await this.userRepository.findOne({
+        where: { userId: acta.rqAnticipadaSolicitadaPor },
+      });
+      if (!solicitante) return;
+      await this.notifyUniqueUsers([solicitante], (email, name) =>
+        this.notificationsService.notifyRqAnticipadaResuelta(
+          email,
+          name,
+          data,
+          tipo === 'aprobada',
+          acta.rqAnticipadaMotivo || undefined,
+        ),
+      );
+    } catch (e) {
+      this.logger.warn(`No se pudo notificar la compra anticipada: ${(e as Error).message}`);
+    }
   }
 
   /**
@@ -2377,8 +2885,29 @@ export class SurveysService {
   }
 
   /**
-   * Actas con presupuesto en revisión (bandeja de la Directora Financiera).
-   * Devuelve datos mínimos para listar: empresa, número, # obras y fecha.
+   * Actas a las que todavía hay que hacerles el Presupuesto del Director
+   * (bandeja de la Directora Financiera).
+   *
+   * «Pendiente» es literal: el acta está `en_revision` y **no existe** un
+   * Presupuesto del Director para ella. En cuanto se le hace uno —aunque quede en
+   * borrador— sale de la bandeja; a partir de ahí se sigue en la tabla de abajo,
+   * que lo muestra con su estado, y en «Pendiente por Autorización». Sin esto el
+   * acta se quedaba en la bandeja diciendo «realizar presupuesto» cuando el
+   * presupuesto ya estaba hecho, porque el acta solo pasa a `aprobado` mucho
+   * después, cuando Gerencia autoriza.
+   *
+   * El presupuesto se localiza por dos caminos, y basta con uno:
+   *
+   * 1. Las columnas `acta_*`, que son la identidad completa (empresa, proyecto,
+   *    número). Es el camino de todo presupuesto hecho desde el 31/07/2026.
+   * 2. Los anteriores a esa fecha, que no tienen `acta_*`: el número quedó en
+   *    `work_name` y el municipio en `company_name`. Se comparan normalizados
+   *    —sin tildes, sin el prefijo «Unión Temporal Alumbrado Público»— porque el
+   *    mismo municipio aparece escrito de las dos formas.
+   *
+   * El camino 2 solo empareja cuando el municipio coincide, nunca por número
+   * suelto: «01-2026» lo tienen a la vez Circasia, Pueblo Rico y Tarso, y sacar
+   * de la bandeja el acta equivocada es peor que dejarla de más.
    */
   async getActasPendingBudget(): Promise<
     Array<{
@@ -2390,29 +2919,46 @@ export class SurveysService {
       updatedAt: Date;
     }>
   > {
-    const actas = await this.workActaRepository.find({
-      where: { presupuestoStatus: ActaBudgetStatus.EN_REVISION },
-      order: { updatedAt: 'DESC' },
-    });
-    if (actas.length === 0) return [];
+    // Municipio comparable: minúsculas, sin el prefijo de la unión temporal y sin tildes.
+    const norm = (col: string) =>
+      `translate(lower(regexp_replace(coalesce(${col}, ''), '^\\s*uni.n temporal alumbrado p.blico\\s+', '', 'i')), 'áéíóúñ', 'aeioun')`;
 
-    const companyIds = Array.from(new Set(actas.map((a) => a.companyId)));
-    const companies = await this.companyRepository.findByIds(companyIds);
-    const companyName = new Map(companies.map((c) => [c.companyId, c.name]));
-
-    const result = await Promise.all(
-      actas.map(async (a) => ({
-        companyId: a.companyId,
-        projectId: a.projectId ?? null,
-        actaNumber: a.actaNumber,
-        companyName: companyName.get(a.companyId) ?? null,
-        worksCount: await this.workRepository.count({
-          where: { companyId: a.companyId, projectId: a.projectId ?? IsNull(), recordNumber: a.actaNumber },
-        }),
-        updatedAt: a.updatedAt,
-      })),
+    return this.workActaRepository.query(
+      `
+      SELECT
+        a.company_id  AS "companyId",
+        a.project_id  AS "projectId",
+        a.acta_number AS "actaNumber",
+        c.name        AS "companyName",
+        a.updated_at  AS "updatedAt",
+        (SELECT COUNT(*)::int
+           FROM works w
+          WHERE w.company_id = a.company_id
+            AND w.project_id IS NOT DISTINCT FROM a.project_id
+            AND w.record_number = a.acta_number) AS "worksCount"
+      FROM work_actas a
+      LEFT JOIN companies c ON c.company_id = a.company_id
+      LEFT JOIN projects  p ON p.project_id = a.project_id
+      WHERE a.presupuesto_status = $1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM director_budgets db
+          WHERE (
+                  db.acta_company_id = a.company_id
+                  AND db.acta_project_id IS NOT DISTINCT FROM a.project_id
+                  AND db.acta_number = a.acta_number
+                )
+             OR (
+                  db.acta_company_id IS NULL
+                  AND db.work_name = a.acta_number
+                  AND db.company_name IS NOT NULL
+                  AND ${norm('db.company_name')} = ${norm('COALESCE(p.name, c.name)')}
+                )
+        )
+      ORDER BY a.updated_at DESC
+      `,
+      [ActaBudgetStatus.EN_REVISION],
     );
-    return result;
   }
 
   // ============================================

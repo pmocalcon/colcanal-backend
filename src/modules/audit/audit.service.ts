@@ -4,6 +4,8 @@ import { Repository } from "typeorm";
 import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 import { Requisition } from "../../database/entities/requisition.entity";
 import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
+import { areaDeRol } from "./areas.constants";
+import { COLOMBIA_HOLIDAY_DATES } from "../../utils/business-days.util";
 
 @Injectable()
 export class AuditService {
@@ -250,6 +252,16 @@ export class AuditService {
     companyName?: string;
     materialCode?: string;
     requesterName?: string;
+    /**
+     * Filtra por el cargo de quien creó la requisición.
+     *
+     * Es lo que usa el selector de «Persona» de la pantalla de gráficos, que
+     * muestra cargos y no nombres. Va aparte de `requesterName` —y no lo
+     * reemplaza— porque el nombre no siempre identifica a alguien: hay dos
+     * usuarias «Estefania Serna», una en PQRS Tarso y otra en PQRS Pueblorrico,
+     * y filtrar por nombre las mezcla.
+     */
+    requesterCargo?: string;
   }) {
     const ACTION_ORDER = [
       'crear_requisicion',
@@ -264,6 +276,10 @@ export class AuditService {
       'crear_ordenes_compra',
       'aprobar_todas_ordenes_compra',
       'registrar_recepcion',
+      // Evento sintético: no sale de `requisition_logs` sino de la fecha en que
+      // la factura se envió a contabilidad. Se añade a los eventos más abajo, y
+      // por eso las columnas se calculan DESPUÉS de ese paso.
+      'factura_contabilidad',
       'anular_requisicion',
     ];
 
@@ -302,6 +318,14 @@ export class AuditService {
     if (filters?.requesterName) {
       qb.andWhere('creator.nombre ILIKE :requesterName', {
         requesterName: `%${filters.requesterName}%`,
+      });
+    }
+    if (filters?.requesterCargo) {
+      // Coincidencia exacta (sin comodines): el cargo viene elegido de una lista,
+      // no escrito a mano, y con `%…%` un «Contador» arrastraría también al
+      // «Contador de costos».
+      qb.andWhere('btrim(lower(creator.cargo)) = btrim(lower(:requesterCargo))', {
+        requesterCargo: filters.requesterCargo,
       });
     }
     if (filters?.fromDate) {
@@ -354,29 +378,33 @@ export class AuditService {
       }
     }
 
-    const presentActions = new Set<string>();
-    for (const entry of map.values()) {
-      Object.keys(entry.events).forEach((a) => presentActions.add(a));
-    }
-    const actions = ACTION_ORDER.filter((a) => presentActions.has(a));
-
     const rows = Array.from(map.values())
       .sort((a, b) => new Date(a.minDate).getTime() - new Date(b.minDate).getTime())
       .map(({ minDate, ...rest }) => rest);
 
     const requisitionIds = Array.from(map.keys());
 
-    // Fecha de envío de la factura a contabilidad (la última, por requisición). Se adjunta
-    // como evento sintético 'factura_contabilidad' para poder medir tiempos en el frontend.
+    // Cuándo se entregó la factura a contabilidad (la última, por requisición). Se
+    // adjunta como evento sintético 'factura_contabilidad' para poder medir tiempos.
+    //
+    // Se usa `updated_at` —el instante en que el sistema registró el envío— y NO
+    // `sent_to_accounting_date`, que la escribe a mano quien envía y por eso puede
+    // decir cualquier cosa: en las 274 facturas enviadas no coincide ni una sola
+    // vez con el día real. La matriz es un registro de auditoría, así que muestra
+    // lo que pasó, no lo que alguien tecleó que pasó.
+    //
+    // Limitación conocida: `updated_at` se mueve si la fila se vuelve a escribir,
+    // y contabilidad la escribe al recibirla. En las facturas ya recibidas esta
+    // fecha es la de recepción, no la del envío. Guardar el instante exacto
+    // exigiría una columna propia (`sent_to_accounting_at`), que no existe.
     if (requisitionIds.length > 0) {
       const sentResult = await this.purchaseOrderRepository.query(
         `SELECT po.requisition_id AS requisition_id,
-                MAX(i.sent_to_accounting_date)::text AS sent_date
+                MAX(i.updated_at)::text AS sent_date
          FROM invoices i
          JOIN purchase_orders po ON po.purchase_order_id = i.purchase_order_id
          WHERE po.requisition_id = ANY($1::int[])
            AND i.sent_to_accounting = true
-           AND i.sent_to_accounting_date IS NOT NULL
          GROUP BY po.requisition_id`,
         [requisitionIds],
       );
@@ -389,6 +417,15 @@ export class AuditService {
         if (sent) row.events['factura_contabilidad'] = sent;
       }
     }
+
+    // Las columnas se calculan aquí y no antes: `factura_contabilidad` se acaba
+    // de añadir a los eventos, y calculándolas arriba esa columna nunca llegaba
+    // a existir aunque la fecha sí estuviera en cada fila.
+    const presentActions = new Set<string>();
+    for (const row of rows) {
+      Object.keys(row.events).forEach((a) => presentActions.add(a));
+    }
+    const actions = ACTION_ORDER.filter((a) => presentActions.has(a));
 
     let totalPurchaseOrders = 0;
     let purchaseOrdersByMonth: { year: number; month: number; count: number }[] = [];
@@ -415,23 +452,41 @@ export class AuditService {
         count: r.count,
       }));
 
+      // Una requisición queda anulada por dos caminos, y ambos cuentan:
+      //   · el PMO la anula de una vez            → 'anular_requisicion'
+      //   · Compras lo solicita y la Directora
+      //     Financiera lo aprueba                 → 'aprobar_anulacion'
+      // Mirar solo el primero dejaba fuera 12 de las 14 anulaciones, porque el
+      // segundo es el camino habitual. `solicitar_anulacion` NO entra: es una
+      // petición que todavía puede rechazarse.
+      const ACCIONES_ANULACION = ['anular_requisicion', 'aprobar_anulacion'];
+
       const voidedResult = await this.requisitionLogRepository.query(
         `SELECT COUNT(DISTINCT requisition_id)::int AS count
          FROM requisition_logs
          WHERE requisition_id = ANY($1::int[])
-           AND action = 'anular_requisicion'`,
-        [requisitionIds],
+           AND action = ANY($2)`,
+        [requisitionIds, ACCIONES_ANULACION],
       );
       totalVoidedRequisitions = parseInt(voidedResult[0]?.count ?? '0');
 
+      // Se agrupa por la ÚLTIMA anulación de cada requisición, no por cada log:
+      // si una llegara a tener las dos acciones en meses distintos, contarla en
+      // ambos meses inflaría el total de la gráfica sobre el de la tarjeta.
       const voidedByMonthResult = await this.requisitionLogRepository.query(
-        `SELECT EXTRACT(YEAR FROM created_at)::int AS year, EXTRACT(MONTH FROM created_at)::int AS month, COUNT(DISTINCT requisition_id)::int AS count
-         FROM requisition_logs
-         WHERE requisition_id = ANY($1::int[])
-           AND action = 'anular_requisicion'
+        `SELECT EXTRACT(YEAR FROM anulada_en)::int  AS year,
+                EXTRACT(MONTH FROM anulada_en)::int AS month,
+                COUNT(*)::int                       AS count
+         FROM (
+           SELECT requisition_id, MAX(created_at) AS anulada_en
+             FROM requisition_logs
+            WHERE requisition_id = ANY($1::int[])
+              AND action = ANY($2)
+            GROUP BY requisition_id
+         ) t
          GROUP BY year, month
          ORDER BY year, month`,
-        [requisitionIds],
+        [requisitionIds, ACCIONES_ANULACION],
       );
       voidedRequisitionsByMonth = voidedByMonthResult.map((r: any) => ({
         year: r.year,
@@ -446,8 +501,15 @@ export class AuditService {
     let totalPurchaseOrderValue = 0;
     let totalInvoiceValue = 0;
     if (requisitionIds.length > 0) {
+      // Se agrupa por `issue_date` —la fecha de emisión de la orden— y no por
+      // `created_at`, que es cuándo se creó la fila. La gráfica habla de órdenes
+      // «emitidas» y la factura del proveedor se compara contra esa fecha, no
+      // contra la de captura. Las dos difieren de día en las 298 órdenes y de
+      // mes en 7, que hasta ahora aparecían en el mes que no era.
       const poValueResult = await this.purchaseOrderRepository.query(
-        `SELECT EXTRACT(YEAR FROM created_at)::int AS year, EXTRACT(MONTH FROM created_at)::int AS month, COALESCE(SUM(total_amount), 0)::float AS value
+        `SELECT EXTRACT(YEAR FROM COALESCE(issue_date, created_at))::int  AS year,
+                EXTRACT(MONTH FROM COALESCE(issue_date, created_at))::int AS month,
+                COALESCE(SUM(total_amount), 0)::float                     AS value
          FROM purchase_orders
          WHERE requisition_id = ANY($1::int[])
          GROUP BY year, month
@@ -468,6 +530,179 @@ export class AuditService {
       );
       invoiceValueByMonth = invValueResult.map((r: any) => ({ year: r.year, month: r.month, value: Number(r.value) }));
       totalInvoiceValue = invoiceValueByMonth.reduce((s, r) => s + r.value, 0);
+    }
+
+    /**
+     * Qué área compra más.
+     *
+     * El área sale del rol de quien creó la requisición —la base no la guarda—,
+     * y el valor de las órdenes que salieron de esas requisiciones. Se cuentan
+     * las dos cosas porque no dicen lo mismo: PQRS levanta muchas requisiciones
+     * pequeñas y Proyectos pocas y grandes, y «compra más» significa una cosa u
+     * otra según cuál se mire.
+     *
+     * El valor va por LATERAL: una requisición puede tener varias órdenes, y
+     * unirlas de plano multiplicaría el conteo de requisiciones.
+     */
+    let purchasesByArea: {
+      area: string;
+      requisitions: number;
+      amount: number;
+    }[] = [];
+    if (requisitionIds.length > 0) {
+      const porRol = await this.requisitionRepository.query(
+        `SELECT u.rol_id                        AS "rolId",
+                COUNT(*)::int                   AS "requisitions",
+                COALESCE(SUM(oc.valor), 0)::float AS "amount"
+           FROM requisitions r
+           LEFT JOIN users u ON u.user_id = r.created_by
+           LEFT JOIN LATERAL (
+                  SELECT COALESCE(SUM(po.total_amount), 0) AS valor
+                    FROM purchase_orders po
+                   WHERE po.requisition_id = r.requisition_id
+                ) oc ON true
+          WHERE r.requisition_id = ANY($1::int[])
+          GROUP BY u.rol_id`,
+        [requisitionIds],
+      );
+
+      const acumulado = new Map<string, { requisitions: number; amount: number }>();
+      for (const fila of porRol) {
+        const area = areaDeRol(fila.rolId == null ? null : Number(fila.rolId));
+        const previo = acumulado.get(area) ?? { requisitions: 0, amount: 0 };
+        previo.requisitions += Number(fila.requisitions);
+        previo.amount += Number(fila.amount);
+        acumulado.set(area, previo);
+      }
+      purchasesByArea = [...acumulado.entries()]
+        .map(([area, v]) => ({ area, ...v }))
+        .sort((a, b) => b.amount - a.amount || b.requisitions - a.requisitions);
+    }
+
+    /**
+     * Órdenes emitidas a las que les falta facturación.
+     *
+     * Entran las que no tienen ninguna factura y también las facturadas a
+     * medias: en las dos hay dinero comprometido que el proveedor todavía no ha
+     * cobrado, y separarlas dejaría las parciales sin aparecer en ninguna
+     * pantalla.
+     *
+     * Se resuelve contra la tabla `invoices` y no contra el resumen que llevan
+     * `purchase_orders.invoice_status` y `total_invoiced_amount`: esas columnas
+     * hay que mantenerlas al día a mano y, si se desincronizan, la pantalla
+     * daría por facturado algo que no lo está. Hoy concuerdan en las 275
+     * órdenes, pero la comprobación no debe depender de que siga siendo así.
+     *
+     * Quedan fuera las órdenes de requisiciones anuladas: esas no se van a
+     * facturar nunca, así que contarlas como pendientes infla la cifra con
+     * dinero que ya nadie espera cobrar.
+     *
+     * Y el margen es de mil pesos, no de uno: los importes llevan decimales
+     * —hay una orden de 83.338,08 facturada en 83.337, con 1,08 de diferencia—
+     * y con un margen más estrecho se cuelan filas de «$1» que son redondeo del
+     * IVA, no facturación pendiente.
+     */
+    let ordersPendingInvoice: {
+      purchaseOrderNumber: string;
+      supplierName: string;
+      issueDate: string | null;
+      days: number;
+      totalAmount: number;
+      invoicedAmount: number;
+      pendingAmount: number;
+      requisitionNumber: string | null;
+      companyName: string | null;
+    }[] = [];
+    if (requisitionIds.length > 0) {
+      const pendientes = await this.purchaseOrderRepository.query(
+        `SELECT po.purchase_order_number                       AS "purchaseOrderNumber",
+                s.name                                         AS "supplierName",
+                po.issue_date                                  AS "issueDate",
+                (CURRENT_DATE - COALESCE(po.issue_date, po.created_at)::date)::int AS "days",
+                po.total_amount::float                         AS "totalAmount",
+                COALESCE(f.facturado, 0)::float                AS "invoicedAmount",
+                (po.total_amount - COALESCE(f.facturado, 0))::float AS "pendingAmount",
+                r.requisition_number                           AS "requisitionNumber",
+                COALESCE(p.name, c.name)                       AS "companyName"
+           FROM purchase_orders po
+           LEFT JOIN LATERAL (
+                  SELECT SUM(i.amount) AS facturado
+                    FROM invoices i
+                   WHERE i.purchase_order_id = po.purchase_order_id
+                ) f ON true
+           LEFT JOIN suppliers s  ON s.supplier_id = po.supplier_id
+           LEFT JOIN requisitions r ON r.requisition_id = po.requisition_id
+           LEFT JOIN requisition_statuses rs ON rs.status_id = r.status_id
+           LEFT JOIN companies c  ON c.company_id = r.company_id
+           LEFT JOIN projects p   ON p.project_id = r.project_id
+          WHERE po.requisition_id = ANY($1::int[])
+            AND COALESCE(rs.code, '') NOT IN ('anulada', 'pendiente_anulacion')
+            AND COALESCE(f.facturado, 0) < po.total_amount - 1000
+          ORDER BY COALESCE(po.issue_date, po.created_at) ASC`,
+        [requisitionIds],
+      );
+      ordersPendingInvoice = pendientes.map((r: Record<string, unknown>) => ({
+        purchaseOrderNumber: String(r.purchaseOrderNumber ?? ''),
+        supplierName: String(r.supplierName ?? 'Sin proveedor'),
+        issueDate: (r.issueDate as string) ?? null,
+        days: Number(r.days ?? 0),
+        totalAmount: Number(r.totalAmount ?? 0),
+        invoicedAmount: Number(r.invoicedAmount ?? 0),
+        pendingAmount: Number(r.pendingAmount ?? 0),
+        requisitionNumber: (r.requisitionNumber as string) ?? null,
+        companyName: (r.companyName as string) ?? null,
+      }));
+    }
+
+    /**
+     * A qué proveedores se les compró, cuánto y cuánto han facturado.
+     *
+     * El valor sale de `purchase_orders.total_amount` y NO de la suma de los
+     * ítems: el total de la orden incluye `other_value` —fletes y conceptos que
+     * no son línea de material, unos 20 millones en total— y es la misma cifra
+     * con la que está hecha la gráfica de órdenes por mes. Sumar ítems daría un
+     * número menor y las dos gráficas se contradirían.
+     *
+     * Lo facturado va por LATERAL y no por JOIN: una orden puede tener varias
+     * facturas, y unirlas de plano multiplicaría su `total_amount` por el número
+     * de facturas.
+     */
+    let topSuppliers: {
+      supplierId: number;
+      name: string;
+      nit: string | null;
+      orderCount: number;
+      totalAmount: number;
+      invoicedAmount: number;
+    }[] = [];
+    if (requisitionIds.length > 0) {
+      const supResult = await this.purchaseOrderRepository.query(
+        `SELECT s.supplier_id                          AS "supplierId",
+                s.name                                 AS "name",
+                s.nit_cc                               AS "nit",
+                COUNT(*)::int                          AS "orderCount",
+                COALESCE(SUM(po.total_amount), 0)::float AS "totalAmount",
+                COALESCE(SUM(f.facturado), 0)::float     AS "invoicedAmount"
+           FROM purchase_orders po
+           JOIN suppliers s ON s.supplier_id = po.supplier_id
+           LEFT JOIN LATERAL (
+                  SELECT SUM(i.amount) AS facturado
+                    FROM invoices i
+                   WHERE i.purchase_order_id = po.purchase_order_id
+                ) f ON true
+          WHERE po.requisition_id = ANY($1::int[])
+          GROUP BY s.supplier_id, s.name, s.nit_cc
+          ORDER BY SUM(po.total_amount) DESC`,
+        [requisitionIds],
+      );
+      topSuppliers = supResult.map((r: Record<string, unknown>) => ({
+        supplierId: Number(r.supplierId),
+        name: String(r.name ?? 'Sin proveedor'),
+        nit: (r.nit as string) ?? null,
+        orderCount: Number(r.orderCount),
+        totalAmount: Number(r.totalAmount),
+        invoicedAmount: Number(r.invoicedAmount),
+      }));
     }
 
     // Materiales más pedidos: por número de requisiciones que lo incluyen y cantidad total.
@@ -556,6 +791,13 @@ export class AuditService {
       totalInvoiceValue,
       topMaterials,
       topMaterialsByMonth,
+      topSuppliers,
+      ordersPendingInvoice,
+      purchasesByArea,
+      // Para que la matriz descuente los festivos al medir cuánto tardó cada
+      // paso. Van desde aquí y no en una copia del frontend: la lista es una
+      // sola y tiene que serlo.
+      holidays: COLOMBIA_HOLIDAY_DATES,
     };
   }
 

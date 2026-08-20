@@ -73,6 +73,19 @@ export class CregController {
 
   // ---- Resumen agregado (dashboard) ----
 
+  @Get("comparador")
+  @Permissions("creg:unidades", "creg:resumen")
+  @ApiOperation({
+    summary: "La misma UCAP en todos los municipios, para compararlas",
+    description:
+      "Solo lectura. Devuelve una matriz de códigos de UCAP por municipio con el " +
+      "valor de cada uno (total con indirectos, sin IPP) y cuántas veces cabe el " +
+      "menor en el mayor, que es lo que delata una UCAP mal cargada.",
+  })
+  getComparador() {
+    return this.service.getComparador();
+  }
+
   @Get("summary")
   @Permissions("creg:unidades", "creg:resumen")
   @ApiOperation({ summary: "Resumen agregado de UCAPs por municipio" })

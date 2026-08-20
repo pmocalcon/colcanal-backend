@@ -66,6 +66,20 @@ export class CreateRequisitionDto {
 
   @ApiProperty({
     description:
+      "Número del acta contra la que se compra. Solo se usa en la compra anticipada: " +
+      "el acta todavía no tiene código de contabilidad y este número es lo que permite " +
+      "estampárselo a la requisición cuando el acta se apruebe. Exige que Gerencia haya " +
+      "autorizado la compra anticipada sobre esa acta.",
+    example: "02-2026",
+    type: String,
+    required: false,
+  })
+  @IsOptional()
+  @IsString({ message: "El número de acta debe ser una cadena de texto" })
+  actaNumber?: string;
+
+  @ApiProperty({
+    description:
       'Prioridad de la requisición. Las requisiciones con prioridad "alta" aparecerán primero en todas las listas (revisión, aprobación, cotización, órdenes de compra).',
     example: "normal",
     enum: ["alta", "normal"],

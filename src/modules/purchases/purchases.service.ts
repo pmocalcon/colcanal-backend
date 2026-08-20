@@ -19,6 +19,10 @@ import { ProjectCode } from '../../database/entities/project-code.entity';
 import { User } from '../../database/entities/user.entity';
 import { Authorization } from '../../database/entities/authorization.entity';
 import { Company } from '../../database/entities/company.entity';
+import {
+  WorkActa,
+  ActaRqAnticipadaStatus,
+} from '../../database/entities/work-acta.entity';
 import { CreateRequisitionDto } from './dto/create-requisition.dto';
 import { UpdateRequisitionDto } from './dto/update-requisition.dto';
 import { FilterRequisitionsDto } from './dto/filter-requisitions.dto';
@@ -64,6 +68,10 @@ export class PurchasesService {
     private requisitionLogRepository: Repository<RequisitionLog>,
     @InjectRepository(RequisitionStatus)
     private requisitionStatusRepository: Repository<RequisitionStatus>,
+    // Solo para validar la compra anticipada contra un acta provisional. Se usa
+    // el repositorio y no SurveysService para no amarrar los dos modulos.
+    @InjectRepository(WorkActa)
+    private workActaRepository: Repository<WorkActa>,
     @InjectRepository(RequisitionPrefix)
     private requisitionPrefixRepository: Repository<RequisitionPrefix>,
     @InjectRepository(RequisitionSequence)
@@ -572,6 +580,51 @@ export class PurchasesService {
    *   → Director Técnico REVISA → [flujo normal continúa]
    */
   // Valores de obra que requieren validación por Director de Proyecto + revisión por Director Técnico
+  /**
+   * Devuelve el acta provisional contra la que se compra por anticipado, o null si
+   * esta requisicion no viene por ese camino.
+   *
+   * Comprueba tres cosas por separado, y ninguna sobra: que venga el numero de
+   * acta, que quien la crea sea Gerencia de Proyectos, y que Gerencia haya
+   * autorizado la compra sobre esa acta. Si viene el numero pero falta la
+   * autorizacion se rechaza en vez de seguir por el flujo normal: dejarla pasar en
+   * silencio la convertiria en una compra sin imputacion contable, que es
+   * justamente lo que este control existe para impedir.
+   */
+  private async getActaCompraAnticipada(
+    dto: CreateRequisitionDto,
+    user: User,
+  ): Promise<WorkActa | null> {
+    const numero = (dto.actaNumber || '').trim();
+    if (!numero) return null;
+
+    if (user.role?.nombreRol !== 'Gerencia de Proyectos') {
+      throw new ForbiddenException(
+        'Solo la Gerencia de Proyectos puede comprar contra un acta provisional',
+      );
+    }
+
+    const acta = await this.workActaRepository.findOne({
+      where: {
+        companyId: dto.companyId,
+        projectId: dto.projectId ?? IsNull(),
+        actaNumber: numero,
+      },
+    });
+
+    if (!acta) {
+      throw new BadRequestException(
+        `No existe el acta ${numero} en esa empresa y proyecto`,
+      );
+    }
+    if (acta.rqAnticipadaStatus !== ActaRqAnticipadaStatus.APROBADA) {
+      throw new BadRequestException(
+        `Gerencia no ha autorizado comprar contra el acta ${numero}`,
+      );
+    }
+    return acta;
+  }
+
   private readonly OBRA_VALUES_REQUIRING_VALIDATION = [
     'Modernización',
     'Expansión',
@@ -691,8 +744,17 @@ export class PurchasesService {
       // explícita del proceso, nunca por el contenido de la requisición.
       const esPoliza = !!options?.polizaJuridica;
 
+      // Compra anticipada: Gerencia de Proyectos compra contra un acta provisional,
+      // que todavía no tiene código de contabilidad. No pasa por revisión ni por
+      // aprobación porque la autorización ya se dio sobre el acta, y la dio
+      // Gerencia —la misma instancia que aprobaría la requisición—; volver a
+      // pedírsela sería preguntarle dos veces lo mismo. El código de contabilidad
+      // se lo estampa `approveActa` cuando el acta se apruebe.
+      const actaAnticipada = await this.getActaCompraAnticipada(dto, user);
+      const esAnticipada = !!actaAnticipada;
+
       let initialStatusCode = 'pendiente';
-      if (esPoliza) {
+      if (esPoliza || esAnticipada) {
         initialStatusCode = 'aprobada_gerencia';
       } else if (requiresObraValidation) {
         // PQRS/Coord.Op con obra especial → validación por Director de Proyecto
@@ -718,15 +780,26 @@ export class PurchasesService {
         statusId: initialStatusId,
         obra: dto.obra,
         codigoObra: dto.codigoObra,
+        // Solo la compra anticipada lo guarda: es la llave con que después le baja
+        // el código de contabilidad del acta.
+        actaNumber: esAnticipada ? actaAnticipada!.actaNumber : null,
         priority: dto.priority || 'normal',
       };
 
       // Si salta revisión Y va directo a aprobación (no a autorización), registrar
       // auto-revisión. La póliza también entra por aquí (aprobación directa).
-      const goesDirectToGerencia = (skipsReview && !hasSpecialObra) || esPoliza;
+      const goesDirectToGerencia = (skipsReview && !hasSpecialObra) || esPoliza || esAnticipada;
       if (goesDirectToGerencia) {
         requisitionData.reviewedBy = userId;
         requisitionData.reviewedAt = new Date();
+      }
+      // La anticipada nace aprobada, y firmada por quien de verdad la autorizó:
+      // Gerencia, sobre el acta. Poner aquí a quien la digita diría que se aprobó
+      // sola.
+      if (esAnticipada) {
+        requisitionData.approvedBy =
+          actaAnticipada!.rqAnticipadaResueltaPor ?? userId;
+        requisitionData.approvedAt = new Date();
       }
       // La póliza además nace aprobada. Se firma con quien la originó desde
       // Jurídica: nadie la aprobó a mano, pero alguien respondió por ella, y dejar
@@ -760,6 +833,9 @@ export class PurchasesService {
       if (esPoliza) {
         logAction = 'crear_requisicion_poliza';
         logComments = `Requisición de póliza creada desde G. Jurídica: ${requisitionNumber}. Pasa directo a cotización por Compras, sin revisión ni aprobación (la decisión se tomó en el proceso jurídico).`;
+      } else if (esAnticipada) {
+        logAction = 'crear_requisicion_anticipada';
+        logComments = `Requisición anticipada creada contra el acta provisional ${actaAnticipada!.actaNumber}: ${requisitionNumber}. Nace aprobada porque Gerencia autorizó la compra sobre esa acta. Queda sin código de contabilidad hasta que el acta se apruebe.`;
       } else if (requiresObraValidation) {
         logAction = 'crear_requisicion_obra';
         logComments = `Requisición creada con obra: ${requisitionNumber}. Pendiente de validación por Director de Proyecto.`;

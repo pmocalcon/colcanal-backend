@@ -31,6 +31,21 @@ export enum ActaCronogramaStatus {
   RECHAZADO = 'rechazado',
 }
 
+/**
+ * Permiso para comprar materiales contra un acta que todavía no se ha tramitado.
+ *
+ * Lo pide Gerencia de Proyectos sobre un acta provisional y lo autoriza Gerencia.
+ * Es lo único que habilita crear una requisición sin código de contabilidad, así
+ * que vive aparte de los otros tres ejes del acta: no depende de ellos ni los mueve.
+ */
+export enum ActaRqAnticipadaStatus {
+  /** Nadie ha pedido comprar por anticipado contra esta acta. */
+  NO_APLICA = 'no_aplica',
+  PENDIENTE = 'pendiente',
+  APROBADA = 'aprobada',
+  RECHAZADA = 'rechazada',
+}
+
 // El número de acta (ej. "01-2026") se reutiliza entre municipios. La identidad real
 // del acta es (empresa, proyecto, número): en Canales & Contactos el municipio es el
 // proyecto, así que un mismo número en municipios distintos son actas distintas.
@@ -76,6 +91,44 @@ export class WorkActa {
 
   @Column({ name: 'cronograma_reviewed_at', type: 'timestamptz', nullable: true })
   cronogramaReviewedAt: Date | null;
+
+  // ── Acta provisional ────────────────────────────────────────────────────
+  /**
+   * El número lo puso Gerencia de Proyectos para agrupar obras sueltas antes de
+   * que el acta se tramitara. Se cae solo al aprobarse el acta con su código:
+   * desde ahí es un acta como cualquier otra.
+   */
+  @Column({ name: 'es_provisional', type: 'boolean', default: false })
+  esProvisional: boolean;
+
+  /** Permiso de Gerencia para comprar contra esta acta sin código todavía. */
+  @Column({
+    name: 'rq_anticipada_status',
+    type: 'varchar',
+    length: 20,
+    default: ActaRqAnticipadaStatus.NO_APLICA,
+  })
+  rqAnticipadaStatus: ActaRqAnticipadaStatus;
+
+  /** Por qué hay que comprar antes de tramitar el acta. Lo escribe quien solicita. */
+  @Column({ name: 'rq_anticipada_justificacion', type: 'text', nullable: true })
+  rqAnticipadaJustificacion: string | null;
+
+  /** Motivo cuando Gerencia niega el permiso. */
+  @Column({ name: 'rq_anticipada_motivo', type: 'text', nullable: true })
+  rqAnticipadaMotivo: string | null;
+
+  @Column({ name: 'rq_anticipada_solicitada_por', type: 'int', nullable: true })
+  rqAnticipadaSolicitadaPor: number | null;
+
+  @Column({ name: 'rq_anticipada_solicitada_at', type: 'timestamptz', nullable: true })
+  rqAnticipadaSolicitadaAt: Date | null;
+
+  @Column({ name: 'rq_anticipada_resuelta_por', type: 'int', nullable: true })
+  rqAnticipadaResueltaPor: number | null;
+
+  @Column({ name: 'rq_anticipada_resuelta_at', type: 'timestamptz', nullable: true })
+  rqAnticipadaResueltaAt: Date | null;
 
   @Column({ name: 'project_code', type: 'varchar', length: 100, nullable: true })
   projectCode: string | null;

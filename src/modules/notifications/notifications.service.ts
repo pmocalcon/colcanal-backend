@@ -795,9 +795,9 @@ export class NotificationsService {
       ["Municipio", data.municipality],
       ["Bloque", data.blockName],
       ["Obras asociadas", data.worksCount],
-      ["Codigo de proyecto", data.projectCode],
+      ["Código de proyecto", data.projectCode],
       ["Creado por", data.createdBy],
-      ["Accion realizada por", data.actorName],
+      ["Acción realizada por", data.actorName],
     ];
 
     return rows
@@ -869,8 +869,8 @@ export class NotificationsService {
             ${data.actionUrl && actionLabel ? `<a href="${this.escapeHtml(data.actionUrl)}" class="btn">${this.escapeHtml(actionLabel)}</a>` : ""}
           </div>
           <div class="footer">
-            <p>Sistema de Gestion Empresarial - Canalcongroup</p>
-            <p>Este es un correo automatico, por favor no responda a este mensaje.</p>
+            <p>Sistema de Gestión Empresarial - Canalcongroup</p>
+            <p>Este es un correo automático, por favor no responda a este mensaje.</p>
           </div>
         </div>
       </body>
@@ -892,9 +892,9 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       reviewerEmail,
       reviewerName,
-      `Levantamiento ${data.identifier} pendiente de revision`,
-      "Levantamiento pendiente de revision",
-      "Se envio un levantamiento para tu revision.",
+      `Levantamiento ${data.identifier} pendiente de revisión`,
+      "Levantamiento pendiente de revisión",
+      "Se envió un levantamiento para tu revisión.",
       data,
       "#f59e0b",
       "Revisar levantamiento",
@@ -928,7 +928,7 @@ export class NotificationsService {
       recipientName,
       `Bloque ${data.blockName || ""} del levantamiento ${data.identifier} ${data.approved ? "aprobado" : "rechazado"}`,
       `Bloque ${data.approved ? "aprobado" : "rechazado"}`,
-      `Se ${data.approved ? "aprobo" : "rechazo"} un bloque de tu levantamiento.`,
+      `Se ${data.approved ? "aprobó" : "rechazó"} un bloque de tu levantamiento.`,
       data,
       data.approved ? "#16a34a" : "#dc2626",
       "Ver levantamiento",
@@ -943,9 +943,9 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       recipientEmail,
       recipientName,
-      `Levantamiento ${data.identifier} reabierto para edicion`,
+      `Levantamiento ${data.identifier} reabierto para edición`,
       "Levantamiento reabierto",
-      "Tu levantamiento fue reabierto para edicion.",
+      "Tu levantamiento fue reabierto para edición.",
       data,
       "#f59e0b",
       "Editar levantamiento",
@@ -960,9 +960,9 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       reviewerEmail,
       reviewerName,
-      `Acta ${data.identifier} pendiente de revision tecnica`,
-      "Acta pendiente de revision tecnica",
-      "Se envio un acta para revision tecnica.",
+      `Acta ${data.identifier} pendiente de revisión técnica`,
+      "Acta pendiente de revisión técnica",
+      "Se envió un acta para revisión técnica.",
       data,
       "#f59e0b",
       "Ver acta",
@@ -977,9 +977,9 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       reviewerEmail,
       reviewerName,
-      `Cronograma del acta ${data.identifier} pendiente de revision`,
-      "Cronograma pendiente de revision",
-      "Se envio el plan del cronograma para revision del Director Tecnico.",
+      `Cronograma del acta ${data.identifier} pendiente de revisión`,
+      "Cronograma pendiente de revisión",
+      "Se envió el plan del cronograma para revisión del Director Técnico.",
       data,
       "#f59e0b",
       "Ver cronograma",
@@ -996,7 +996,7 @@ export class NotificationsService {
       recipientName,
       `Cronograma del acta ${data.identifier} aprobado`,
       "Cronograma aprobado",
-      "El Director Tecnico aprobo el plan del cronograma. Ya puedes continuar con la ejecucion.",
+      "El Director Técnico aprobó el plan del cronograma. Ya puedes continuar con la ejecución.",
       data,
       "#16a34a",
       "Ver cronograma",
@@ -1013,7 +1013,7 @@ export class NotificationsService {
       recipientName,
       `Cronograma del acta ${data.identifier} devuelto`,
       "Cronograma devuelto",
-      "El Director Tecnico devolvio el plan del cronograma. Revisa el comentario, corrige y vuelve a enviarlo.",
+      "El Director Técnico devolvió el plan del cronograma. Revisa el comentario, corrige y vuelve a enviarlo.",
       data,
       "#dc2626",
       "Editar cronograma",
@@ -1031,8 +1031,8 @@ export class NotificationsService {
       `Acta ${data.identifier} ${data.approved ? "revisada" : "devuelta"}`,
       `Acta ${data.approved ? "revisada" : "devuelta"}`,
       data.approved
-        ? "El acta fue revisada y enviada a aprobacion de Gerencia de Proyectos."
-        : "El acta fue devuelta a borrador para correccion.",
+        ? "El acta fue revisada y enviada a aprobación de Gerencia de Proyectos."
+        : "El acta fue devuelta a borrador para corrección.",
       data,
       data.approved ? "#2563eb" : "#dc2626",
       "Ver acta",
@@ -1047,12 +1047,57 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       approverEmail,
       approverName,
-      `Acta ${data.identifier} pendiente de aprobacion`,
-      "Acta pendiente de aprobacion",
-      "Un acta revisada requiere aprobacion de Gerencia de Proyectos.",
+      `Acta ${data.identifier} pendiente de aprobación`,
+      "Acta pendiente de aprobación",
+      "Un acta revisada requiere aprobación de Gerencia de Proyectos.",
       data,
       "#2563eb",
       "Aprobar acta",
+    );
+  }
+
+  /**
+   * Gerencia de Proyectos pide comprar materiales contra un acta provisional.
+   * Va a Gerencia, que es la única que puede autorizar una compra sin código de
+   * contabilidad.
+   */
+  async notifyRqAnticipadaSolicitada(
+    approverEmail: string,
+    approverName: string,
+    data: WorksNotificationData,
+    justificacion: string,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      approverEmail,
+      approverName,
+      `Compra anticipada sobre el acta ${data.identifier}`,
+      "Compra anticipada pendiente de autorización",
+      `Gerencia de Proyectos solicita comprar materiales contra el acta provisional ${data.identifier}, que todavía no tiene código de contabilidad. Justificación: ${justificacion}`,
+      data,
+      "#b45309",
+      "Autorizar compra",
+    );
+  }
+
+  /** Respuesta de Gerencia a quien pidió comprar por anticipado. */
+  async notifyRqAnticipadaResuelta(
+    recipientEmail: string,
+    recipientName: string,
+    data: WorksNotificationData,
+    aprobada: boolean,
+    motivo?: string,
+  ): Promise<boolean> {
+    return this.sendWorksWorkflowNotification(
+      recipientEmail,
+      recipientName,
+      `Compra anticipada ${aprobada ? "autorizada" : "negada"} · acta ${data.identifier}`,
+      `Compra anticipada ${aprobada ? "autorizada" : "negada"}`,
+      aprobada
+        ? `Gerencia autorizó comprar materiales contra el acta provisional ${data.identifier}. Ya puede crear la requisición; el código de contabilidad se le asignará solo cuando el acta se apruebe.`
+        : `Gerencia no autorizó la compra anticipada sobre el acta ${data.identifier}.${motivo ? ` Motivo: ${motivo}` : ""}`,
+      data,
+      aprobada ? "#16a34a" : "#dc2626",
+      aprobada ? "Crear requisición" : "Ver acta",
     );
   }
 
@@ -1066,7 +1111,7 @@ export class NotificationsService {
       recipientName,
       `Acta ${data.identifier} enviada a presupuesto`,
       "Acta enviada a presupuesto",
-      "Un acta fue enviada a presupuesto y requiere su revision/aprobacion.",
+      "Un acta fue enviada a presupuesto y requiere su revisión/aprobación.",
       data,
       "#7c3aed",
       "Ver presupuesto",
@@ -1103,7 +1148,7 @@ export class NotificationsService {
       // Lo dispara la autorizacion del Presupuesto del Director por parte de Gerencia,
       // que es donde se cierra este eje. El endpoint de la Directora Financiera existe
       // pero no lo llama ninguna pantalla, asi que el texto no nombra a nadie.
-      "El presupuesto del acta quedo aprobado.",
+      "El presupuesto del acta quedó aprobado.",
       data,
       "#16a34a",
       "Ver acta",
@@ -1139,9 +1184,9 @@ export class NotificationsService {
     return this.sendWorksWorkflowNotification(
       approverEmail,
       approverName,
-      `Presupuesto ${data.identifier} pendiente de autorizacion`,
-      "Presupuesto pendiente de autorizacion",
-      "Un Presupuesto del Director espera la autorizacion de Gerencia.",
+      `Presupuesto ${data.identifier} pendiente de autorización`,
+      "Presupuesto pendiente de autorización",
+      "Un Presupuesto del Director espera la autorización de Gerencia.",
       data,
       "#2563eb",
       "Autorizar presupuesto",
@@ -1158,7 +1203,7 @@ export class NotificationsService {
       recipientName,
       `Presupuesto ${data.identifier} autorizado`,
       "Presupuesto autorizado",
-      "Gerencia autorizo el Presupuesto del Director. Con esto queda aprobado tambien el presupuesto del acta.",
+      "Gerencia autorizó el Presupuesto del Director. Con esto queda aprobado también el presupuesto del acta.",
       data,
       "#16a34a",
       "Ver presupuesto",
@@ -1175,7 +1220,7 @@ export class NotificationsService {
       recipientName,
       `Presupuesto ${data.identifier} devuelto`,
       "Presupuesto devuelto a borrador",
-      "Gerencia devolvio el Presupuesto del Director. Revise los valores y vuelva a enviarlo a autorizacion.",
+      "Gerencia devolvió el Presupuesto del Director. Revise los valores y vuelva a enviarlo a autorización.",
       data,
       "#dc2626",
       "Ver presupuesto",

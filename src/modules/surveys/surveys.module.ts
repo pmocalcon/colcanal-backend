@@ -23,6 +23,7 @@ import { User } from '../../database/entities/user.entity';
 import { Material } from '../../database/entities/material.entity';
 import { RolePermission } from '../../database/entities/role-permission.entity';
 import { RoleGestion } from '../../database/entities/role-gestion.entity';
+import { Requisition } from '../../database/entities/requisition.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
@@ -48,6 +49,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
       Material,
       RolePermission,
       RoleGestion,
+      // Para estampar el código de contabilidad en las requisiciones anticipadas.
+      Requisition,
     ]),
   ],
   controllers: [SurveysController],

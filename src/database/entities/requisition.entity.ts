@@ -86,6 +86,18 @@ export class Requisition {
   @Column({ name: "codigo_obra", type: "varchar", length: 50, nullable: true })
   codigoObra: string;
 
+  /**
+   * Numero del acta a la que se imputa la compra. Solo lo llena el camino
+   * anticipado —Gerencia de Proyectos comprando contra un acta provisional—,
+   * porque ahi la requisicion nace sin `codigoObra` y hay que saber a que acta
+   * pertenece para estamparselo cuando se apruebe.
+   *
+   * La identidad del acta es (empresa, proyecto, numero) y la requisicion ya
+   * trae las dos primeras: con este numero queda completa.
+   */
+  @Column({ name: "acta_number", type: "varchar", length: 100, nullable: true })
+  actaNumber: string | null;
+
   // Relaciones
   @ManyToOne(() => Company)
   @JoinColumn({ name: "company_id" })

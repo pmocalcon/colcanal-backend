@@ -13,6 +13,7 @@ import { CompanyContactsModule } from "./modules/company-contacts/company-contac
 import { UsersModule } from "./modules/users/users.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { SurveysModule } from "./modules/surveys/surveys.module";
+import { AprobacionesModule } from "./modules/aprobaciones/aprobaciones.module";
 import { DirectorBudgetsModule } from "./modules/director-budgets/director-budgets.module";
 import { SchedulesModule } from "./modules/schedules/schedules.module";
 import { CregModule } from "./modules/creg/creg.module";
@@ -44,6 +45,7 @@ import configuration from "./config/configuration";
     UsersModule,
     NotificationsModule,
     SurveysModule,
+    AprobacionesModule,
     DirectorBudgetsModule,
     SchedulesModule,
     CregModule,

@@ -51,6 +51,18 @@ const COLOMBIA_HOLIDAYS_2026 = [
 // Combinar todos los festivos
 const COLOMBIA_HOLIDAYS = [...COLOMBIA_HOLIDAYS_2025, ...COLOMBIA_HOLIDAYS_2026];
 
+/**
+ * Los mismos festivos como texto `YYYY-MM-DD`, para mandárselos al frontend.
+ *
+ * Existe para que la lista viva en un solo sitio: la matriz de auditoría
+ * descuenta fines de semana y festivos al medir cuánto tardó cada paso, y con
+ * una copia en el frontend bastaría con que alguien agregara aquí el festivo de
+ * 2027 para que las dos pantallas dieran tiempos distintos.
+ */
+export const COLOMBIA_HOLIDAY_DATES: string[] = COLOMBIA_HOLIDAYS.map(
+  (d) => d.toISOString().split('T')[0],
+);
+
 const BUSINESS_START_HOUR = 7; // 7 AM
 const BUSINESS_END_HOUR = 16; // 4 PM (4:30 PM)
 const BUSINESS_END_MINUTE = 30; // :30 minutos
