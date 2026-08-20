@@ -64,6 +64,7 @@ import {
   HORAS_EXTRAS_ESTADOS,
   HORAS_EXTRAS_NOTIFICAR_AL_LLEGAR,
   HORAS_EXTRAS_FIRMA_POR_ACCION,
+  ROLES_DIRECTOR_PROYECTO,
   HorasExtrasEstado,
 } from "./horas-extras-workflow";
 import {
@@ -305,12 +306,14 @@ export class GestionConocimientoService implements OnModuleInit {
           const anyT = t as { soloCreador?: boolean; jefeAutorizador?: boolean; roles: string[] };
           if (anyT.soloCreador) return s.createdBy === userId;
           if (anyT.jefeAutorizador) {
-            return (
+            const esJefe =
               (s.createdBy != null && autorizados.has(s.createdBy)) ||
               (rol === ROL_GERENCIA &&
                 s.createdBy != null &&
-                (directoresArea.has(s.createdBy) || sinAutorizador.has(s.createdBy)))
-            );
+                (directoresArea.has(s.createdBy) || sinAutorizador.has(s.createdBy)));
+            // Cuando el paso además nombra roles —horas extras, donde revisa el
+            // Director de Proyecto a cargo— hay que cumplir las dos cosas.
+            return esJefe && (anyT.roles.length === 0 || anyT.roles.includes(rol));
           }
           return anyT.roles.includes(rol);
         })
@@ -2442,10 +2445,15 @@ export class GestionConocimientoService implements OnModuleInit {
     const rol = user?.role?.nombreRol ?? "";
 
     let autorizado = esRolPmo(rol);
-    if (!autorizado) {
-      autorizado = t.soloCreador
-        ? solicitud.createdBy === userId
-        : t.roles.includes(rol);
+    if (!autorizado && t.soloCreador) {
+      autorizado = solicitud.createdBy === userId;
+    } else if (!autorizado) {
+      // El rol es condición necesaria en todos los pasos. El de revisión añade la
+      // jerarquía: hay que ser el Director de Proyecto **de esa** persona.
+      autorizado = t.roles.includes(rol);
+      if (autorizado && t.jefeAutorizador) {
+        autorizado = await this.esDirectorDeProyectoACargo(solicitud, userId);
+      }
     }
     if (!autorizado) {
       throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
@@ -2517,24 +2525,33 @@ export class GestionConocimientoService implements OnModuleInit {
     estado: HorasExtrasEstado,
     motivo?: string,
   ): Promise<void> {
-    const destino = HORAS_EXTRAS_NOTIFICAR_AL_LLEGAR[estado];
-    let usuarios: User[] = [];
+    const destinos = HORAS_EXTRAS_NOTIFICAR_AL_LLEGAR[estado];
+    const usuarios: User[] = [];
 
-    if (destino === "creador") {
-      if (solicitud.createdBy) {
-        const creador = await this.userRepo.findOne({
-          where: { userId: solicitud.createdBy },
-        });
-        if (creador) usuarios = [creador];
-      }
-    } else {
+    if (destinos.includes("creador") && solicitud.createdBy) {
+      const creador = await this.userRepo.findOne({
+        where: { userId: solicitud.createdBy },
+      });
+      if (creador) usuarios.push(creador);
+    }
+    if (destinos.includes("director-a-cargo")) {
+      // Solo su Director de Proyecto, no los cuatro: al de Antioquia no le importan
+      // las horas de Putumayo y el correo dejaría de leerse.
+      usuarios.push(...(await this.directoresDeProyectoDelCreador(solicitud)));
+    }
+    const roles = destinos.filter(
+      (d) => d !== "creador" && d !== "director-a-cargo",
+    );
+    if (roles.length > 0) {
       const activos = await this.userRepo.find({
         where: { estado: true },
         relations: ["role"],
       });
-      const objetivo = destino.map((r) => r.toLowerCase());
-      usuarios = activos.filter((u) =>
-        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      const objetivo = roles.map((r) => r.toLowerCase());
+      usuarios.push(
+        ...activos.filter((u) =>
+          objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+        ),
       );
     }
 
@@ -2558,11 +2575,55 @@ export class GestionConocimientoService implements OnModuleInit {
           trabajador ? ` de <b>${trabajador}</b>` : ""
         }${periodo ? ` · periodo <b>${periodo}</b>` : ""} pasó al estado <b>${label}</b>.</p>
         ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
-        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p>${
+          estado === "aprobado"
+            ? "Ya recorrió las tres revisiones y queda lista para liquidar en nómina."
+            : "Ingresa al sistema para continuar con el trámite."
+        }</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`,
       });
     }
+  }
+
+  /**
+   * Los Directores de Proyecto que tienen a cargo a quien registró la planilla, según
+   * la tabla de autorizaciones. Vacío si no tiene ninguno.
+   */
+  private async directoresDeProyectoDelCreador(
+    solicitud: GcSolicitud,
+  ): Promise<User[]> {
+    if (!solicitud.createdBy) return [];
+    const rels = await this.authorizationRepo.find({
+      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
+      relations: ["usuarioAutorizador", "usuarioAutorizador.role"],
+    });
+    const vistos = new Set<number>();
+    return rels
+      .map((r) => r.usuarioAutorizador)
+      .filter((u): u is User => {
+        if (!u || !u.estado) return false;
+        if (!ROLES_DIRECTOR_PROYECTO.includes(u.role?.nombreRol ?? "")) return false;
+        if (vistos.has(u.userId)) return false;
+        vistos.add(u.userId);
+        return true;
+      });
+  }
+
+  /**
+   * True si `userId` es el Director de Proyecto a cargo de quien registró la planilla.
+   *
+   * Si el creador no tiene **ningún** Director de Proyecto asignado —alguien de otra
+   * área que registre una planilla—, se acepta a cualquiera de ellos: dejarla sin nadie
+   * que pueda revisarla la trabaría para siempre.
+   */
+  private async esDirectorDeProyectoACargo(
+    solicitud: GcSolicitud,
+    userId: number,
+  ): Promise<boolean> {
+    const aCargo = await this.directoresDeProyectoDelCreador(solicitud);
+    if (aCargo.length === 0) return true;
+    return aCargo.some((u) => u.userId === userId);
   }
 
   /** Los jefes de quien creó la solicitud, con la Gerencia solo como último recurso. */
