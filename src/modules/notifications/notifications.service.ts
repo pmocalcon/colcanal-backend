@@ -181,7 +181,12 @@ export class NotificationsService {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ message, saveToSentItems: false }),
+          // Se guarda copia en Elementos enviados. Iba en false, y eso dejaba al
+          // sistema sin manera de probar que un correo salió: la aplicación solo
+          // tiene permiso Mail.Send —no puede leer el buzón— y sin copia no queda
+          // rastro en ningún lado. Cuando alguien dice que no le llegó su
+          // aprobación, la única respuesta posible era "no sé".
+          body: JSON.stringify({ message, saveToSentItems: true }),
         },
       );
 

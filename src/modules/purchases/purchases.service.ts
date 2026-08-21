@@ -193,12 +193,25 @@ export class PurchasesService {
 
           const approvers = managers.filter(u => u.role?.nombreRol?.trim() === rolAprobador);
 
+          if (approvers.length === 0) {
+            this.logger.warn(
+              `${requisition.requisitionNumber}: nadie con rol "${rolAprobador}" activo a quien avisar.`,
+            );
+          }
+
           for (const approver of approvers) {
             const email = approver.emailNotificacion || approver.email;
-            await this.notificationsService.notifyRequisitionForApproval(
+            // Se deja constancia de a quién se mandó y si salió. Antes no se
+            // registraba nada, así que un correo perdido no se distinguía de uno
+            // que nunca se intentó enviar.
+            const enviado = await this.notificationsService.notifyRequisitionForApproval(
               email,
               approver.nombre,
               notificationData,
+            );
+            this.logger[enviado ? 'log' : 'error'](
+              `${requisition.requisitionNumber} -> aprobación de ${approver.nombre} <${email}>: ` +
+                (enviado ? 'enviado' : 'FALLÓ'),
             );
           }
           break;
@@ -907,20 +920,30 @@ export class PurchasesService {
 
       if (requiresObraValidation) {
         // Enviar notificación al Director de Proyecto para validación
-        this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('new_for_validation', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else if (skipsReview && hasSpecialObra) {
         // Obra especial: la AUTORIZA Gerencia de Proyectos (Lorena), no Gerencia (Gloria).
-        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else if (esPoliza) {
         // La póliza no espera aprobación: se le avisa directamente a Compras, que
         // es quien tiene que cotizarla.
-        this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else if (goesDirectToGerencia) {
         // Roles de alto nivel saltan revisión → Gerencia.
-        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else {
         // Enviar notificación al revisor normal
-        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       }
 
       // 12. Retornar requisición completa
@@ -2086,15 +2109,21 @@ export class PurchasesService {
       this.sendRequisitionNotification('reviewed', fullRequisition as Requisition, {
         approved: dto.decision === 'approve',
         comments: dto.comments,
-      }).catch(() => {});
+      }).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
 
       // Si fue aprobada, notificar al siguiente nivel según corresponda:
       // - aprobada_revisor  → aprueba Gerencia (Gloria)
       // - pendiente_autorizacion (obra especial) → autoriza Gerencia de Proyectos (Lorena)
       if (dto.decision === 'approve' && newStatusCode === 'aprobada_revisor') {
-        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else if (dto.decision === 'approve' && newStatusCode === 'pendiente_autorizacion') {
-        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('for_authorization', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       }
 
       return fullRequisition;
@@ -2241,16 +2270,22 @@ export class PurchasesService {
         this.sendRequisitionNotification('validated', fullRequisition as Requisition, {
           approved: true,
           comments: dto.comments,
-        }).catch(() => {});
+        }).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
 
         // Notificar al Director Técnico que tiene una nueva requisición para revisar
-        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('new_for_review', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else {
         // Notificar al creador que fue rechazada
         this.sendRequisitionNotification('validation_rejected', fullRequisition as Requisition, {
           approved: false,
           comments: dto.comments,
-        }).catch(() => {});
+        }).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       }
 
       return fullRequisition;
@@ -2363,12 +2398,16 @@ export class PurchasesService {
       // - rechazada_autorizador → avisar al creador que fue rechazada
       const fullRequisition = await this.getRequisitionById(requisitionId, userId);
       if (newStatusCode === 'autorizado') {
-        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch(() => {});
+        this.sendRequisitionNotification('for_approval', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       } else if (newStatusCode === 'rechazada_autorizador') {
         this.sendRequisitionNotification('reviewed', fullRequisition as Requisition, {
           approved: false,
           comments: dto.comments,
-        }).catch(() => {});
+        }).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
       }
 
       return fullRequisition;
@@ -2491,10 +2530,14 @@ export class PurchasesService {
       const fullRequisition = await this.getRequisitionById(requisitionId, userId);
 
       // Notificar al creador que fue aprobada
-      this.sendRequisitionNotification('approved', fullRequisition as Requisition).catch(() => {});
+      this.sendRequisitionNotification('approved', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
 
       // Notificar a los cotizadores que hay una requisición lista
-      this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch(() => {});
+      this.sendRequisitionNotification('ready_for_quotation', fullRequisition as Requisition).catch((e) =>
+        this.logger.error(`No se pudo notificar: ${e.message}`),
+      );
 
       return fullRequisition;
     } catch (error) {
@@ -2713,7 +2756,7 @@ export class PurchasesService {
               requesterName: user.nombre,
               motivo: info.motivo,
             })
-            .catch(() => {});
+            .catch((e) => this.logger.error(`No se pudo notificar la anulación: ${e.message}`));
         }
       }
     }
@@ -2840,14 +2883,14 @@ export class PurchasesService {
       if (decision === 'aprobado') {
         this.notificationsService
           .notifyVoidApproved(email, r.nombre, { requisitionNumber: requisition.requisitionNumber })
-          .catch(() => {});
+          .catch((e) => this.logger.error(`No se pudo notificar la anulación: ${e.message}`));
       } else {
         this.notificationsService
           .notifyVoidRejected(email, r.nombre, {
             requisitionNumber: requisition.requisitionNumber,
             motivo: motivo!.trim(),
           })
-          .catch(() => {});
+          .catch((e) => this.logger.error(`No se pudo notificar la anulación: ${e.message}`));
       }
     }
 
