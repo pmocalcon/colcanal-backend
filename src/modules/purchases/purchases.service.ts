@@ -3378,14 +3378,24 @@ export class PurchasesService {
               JSON.stringify(newSupplierIds);
         }
 
-        // Si hay cambios, desactivar versiones anteriores
-        if (needsNewVersion || (currentQuotations.length > 0 && currentQuotations[0].action !== itemDto.action)) {
-          await queryRunner.manager.update(
-            RequisitionItemQuotation,
-            { requisitionItemId: item.itemId, isActive: true },
-            { isActive: false },
-          );
-        }
+        // Las cotizaciones vigentes se desactivan SIEMPRE, cambien o no los
+        // proveedores.
+        //
+        // Antes solo se desactivaban cuando algo cambiaba, y guardar dos veces
+        // seguidas la misma selección dejaba las viejas activas y añadía otra
+        // copia encima. La pantalla, que devuelve lo que recibe, mandaba de vuelta
+        // las cuatro en el siguiente guardado y ahí chocaba contra el máximo de dos
+        // proveedores por ítem: el ítem quedaba trabado sin manera de arreglarlo
+        // desde la pantalla, porque solo se pintan dos casillas y las otras dos
+        // viajaban invisibles. Le pasó a SB-009 y a JE-021.
+        //
+        // Lo que decide `needsNewVersion` es el NÚMERO de versión, no si se limpia:
+        // limpiar es lo que garantiza que un ítem tenga un solo juego vigente.
+        await queryRunner.manager.update(
+          RequisitionItemQuotation,
+          { requisitionItemId: item.itemId, isActive: true },
+          { isActive: false },
+        );
 
         // Calcular nueva versión
         const maxVersion = currentQuotations.reduce(

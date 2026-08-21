@@ -110,6 +110,28 @@ export class SuppliersController {
     return await this.suppliersService.findAllPaginated(query);
   }
 
+  @Get("all")
+  @ApiOperation({
+    summary: "Listar todos los proveedores, sin paginar",
+    description: `
+    Para los desplegables, que necesitan la lista completa y no una página.
+
+    Va declarada ANTES de \`:id\`: Nest resuelve las rutas en el orden en que se
+    escriben, y puesta después, "all" entraría por \`:id\` y moriría en el
+    ParseIntPipe con un 400 que no dice nada de lo que pasó.
+    `,
+  })
+  @ApiQuery({
+    name: "activeOnly",
+    required: false,
+    type: Boolean,
+    description: "Solo los activos (por defecto, sí)",
+  })
+  @ApiResponse({ status: 200, description: "Lista completa de proveedores" })
+  async findAllUnpaginated(@Query("activeOnly") activeOnly?: string) {
+    return await this.suppliersService.findAll(activeOnly !== "false");
+  }
+
   @Get("search")
   @ApiOperation({ summary: "Buscar proveedores (para autocompletado)" })
   @ApiQuery({ name: "q", required: true, description: "Término de búsqueda" })
