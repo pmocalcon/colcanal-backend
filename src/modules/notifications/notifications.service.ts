@@ -121,6 +121,39 @@ export class NotificationsService {
    * Obtiene (y cachea) un token de acceso app-only para Microsoft Graph
    * mediante el flujo client credentials.
    */
+  /**
+   * Cuánto se espera a Microsoft antes de darlo por perdido.
+   *
+   * El `fetch` de Node NO trae plazo: si la conexión se queda colgada, la promesa
+   * no se resuelve nunca. Y como los correos se mandan uno detrás de otro con
+   * `await`, una sola petición colgada dejaba sin correo a todos los que venían
+   * después, para siempre y sin una línea en el registro. Treinta segundos es
+   * largo para una API que responde en menos de uno, y corto comparado con
+   * "nunca".
+   */
+  private static readonly GRAPH_TIMEOUT_MS = 30_000;
+
+  /** `fetch` que se rinde en vez de colgarse. */
+  private async fetchConPlazo(url: string, init: RequestInit): Promise<Response> {
+    const control = new AbortController();
+    const alarma = setTimeout(
+      () => control.abort(),
+      NotificationsService.GRAPH_TIMEOUT_MS,
+    );
+    try {
+      return await fetch(url, { ...init, signal: control.signal });
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        throw new Error(
+          `Microsoft Graph no respondió en ${NotificationsService.GRAPH_TIMEOUT_MS / 1000} s`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(alarma);
+    }
+  }
+
   private async getGraphToken(): Promise<string> {
     const now = Date.now();
     if (this.graphToken && this.graphToken.expiresAt > now + 60_000) {
@@ -135,7 +168,7 @@ export class NotificationsService {
       grant_type: "client_credentials",
     });
 
-    const res = await fetch(url, {
+    const res = await this.fetchConPlazo(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -171,7 +204,7 @@ export class NotificationsService {
         toRecipients: recipients,
       };
 
-      const res = await fetch(
+      const res = await this.fetchConPlazo(
         `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(
           this.graphSender!,
         )}/sendMail`,
@@ -208,6 +241,64 @@ export class NotificationsService {
       );
       return false;
     }
+  }
+
+  /**
+   * Estado del envío de correo, para poder preguntárselo a producción.
+   *
+   * Hasta ahora la única señal de que el correo estaba roto era que alguien
+   * dijera "no me llegó", y desde fuera no había manera de distinguir entre
+   * credenciales vencidas, proveedor sin configurar o un destinatario con
+   * problemas. Comprueba de verdad —pide un token— en vez de mirar si las
+   * variables están puestas.
+   *
+   * No devuelve ningún secreto: solo el remitente, que ya va en cada correo.
+   */
+  async estadoDelServicio(): Promise<{
+    proveedor: "graph" | "smtp" | "ninguno";
+    remitente?: string;
+    credencialesOk: boolean;
+    detalle: string;
+  }> {
+    if (this.graphConfigured) {
+      try {
+        await this.getGraphToken();
+        return {
+          proveedor: "graph",
+          remitente: this.graphSender,
+          credencialesOk: true,
+          detalle: "Token de Microsoft Graph obtenido correctamente.",
+        };
+      } catch (error: any) {
+        return {
+          proveedor: "graph",
+          remitente: this.graphSender,
+          credencialesOk: false,
+          // El mensaje de Azure dice si el secreto venció o si el permiso falta.
+          detalle: String(error?.message ?? error).slice(0, 300),
+        };
+      }
+    }
+
+    if (this.isConfigured) {
+      return {
+        proveedor: "smtp",
+        remitente:
+          this.configService.get<string>("SMTP_FROM") ||
+          this.configService.get<string>("SMTP_USER"),
+        credencialesOk: true,
+        detalle:
+          "Enviando por SMTP. Ojo: Microsoft 365 bloquea SMTP con los valores de " +
+          "seguridad predeterminados, así que los correos pueden estar cayéndose.",
+      };
+    }
+
+    return {
+      proveedor: "ninguno",
+      credencialesOk: false,
+      detalle:
+        "Sin proveedor de correo configurado. Faltan las variables GRAPH_* o SMTP_*.",
+    };
   }
 
   async sendEmail(notification: EmailNotification): Promise<boolean> {

@@ -130,6 +130,40 @@ export class PurchasesService {
   // ============================================
   // HELPER: Notificaciones por correo
   // ============================================
+  /**
+   * A dónde lleva el botón de cada correo.
+   *
+   * Ninguno tenía enlace: `actionUrl` no se armaba nunca, así que la plantilla
+   * dejaba el botón sin pintar y quien recibía el aviso tenía que entrar al
+   * sistema a buscar la requisición a mano. Es la mitad del correo.
+   *
+   * La aprobación no lleva a la requisición sino a la bandeja de Aprobaciones,
+   * que es donde Gerencia firma sin recorrer módulos.
+   */
+  private static readonly RUTA_POR_NOTIFICACION: Record<string, string> = {
+    new_for_review: '/dashboard/compras/requisiciones/revisar',
+    reviewed: '/dashboard/compras/requisiciones',
+    for_approval: '/dashboard/aprobaciones',
+    for_authorization: '/dashboard/compras/requisiciones/autorizar',
+    approved: '/dashboard/compras/requisiciones',
+    ready_for_quotation: '/dashboard/compras/cotizaciones',
+    new_for_validation: '/dashboard/compras/requisiciones/validar',
+    validated: '/dashboard/compras/requisiciones',
+    validation_rejected: '/dashboard/compras/requisiciones',
+  };
+
+  /**
+   * La ruta completa en el frontend, o nada si no hay dirección configurada.
+   *
+   * Devolver `undefined` y no una ruta suelta es a propósito: la plantilla oculta
+   * el botón cuando no hay URL, y un enlace a medias sería peor que ninguno.
+   */
+  private urlDelFrontend(ruta?: string): string | undefined {
+    const base = process.env.FRONTEND_URL || process.env.APP_URL || process.env.CLIENT_URL;
+    if (!base || !ruta) return undefined;
+    return `${base.replace(/\/+$/, '')}${ruta}`;
+  }
+
   private async sendRequisitionNotification(
     type: 'new_for_review' | 'reviewed' | 'for_approval' | 'for_authorization' | 'approved' | 'ready_for_quotation' | 'new_for_validation' | 'validated' | 'validation_rejected',
     requisition: Requisition,
@@ -143,6 +177,7 @@ export class PurchasesService {
         projectName: requisition.project?.name,
         priority: requisition.priority || 'normal',
         itemsCount: requisition.items?.length || 0,
+        actionUrl: this.urlDelFrontend(PurchasesService.RUTA_POR_NOTIFICACION[type]),
       };
 
       switch (type) {
@@ -189,6 +224,11 @@ export class PurchasesService {
           const managers = await this.userRepository.find({
             where: { estado: true },
             relations: ['role'],
+            // Orden fijo. Sin ORDER BY, Postgres devuelve las filas en el orden en
+            // que están escritas en disco, que cambia cada vez que alguien edita un
+            // usuario. Con los envíos en fila india eso hacía que quién se quedaba
+            // sin correo dependiera del día.
+            order: { userId: 'ASC' },
           });
 
           const approvers = managers.filter(u => u.role?.nombreRol?.trim() === rolAprobador);
@@ -199,21 +239,27 @@ export class PurchasesService {
             );
           }
 
-          for (const approver of approvers) {
-            const email = approver.emailNotificacion || approver.email;
-            // Se deja constancia de a quién se mandó y si salió. Antes no se
-            // registraba nada, así que un correo perdido no se distinguía de uno
-            // que nunca se intentó enviar.
-            const enviado = await this.notificationsService.notifyRequisitionForApproval(
-              email,
-              approver.nombre,
-              notificationData,
-            );
-            this.logger[enviado ? 'log' : 'error'](
-              `${requisition.requisitionNumber} -> aprobación de ${approver.nombre} <${email}>: ` +
-                (enviado ? 'enviado' : 'FALLÓ'),
-            );
-          }
+          // En paralelo y con los fallos aislados, no uno detrás de otro.
+          //
+          // Antes iban en fila con `await`: el correo de cada quien esperaba a que
+          // terminara el del anterior. Como la llamada a Microsoft no tenía plazo,
+          // una petición colgada dejaba sin aviso a todos los que venían después
+          // —sin error, sin registro, sin nada que mirar—. `allSettled` además
+          // garantiza que un destinatario que falle no arrastre a los demás.
+          await Promise.allSettled(
+            approvers.map(async (approver) => {
+              const email = approver.emailNotificacion || approver.email;
+              const enviado = await this.notificationsService.notifyRequisitionForApproval(
+                email,
+                approver.nombre,
+                notificationData,
+              );
+              this.logger[enviado ? 'log' : 'error'](
+                `${requisition.requisitionNumber} -> aprobación de ${approver.nombre} <${email}>: ` +
+                  (enviado ? 'enviado' : 'FALLÓ'),
+              );
+            }),
+          );
           break;
         }
 
@@ -227,14 +273,20 @@ export class PurchasesService {
           const authorizers = users.filter(
             u => u.role?.nombreRol?.trim() === 'Gerencia de Proyectos',
           );
-          for (const authorizer of authorizers) {
-            const email = authorizer.emailNotificacion || authorizer.email;
-            await this.notificationsService.notifyRequisitionForApproval(
-              email,
-              authorizer.nombre,
-              notificationData,
-            );
-          }
+          await Promise.allSettled(
+            authorizers.map(async (authorizer) => {
+              const email = authorizer.emailNotificacion || authorizer.email;
+              const enviado = await this.notificationsService.notifyRequisitionForApproval(
+                email,
+                authorizer.nombre,
+                notificationData,
+              );
+              this.logger[enviado ? 'log' : 'error'](
+                `${requisition.requisitionNumber} -> autorización de ${authorizer.nombre} <${email}>: ` +
+                  (enviado ? 'enviado' : 'FALLÓ'),
+              );
+            }),
+          );
           break;
         }
 
