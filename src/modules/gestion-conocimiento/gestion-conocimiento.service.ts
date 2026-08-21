@@ -302,8 +302,17 @@ export class GestionConocimientoService implements OnModuleInit {
       const acciones = Object.entries(transiciones)
         .filter(([, t]) => t.from === s.estado)
         .filter(([, t]) => {
+          const anyT = t as {
+            soloCreador?: boolean;
+            jefeAutorizador?: boolean;
+            correctiva?: boolean;
+            roles: string[];
+          };
+          // Las acciones correctivas —devolver algo ya cerrado— no son trabajo
+          // pendiente: existen siempre sobre el documento terminado. Contarlas dejaría
+          // a quien las tiene con la bandeja llena de asuntos que nadie está esperando.
+          if (anyT.correctiva) return false;
           if (esPmo) return true;
-          const anyT = t as { soloCreador?: boolean; jefeAutorizador?: boolean; roles: string[] };
           if (anyT.soloCreador) return s.createdBy === userId;
           if (anyT.jefeAutorizador) {
             const esJefe =

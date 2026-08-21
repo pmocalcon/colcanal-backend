@@ -5,7 +5,7 @@
  *     → Revisión del Director de Proyecto a cargo de ese PQRS
  *     → Revisión de Dirección Técnica (Andrés Gómez)
  *     → Aprobación de Gerencia de Proyectos (Lorena Martínez)
- *     → Aprobada
+ *     → Aprobada — le llega a Dirección Administrativa, que la liquida o la devuelve
  *
  * Cuatro manos, porque la planilla mueve dinero de nómina: la revisa quien conoce la
  * operación del municipio, la valida el área técnica y la aprueba Proyectos.
@@ -41,8 +41,11 @@ export const ROL_DIRECCION_TECNICA = 'Director Técnico';
 /** Gerencia de Proyectos (Lorena Martínez), que cierra el trámite. */
 export const ROL_GERENCIA_PROYECTOS = 'Gerencia de Proyectos';
 /**
- * Dirección Administrativa y Financiera (Daniela Swann). No aprueba: **recibe** la
- * planilla ya aprobada, que es lo que se liquida en nómina.
+ * Dirección Administrativa y Financiera (Daniela Swann). No aprueba —la planilla le
+ * llega ya aprobada, que es lo que se liquida en nómina—, pero sí puede **devolverla**:
+ * es la última en verla antes de que se convierta en plata, y si las horas no cuadran
+ * con lo que va a pagar necesita cómo regresarla en vez de tener que llamar por
+ * teléfono a que alguien la deshaga.
  */
 export const ROL_ADMINISTRATIVA = 'Director Financiero y Administrativo';
 
@@ -58,6 +61,12 @@ export interface HorasExtrasTransicion {
    */
   jefeAutorizador?: boolean;
   requiereMotivo?: boolean;
+  /**
+   * Acción sobre una planilla ya cerrada. No es trabajo pendiente sino un remedio, y
+   * por eso no cuenta como «me toca» en la bandeja: si contara, a Dirección
+   * Administrativa le aparecerían para siempre todas las planillas aprobadas del año.
+   */
+  correctiva?: boolean;
   label: string;
 }
 
@@ -108,6 +117,17 @@ export const HORAS_EXTRAS_TRANSICIONES: Record<string, HorasExtrasTransicion> = 
     to: 'borrador',
     roles: [ROL_GERENCIA_PROYECTOS],
     requiereMotivo: true,
+    label: 'Devolver la planilla',
+  },
+  // Devuelve al borrador y no al paso anterior: al volver, la planilla se corrige y
+  // vuelve a recorrer la cadena completa. Que Dirección Técnica y Proyectos avalen de
+  // nuevo unas horas que cambiaron es justo el punto.
+  devolver_administrativa: {
+    from: 'aprobado',
+    to: 'borrador',
+    roles: [ROL_ADMINISTRATIVA],
+    requiereMotivo: true,
+    correctiva: true,
     label: 'Devolver la planilla',
   },
 };
