@@ -9,6 +9,7 @@ import { Repository } from "typeorm";
 import { Invoice } from "../../database/entities/invoice.entity";
 import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
 import { Requisition } from "../../database/entities/requisition.entity";
+import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { UpdateInvoiceDto } from "./dto/update-invoice.dto";
 import { SendToAccountingDto } from "./dto/send-to-accounting.dto";
@@ -27,7 +28,53 @@ export class InvoicesService {
     private purchaseOrderRepository: Repository<PurchaseOrder>,
     @InjectRepository(Requisition)
     private requisitionRepository: Repository<Requisition>,
+    @InjectRepository(RequisitionLog)
+    private requisitionLogRepository: Repository<RequisitionLog>,
   ) {}
+
+  /**
+   * Deja constancia de un paso de facturación en la bitácora de la requisición.
+   *
+   * La facturación ocurre sobre la orden de compra, no sobre la requisición, y por
+   * eso hasta ahora no dejaba rastro: la línea de tiempo del detalle terminaba en
+   * «Recepción Registrada» y lo que pasaba después —la factura, el envío a
+   * Contabilidad, el recibido— no aparecía en ninguna parte.
+   *
+   * `previousStatus` y `newStatus` guardan el estado de **facturación de la orden**
+   * (`sin_factura`, `factura_completa`, `enviada_contabilidad`, …), no el de la
+   * requisición, que en este tramo ya no se mueve de `recepcion_completa`. Es lo
+   * que la línea de tiempo muestra como «De → A», y sin ello estas filas saldrían
+   * mudas. Ningún cálculo depende de esas columnas: el único sitio que las lee es
+   * la anulación, y filtra por `action = 'solicitar_anulacion'`.
+   *
+   * No revienta la operación si falla: una factura registrada con la bitácora caída
+   * es un problema; una factura rechazada porque no se pudo escribir el renglón de
+   * auditoría es uno peor.
+   */
+  private async registrarEnBitacora(
+    purchaseOrder: PurchaseOrder,
+    userId: number,
+    action: string,
+    previousStatus: string,
+    newStatus: string,
+    comments: string,
+  ): Promise<void> {
+    if (!purchaseOrder.requisitionId || !userId) return;
+    try {
+      await this.requisitionLogRepository.save(
+        this.requisitionLogRepository.create({
+          requisitionId: purchaseOrder.requisitionId,
+          userId,
+          action,
+          previousStatus,
+          newStatus,
+          comments,
+        }),
+      );
+    } catch {
+      // Sin bitácora, pero con la factura guardada.
+    }
+  }
 
   /**
    * Obtener todas las facturas de una orden de compra
@@ -227,10 +274,28 @@ export class InvoicesService {
       createdBy: userId,
     });
 
+    const estadoAntes = purchaseOrder.invoiceStatus ?? "sin_factura";
     const savedInvoice = await this.invoiceRepository.save(invoice);
 
     // Actualizar totales de la orden de compra
     await this.updatePurchaseOrderInvoiceTotals(purchaseOrderId);
+
+    // El estado se relee: `updatePurchaseOrderInvoiceTotals` decide si la orden
+    // quedó facturada por completo o solo en parte, y esa es la diferencia que
+    // interesa ver en la bitácora.
+    const despues = await this.purchaseOrderRepository.findOne({
+      where: { purchaseOrderId },
+      select: { purchaseOrderId: true, invoiceStatus: true },
+    });
+    await this.registrarEnBitacora(
+      purchaseOrder,
+      userId,
+      "registrar_factura",
+      estadoAntes,
+      despues?.invoiceStatus ?? estadoAntes,
+      `Factura ${invoiceNumber} por $${finalAmount.toLocaleString("es-CO", { maximumFractionDigits: 0 })} ` +
+        `registrada para la orden ${purchaseOrder.purchaseOrderNumber}`,
+    );
 
     return this.invoiceRepository.findOne({
       where: { invoiceId: savedInvoice.invoiceId },
@@ -325,6 +390,7 @@ export class InvoicesService {
    */
   async sendToAccounting(
     purchaseOrderId: number,
+    userId: number,
     sendToAccountingDto: SendToAccountingDto,
   ) {
     const purchaseOrder = await this.purchaseOrderRepository.findOne({
@@ -368,6 +434,16 @@ export class InvoicesService {
     purchaseOrder.accountingRejectedAt = null;
     purchaseOrder.accountingRejectedBy = null;
     await this.purchaseOrderRepository.save(purchaseOrder);
+
+    await this.registrarEnBitacora(
+      purchaseOrder,
+      userId,
+      "enviar_facturas_contabilidad",
+      "factura_completa",
+      "enviada_contabilidad",
+      `${purchaseOrder.invoices.length} factura(s) de la orden ${purchaseOrder.purchaseOrderNumber} ` +
+        `enviadas a Contabilidad el ${sentDate.toISOString().split("T")[0]}`,
+    );
 
     return {
       message: "Facturas enviadas a contabilidad exitosamente",
@@ -554,6 +630,19 @@ export class InvoicesService {
     purchaseOrder.accountingRejectedBy = null;
     await this.purchaseOrderRepository.save(purchaseOrder);
 
+    await this.registrarEnBitacora(
+      purchaseOrder,
+      userId,
+      "recibir_facturas_contabilidad",
+      "enviada_contabilidad",
+      "recibida_contabilidad",
+      `Contabilidad recibió ${purchaseOrder.invoices.length} factura(s) de la orden ` +
+        `${purchaseOrder.purchaseOrderNumber} el ${receivedDate.toISOString().split("T")[0]}` +
+        (purchaseOrder.accountingObservations
+          ? `. ${purchaseOrder.accountingObservations}`
+          : ""),
+    );
+
     return {
       message: "Facturas marcadas como recibidas por contabilidad exitosamente",
       receivedDate: receivedDate.toISOString().split("T")[0],
@@ -610,6 +699,16 @@ export class InvoicesService {
     purchaseOrder.accountingRejectedAt = new Date();
     purchaseOrder.accountingRejectedBy = userId;
     await this.purchaseOrderRepository.save(purchaseOrder);
+
+    await this.registrarEnBitacora(
+      purchaseOrder,
+      userId,
+      "devolver_facturas_contabilidad",
+      "enviada_contabilidad",
+      "factura_completa",
+      `Contabilidad devolvió a Compras las facturas de la orden ` +
+        `${purchaseOrder.purchaseOrderNumber}. Motivo: ${motivo}`,
+    );
 
     return {
       message: "Facturas devueltas a Compras",

@@ -139,10 +139,12 @@ export class InvoicesController {
   @ApiResponse({ status: 404, description: "Orden de compra no encontrada" })
   async sendToAccounting(
     @Param("purchaseOrderId", ParseIntPipe) purchaseOrderId: number,
+    @GetUser() user: User,
     @Body() sendToAccountingDto: SendToAccountingDto,
   ) {
     return this.invoicesService.sendToAccounting(
       purchaseOrderId,
+      user.userId,
       sendToAccountingDto,
     );
   }
