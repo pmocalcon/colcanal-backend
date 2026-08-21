@@ -172,7 +172,8 @@ export class AuditController {
     - Todos los ítems con materiales y cantidades
     - Cotizaciones de proveedores
     - Órdenes de compra generadas
-    - Timeline completo de acciones con tiempos entre cada acción
+    - Timeline completo de acciones (el tiempo entre una y otra lo calcula el
+      frontend en días hábiles, con los festivos que devuelve este mismo endpoint)
     - Montos totales (subtotal, IVA, total)
     - Historial de aprobaciones
     `,
@@ -187,6 +188,23 @@ export class AuditController {
   })
   async getRequisitionDetail(@Param("id", ParseIntPipe) id: number) {
     return this.auditService.getRequisitionDetail(id);
+  }
+
+  @Get("requisition/:id/purchase-orders")
+  @ApiOperation({
+    summary: "Órdenes de compra de una requisición",
+    description: `
+    Las órdenes de compra de una requisición con su valor, lo facturado, la
+    diferencia, la fecha de emisión y los días transcurridos desde entonces.
+
+    Alimenta el desglose que se abre en la pestaña de Registros. Se pide por
+    requisición y no de una vez para toda la página porque solo se abre una a la
+    vez: traerlas todas cargaría decenas de consultas que casi nadie mira.
+    `,
+  })
+  @ApiResponse({ status: 200, description: "Listado obtenido exitosamente" })
+  async getRequisitionPurchaseOrders(@Param("id", ParseIntPipe) id: number) {
+    return this.auditService.getRequisitionPurchaseOrders(id);
   }
 
   @Get("stats")

@@ -5,7 +5,7 @@ import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 import { Requisition } from "../../database/entities/requisition.entity";
 import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
 import { areaDeRol } from "./areas.constants";
-import { COLOMBIA_HOLIDAY_DATES } from "../../utils/business-days.util";
+import { colombianHolidayDates } from "../../utils/business-days.util";
 
 @Injectable()
 export class AuditService {
@@ -112,6 +112,49 @@ export class AuditService {
   }
 
   /**
+   * Las órdenes de compra de una requisición, con lo facturado y lo que falta.
+   *
+   * Alimenta el desglose que se abre en la pestaña de Registros, y son las mismas
+   * columnas del cuadro de órdenes pendientes de factura. Con una diferencia
+   * deliberada: allá solo salen las que deben algo, porque es un cuadro de
+   * pendientes; acá salen **todas** las de la requisición. Filtrarlas dejaría el
+   * desglose de una requisición ya facturada por completo en blanco, que se lee
+   * como un error de la pantalla y no como «no debe nada».
+   *
+   * Lo facturado va por LATERAL y no por JOIN: una orden puede tener varias
+   * facturas, y unirlas de plano repetiría la orden una vez por factura.
+   */
+  async getRequisitionPurchaseOrders(requisitionId: number) {
+    const filas = await this.purchaseOrderRepository.query(
+      `SELECT po.purchase_order_number                       AS "purchaseOrderNumber",
+              po.issue_date                                  AS "issueDate",
+              (CURRENT_DATE - COALESCE(po.issue_date, po.created_at)::date)::int AS "days",
+              po.total_amount::float                         AS "totalAmount",
+              COALESCE(f.facturado, 0)::float                AS "invoicedAmount",
+              (po.total_amount - COALESCE(f.facturado, 0))::float AS "pendingAmount"
+         FROM purchase_orders po
+         LEFT JOIN LATERAL (
+                SELECT SUM(i.amount) AS facturado
+                  FROM invoices i
+                 WHERE i.purchase_order_id = po.purchase_order_id
+              ) f ON true
+        WHERE po.requisition_id = $1
+        ORDER BY COALESCE(po.issue_date, po.created_at) ASC,
+                 po.purchase_order_number ASC`,
+      [requisitionId],
+    );
+
+    return filas.map((r: Record<string, unknown>) => ({
+      purchaseOrderNumber: String(r.purchaseOrderNumber ?? ""),
+      issueDate: (r.issueDate as string) ?? null,
+      days: Number(r.days ?? 0),
+      totalAmount: Number(r.totalAmount ?? 0),
+      invoicedAmount: Number(r.invoicedAmount ?? 0),
+      pendingAmount: Number(r.pendingAmount ?? 0),
+    }));
+  }
+
+  /**
    * Obtener detalle completo de una requisición para auditoría
    */
   async getRequisitionDetail(requisitionId: number) {
@@ -169,31 +212,13 @@ export class AuditService {
       total = subtotal + iva;
     }
 
-    // Calcular tiempo entre acciones
-    const timeline = logs.map((log, index) => {
-      let timeSincePrevious: string | null = null;
-      if (index > 0) {
-        const prevLog = logs[index - 1];
-        const diffMs =
-          new Date(log.createdAt).getTime() -
-          new Date(prevLog.createdAt).getTime();
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        const diffDays = Math.floor(diffHours / 24);
-
-        if (diffDays > 0) {
-          timeSincePrevious = `${diffDays} día${diffDays > 1 ? "s" : ""}`;
-        } else if (diffHours > 0) {
-          timeSincePrevious = `${diffHours} hora${diffHours > 1 ? "s" : ""}`;
-        } else {
-          const diffMinutes = Math.floor(diffMs / (1000 * 60));
-          if (diffMinutes > 0) {
-            timeSincePrevious = `${diffMinutes} minuto${diffMinutes > 1 ? "s" : ""}`;
-          } else {
-            timeSincePrevious = "unos segundos";
-          }
-        }
-      }
-
+    // El tiempo entre acciones ya no se calcula acá. Medía el reloj de pared
+    // —un paso dado el viernes y resuelto el lunes salía como «3 días»— y
+    // corregirlo en el servidor no servía: este proceso corre en UTC y los días
+    // hábiles empiezan y terminan en hora de Colombia, así que una requisición
+    // aprobada un viernes a las 7 p. m. caería en sábado. Lo hace el frontend
+    // con los festivos que van más abajo, y con la misma cuenta que la matriz.
+    const timeline = logs.map((log) => {
       return {
         logId: log.logId,
         action: log.action,
@@ -207,7 +232,6 @@ export class AuditService {
         previousStatus: log.previousStatus,
         newStatus: log.newStatus,
         comments: log.comments,
-        timeSincePrevious,
       };
     });
 
@@ -239,6 +263,9 @@ export class AuditService {
         total,
       },
       timeline,
+      // Para que la línea de tiempo descuente fines de semana y festivos, con la
+      // misma lista que usa la matriz.
+      holidays: colombianHolidayDates(),
     };
   }
 
@@ -373,7 +400,15 @@ export class AuditService {
       }
       const entry = map.get(id)!;
       if (row.action && row.fecha) {
-        entry.events[row.action] = row.fecha;
+        // El envío a Contabilidad ya deja renglón propio en la bitácora, pero la
+        // columna de la matriz se llama `factura_contabilidad` desde antes de que
+        // así fuera. Se traduce en vez de abrir una columna nueva: serían dos
+        // columnas para el mismo hito, llenas cada una en una mitad del histórico.
+        const accion =
+          row.action === 'enviar_facturas_contabilidad'
+            ? 'factura_contabilidad'
+            : row.action;
+        entry.events[accion] = row.fecha;
         if (!entry.minDate || row.fecha < entry.minDate) entry.minDate = row.fecha;
       }
     }
@@ -384,8 +419,9 @@ export class AuditService {
 
     const requisitionIds = Array.from(map.keys());
 
-    // Cuándo se entregó la factura a contabilidad (la última, por requisición). Se
-    // adjunta como evento sintético 'factura_contabilidad' para poder medir tiempos.
+    // Cuándo se entregó la factura a contabilidad, para las requisiciones que no
+    // lo tienen en la bitácora: el envío empezó a dejar renglón propio hace poco, y
+    // todo lo enviado antes de eso solo existe en la tabla de facturas.
     //
     // Se usa `updated_at` —el instante en que el sistema registró el envío— y NO
     // `sent_to_accounting_date`, que la escribe a mano quien envía y por eso puede
@@ -393,10 +429,10 @@ export class AuditService {
     // vez con el día real. La matriz es un registro de auditoría, así que muestra
     // lo que pasó, no lo que alguien tecleó que pasó.
     //
-    // Limitación conocida: `updated_at` se mueve si la fila se vuelve a escribir,
-    // y contabilidad la escribe al recibirla. En las facturas ya recibidas esta
-    // fecha es la de recepción, no la del envío. Guardar el instante exacto
-    // exigiría una columna propia (`sent_to_accounting_at`), que no existe.
+    // Es una reconstrucción y por eso solo se aplica donde no hay renglón: en las
+    // facturas ya recibidas `updated_at` es la fecha en que Contabilidad las
+    // recibió, no la del envío, porque volvió a escribir la fila. La bitácora, que
+    // sí guarda el instante del envío, siempre manda sobre esta cuenta.
     if (requisitionIds.length > 0) {
       const sentResult = await this.purchaseOrderRepository.query(
         `SELECT po.requisition_id AS requisition_id,
@@ -413,6 +449,7 @@ export class AuditService {
         if (r.sent_date) sentMap.set(Number(r.requisition_id), r.sent_date);
       }
       for (const row of rows) {
+        if (row.events['factura_contabilidad']) continue; // La bitácora ya lo dijo.
         const sent = sentMap.get(row.requisitionId);
         if (sent) row.events['factura_contabilidad'] = sent;
       }
@@ -797,7 +834,7 @@ export class AuditService {
       // Para que la matriz descuente los festivos al medir cuánto tardó cada
       // paso. Van desde aquí y no en una copia del frontend: la lista es una
       // sola y tiene que serlo.
-      holidays: COLOMBIA_HOLIDAY_DATES,
+      holidays: colombianHolidayDates(),
     };
   }
 

@@ -5,63 +5,108 @@
  * Excluye festivos colombianos
  */
 
-// Festivos Colombia 2025
-const COLOMBIA_HOLIDAYS_2025 = [
-  new Date('2025-01-01'), // Año Nuevo
-  new Date('2025-01-06'), // Reyes Magos
-  new Date('2025-03-24'), // San José
-  new Date('2025-04-17'), // Jueves Santo
-  new Date('2025-04-18'), // Viernes Santo
-  new Date('2025-05-01'), // Día del Trabajo
-  new Date('2025-06-02'), // Ascensión del Señor
-  new Date('2025-06-23'), // Corpus Christi
-  new Date('2025-06-30'), // San Pedro y San Pablo
-  new Date('2025-07-20'), // Independencia
-  new Date('2025-08-07'), // Batalla de Boyacá
-  new Date('2025-08-18'), // Asunción de la Virgen
-  new Date('2025-10-13'), // Día de la Raza
-  new Date('2025-11-03'), // Todos los Santos
-  new Date('2025-11-17'), // Independencia de Cartagena
-  new Date('2025-12-08'), // Inmaculada Concepción
-  new Date('2025-12-25'), // Navidad
-];
+/**
+ * Los festivos se calculan, no se escriben a mano.
+ *
+ * Antes eran dos listas fijas —2025 y 2026— y eso tenía fecha de vencimiento: el
+ * 1 de enero de 2027, sin que nadie tocara nada, todos los festivos del año
+ * habrían pasado a contar como días hábiles y los SLA de compras habrían
+ * empezado a vencerse antes de tiempo, en silencio.
+ *
+ * Las reglas son las de la Ley 51 de 1983 («Ley Emiliani»): unos festivos caen
+ * en fecha fija, otros se corren al lunes siguiente, y los de Semana Santa
+ * cuelgan de la Pascua. El cálculo reproduce exactamente las dos listas que
+ * había escritas, así que ningún tiempo ya medido cambia.
+ */
 
-// Festivos Colombia 2026
-const COLOMBIA_HOLIDAYS_2026 = [
-  new Date('2026-01-01'), // Año Nuevo
-  new Date('2026-01-12'), // Reyes Magos
-  new Date('2026-03-23'), // Día de San José
-  new Date('2026-04-02'), // Jueves Santo
-  new Date('2026-04-03'), // Viernes Santo
-  new Date('2026-05-01'), // Día del Trabajo
-  new Date('2026-05-18'), // Ascensión de Jesús
-  new Date('2026-06-08'), // Corpus Christi
-  new Date('2026-06-15'), // Sagrado Corazón de Jesús
-  new Date('2026-06-29'), // San Pedro y San Pablo
-  new Date('2026-07-20'), // Día de la Independencia
-  new Date('2026-08-07'), // Batalla de Boyacá
-  new Date('2026-08-17'), // Asunción de la Virgen
-  new Date('2026-10-12'), // Día de la Raza
-  new Date('2026-11-02'), // Todos los Santos
-  new Date('2026-11-16'), // Independencia de Cartagena
-  new Date('2026-12-08'), // Inmaculada Concepción
-  new Date('2026-12-25'), // Navidad
-];
+/** Domingo de Pascua por el algoritmo gregoriano anónimo, en UTC. */
+function easterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 1-based
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
 
-// Combinar todos los festivos
-const COLOMBIA_HOLIDAYS = [...COLOMBIA_HOLIDAYS_2025, ...COLOMBIA_HOLIDAYS_2026];
+const addUtcDays = (d: Date, n: number): Date =>
+  new Date(d.getTime() + n * 86400000);
+
+/** Traslado al lunes siguiente. Si ya es lunes, se queda. */
+const toNextMonday = (d: Date): Date => addUtcDays(d, (8 - d.getUTCDay()) % 7);
+
+const utcKey = (d: Date): string => d.toISOString().split('T')[0];
+
+const holidayCache = new Map<number, Set<string>>();
+
+/** Los festivos colombianos de un año, como `YYYY-MM-DD`. */
+export function getColombianHolidays(year: number): Set<string> {
+  const cached = holidayCache.get(year);
+  if (cached) return cached;
+
+  const easter = easterSunday(year);
+
+  const fixed = [
+    new Date(Date.UTC(year, 0, 1)), // Año Nuevo
+    new Date(Date.UTC(year, 4, 1)), // Día del Trabajo
+    new Date(Date.UTC(year, 6, 20)), // Independencia
+    new Date(Date.UTC(year, 7, 7)), // Batalla de Boyacá
+    new Date(Date.UTC(year, 11, 8)), // Inmaculada Concepción
+    new Date(Date.UTC(year, 11, 25)), // Navidad
+    // Semana Santa: cuelgan de la Pascua y no se trasladan.
+    addUtcDays(easter, -3), // Jueves Santo
+    addUtcDays(easter, -2), // Viernes Santo
+  ];
+
+  // Los que se corren al lunes siguiente.
+  const emiliani = [
+    new Date(Date.UTC(year, 0, 6)), // Reyes Magos
+    new Date(Date.UTC(year, 2, 19)), // San José
+    new Date(Date.UTC(year, 5, 29)), // San Pedro y San Pablo
+    new Date(Date.UTC(year, 7, 15)), // Asunción de la Virgen
+    new Date(Date.UTC(year, 9, 12)), // Día de la Raza
+    new Date(Date.UTC(year, 10, 1)), // Todos los Santos
+    new Date(Date.UTC(year, 10, 11)), // Independencia de Cartagena
+    addUtcDays(easter, 39), // Ascensión del Señor
+    addUtcDays(easter, 60), // Corpus Christi
+    addUtcDays(easter, 68), // Sagrado Corazón
+  ].map(toNextMonday);
+
+  // Va en un Set porque dos festivos pueden caer el mismo lunes: en 2025, San
+  // Pedro y el Sagrado Corazón coincidieron el 30 de junio.
+  const set = new Set([...fixed, ...emiliani].map(utcKey));
+  holidayCache.set(year, set);
+  return set;
+}
 
 /**
- * Los mismos festivos como texto `YYYY-MM-DD`, para mandárselos al frontend.
+ * Los festivos como texto `YYYY-MM-DD`, para mandárselos al frontend.
  *
- * Existe para que la lista viva en un solo sitio: la matriz de auditoría
- * descuenta fines de semana y festivos al medir cuánto tardó cada paso, y con
- * una copia en el frontend bastaría con que alguien agregara aquí el festivo de
- * 2027 para que las dos pantallas dieran tiempos distintos.
+ * Existe para que la lista viva en un solo sitio: las dos vistas de auditoría
+ * descuentan fines de semana y festivos al medir cuánto tardó cada paso, y con
+ * una copia en el frontend bastaría con tocar una para que la misma requisición
+ * mostrara tiempos distintos en cada pantalla.
+ *
+ * Es función y no constante porque el servidor se queda arriba meses: una lista
+ * calculada al arrancar se quedaría sin el año siguiente al pasar diciembre.
  */
-export const COLOMBIA_HOLIDAY_DATES: string[] = COLOMBIA_HOLIDAYS.map(
-  (d) => d.toISOString().split('T')[0],
-);
+export function colombianHolidayDates(): string[] {
+  const year = new Date().getFullYear();
+  const dates: string[] = [];
+  for (let y = year - 2; y <= year + 2; y++) {
+    dates.push(...getColombianHolidays(y));
+  }
+  return dates.sort();
+}
 
 const BUSINESS_START_HOUR = 7; // 7 AM
 const BUSINESS_END_HOUR = 16; // 4 PM (4:30 PM)
@@ -81,9 +126,7 @@ export function isBusinessDay(date: Date): boolean {
 
   // Verificar si es festivo
   const dateString = date.toISOString().split('T')[0];
-  return !COLOMBIA_HOLIDAYS.some(
-    holiday => holiday.toISOString().split('T')[0] === dateString
-  );
+  return !getColombianHolidays(date.getUTCFullYear()).has(dateString);
 }
 
 /**
