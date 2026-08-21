@@ -33,6 +33,13 @@ export interface WorksNotificationData {
   projectCode?: string;
   comments?: string;
   actionUrl?: string;
+  /**
+   * Valor en pesos, cuando la cosa tiene uno. Solo lo usa la plantilla de Gerencia,
+   * que lo pone grande arriba: es lo primero que se mira al decidir. Va opcional
+   * porque no todo lo que se firma tiene monto —una requisición se aprueba antes
+   * de cotizar— y un cero sería peor que no mostrarlo.
+   */
+  amount?: number;
 }
 
 @Injectable()
@@ -400,61 +407,232 @@ export class NotificationsService {
     });
   }
 
+
+  /* ── Correos de Gerencia ──────────────────────────────────────────────
+   *
+   * Lo que llega al escritorio de Gerencia se ve distinto al resto del sistema, y
+   * es a propósito. Los demás correos avisan de algo que ya pasó; estos piden una
+   * decisión, y quien los recibe abre decenas al día. Con el mismo encabezado azul
+   * y el mismo emoji que todo lo demás, el que hay que firmar hoy se pierde entre
+   * los que solo informan.
+   *
+   * Diferencias de fondo, no de adorno:
+   *  - Se abre por el asunto: dice qué se decide y sobre qué, sin prefijos de
+   *    sistema ni emojis. En una bandeja llena, el asunto es lo único que se lee.
+   *  - Primero la decisión y el monto, después el detalle. Al revés obliga a
+   *    leerlo entero para saber si hay que actuar.
+   *  - Un solo botón. Dos acciones en un correo terminan en ninguna.
+   *  - Va en tablas con estilos en línea y no en clases con <style>: Outlook de
+   *    escritorio ignora buena parte del <style> del encabezado, que es justo el
+   *    cliente donde esto se abre.
+   */
+
+  /** Paleta de la marca. El amarillo es el de Canalco, no un acento cualquiera. */
+  private readonly G = {
+    tinta: "#16162b",
+    suave: "#6b6b80",
+    linea: "#e6e6f0",
+    fondo: "#f4f4f7",
+    papel: "#ffffff",
+    marca: "#ffe81a",
+    alerta: "#b91c1c",
+  };
+
+  /** Pesos colombianos sin decimales, que es como se leen los montos aquí. */
+  private pesos(valor?: number | null): string | null {
+    if (valor === undefined || valor === null || Number.isNaN(valor)) return null;
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    }).format(valor);
+  }
+
+  private plantillaGerencia(payload: {
+    destinatario: string;
+    /** Qué clase de decisión es. Va arriba, en versalitas. */
+    tipo: string;
+    titulo: string;
+    entradilla: string;
+    /** El monto, ya en pesos. Se omite el bloque si no hay. */
+    monto?: string | null;
+    montoEtiqueta?: string;
+    datos: Array<[string, string | number | null | undefined]>;
+    /** Observación de quien lo envía, si escribió alguna. */
+    nota?: string | null;
+    urgente?: boolean;
+    accionUrl?: string | null;
+    accionLabel?: string;
+  }): string {
+    const c = this.G;
+    const esc = (v?: string | number | null) => this.escapeHtml(v);
+
+    const filas = payload.datos
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(
+        ([etiqueta, valor], i) => `
+              <tr>
+                <td style="padding:10px 0;${i === 0 ? "" : `border-top:1px solid ${c.linea};`}font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${c.suave};white-space:nowrap;">${esc(etiqueta)}</td>
+                <td align="right" style="padding:10px 0;${i === 0 ? "" : `border-top:1px solid ${c.linea};`}font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${c.tinta};font-weight:bold;">${esc(valor)}</td>
+              </tr>`,
+      )
+      .join("");
+
+    const bloqueMonto = payload.monto
+      ? `
+            <tr>
+              <td style="padding:4px 0 20px 0;">
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:${c.suave};padding-bottom:4px;">${esc(payload.montoEtiqueta || "Valor")}</div>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:30px;line-height:34px;font-weight:bold;color:${c.tinta};">${esc(payload.monto)}</div>
+              </td>
+            </tr>`
+      : "";
+
+    const bloqueUrgente = payload.urgente
+      ? `
+            <tr>
+              <td style="padding:0 0 16px 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="background-color:${c.alerta};padding:5px 12px;border-radius:3px;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:bold;letter-spacing:1px;color:#ffffff;">PRIORIDAD ALTA</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>`
+      : "";
+
+    const bloqueNota = payload.nota
+      ? `
+            <tr>
+              <td style="padding:20px 0 0 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="border-left:3px solid ${c.marca};padding:2px 0 2px 14px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:${c.tinta};">${esc(payload.nota)}</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>`
+      : "";
+
+    // Botón en tabla y no un <a> con relleno: Outlook recorta el área pulsable de
+    // un enlace con padding y deja un botón que solo responde sobre el texto.
+    const bloqueBoton = payload.accionUrl
+      ? `
+            <tr>
+              <td style="padding:28px 0 0 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="center" style="background-color:${c.marca};border-radius:4px;">
+                      <a href="${esc(payload.accionUrl)}" style="display:inline-block;padding:14px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:${c.tinta};text-decoration:none;">${esc(payload.accionLabel || "Abrir")}</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:17px;color:${c.suave};word-break:break-all;">
+                Si el botón no abre: ${esc(payload.accionUrl)}
+              </td>
+            </tr>`
+      : "";
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${esc(payload.titulo)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:${c.fondo};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${c.fondo};">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;background-color:${c.papel};border-radius:6px;overflow:hidden;">
+
+          <tr><td style="height:5px;background-color:${c.marca};font-size:0;line-height:0;">&nbsp;</td></tr>
+
+          <tr>
+            <td style="padding:32px 40px 0 40px;">
+              <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:${c.suave};">${esc(payload.tipo)}</div>
+              <h1 style="margin:10px 0 0 0;font-family:Georgia,'Times New Roman',serif;font-size:25px;line-height:33px;font-weight:normal;color:${c.tinta};">${esc(payload.titulo)}</h1>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:22px 40px 32px 40px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                ${bloqueUrgente}
+                <tr>
+                  <td style="padding:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:${c.tinta};">
+                    ${esc(payload.destinatario)}, ${esc(payload.entradilla)}
+                  </td>
+                </tr>
+                ${bloqueMonto}
+                <tr>
+                  <td>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid ${c.tinta};">
+                      ${filas}
+                    </table>
+                  </td>
+                </tr>
+                ${bloqueNota}
+                ${bloqueBoton}
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:20px 40px 28px 40px;border-top:1px solid ${c.linea};font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:17px;color:${c.suave};">
+              Sistema de Gestión Empresarial &middot; Canalco Group<br>
+              Correo automático. La decisión queda registrada a su nombre en el sistema.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
+  /**
+   * Requisición esperando la firma de Gerencia.
+   *
+   * No lleva monto y no es un olvido: la requisición se aprueba ANTES de cotizar,
+   * así que a esta altura todavía no hay un valor que mostrar. Lo que se decide es
+   * si se compra, no cuánto cuesta.
+   */
   async notifyRequisitionForApproval(
     approverEmail: string,
     approverName: string,
     data: RequisitionNotificationData,
   ): Promise<boolean> {
-    const priorityBadge =
-      data.priority === "alta"
-        ? '<span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold;">PRIORIDAD ALTA</span>'
-        : "";
+    const urgente = data.priority === "alta";
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background-color: #007bff; padding: 20px; text-align: center; }
-          .header h1 { margin: 0; color: white; font-size: 24px; }
-          .content { padding: 20px; background-color: #f9f9f9; }
-          .info-box { background-color: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
-          .btn { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 15px; }
-          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🔐 Requisición Pendiente de Aprobación</h1>
-          </div>
-          <div class="content">
-            <p>Hola <strong>${approverName}</strong>,</p>
-            <p>La siguiente requisición requiere tu aprobación:</p>
+    const html = this.plantillaGerencia({
+      destinatario: approverName,
+      tipo: "Requiere su aprobación",
+      titulo: `Requisición ${data.requisitionNumber}`,
+      entradilla:
+        "esta requisición terminó su revisión y queda pendiente de su firma para seguir a cotización.",
+      datos: [
+        ["Requisición", data.requisitionNumber],
+        ["Solicita", data.creatorName],
+        ["Proyecto", data.projectName],
+        ["Materiales", `${data.itemsCount} ítem${data.itemsCount === 1 ? "" : "s"}`],
+        ["Prioridad", urgente ? "Alta" : "Normal"],
+      ],
+      urgente,
+      accionUrl: data.actionUrl,
+      accionLabel: "Revisar y aprobar",
+    });
 
-            <div class="info-box">
-              <p><strong>Número:</strong> ${data.requisitionNumber} ${priorityBadge}</p>
-              <p><strong>Creado por:</strong> ${data.creatorName}</p>
-              ${data.projectName ? `<p><strong>Proyecto:</strong> ${data.projectName}</p>` : ""}
-              <p><strong>Materiales:</strong> ${data.itemsCount} ítem(s)</p>
-            </div>
-
-            ${data.actionUrl ? `<a href="${data.actionUrl}" class="btn">Revisar y Aprobar</a>` : ""}
-          </div>
-          <div class="footer">
-            <p>Sistema de Gestión Empresarial - Canalcongroup</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-
+    // El asunto dice qué se decide y sobre qué. Sin emoji ni prefijo de sistema:
+    // en una bandeja llena es lo único que se alcanza a leer.
     return this.sendEmail({
       to: approverEmail,
-      subject: `🔐 Requisición ${data.requisitionNumber} pendiente de aprobación${data.priority === "alta" ? " [URGENTE]" : ""}`,
+      subject: `${urgente ? "Urgente · " : ""}Su aprobación: requisición ${data.requisitionNumber}`,
       html,
     });
   }
@@ -1061,22 +1239,42 @@ export class NotificationsService {
    * Va a Gerencia, que es la única que puede autorizar una compra sin código de
    * contabilidad.
    */
+  /**
+   * Permiso para comprar contra un acta que todavía no existe del todo.
+   *
+   * Es la decisión más delicada de las tres: se autoriza gasto sobre un acta sin
+   * código de contabilidad. Por eso la justificación va en la caja destacada y no
+   * mezclada en el texto: es lo que sostiene la firma.
+   */
   async notifyRqAnticipadaSolicitada(
     approverEmail: string,
     approverName: string,
     data: WorksNotificationData,
     justificacion: string,
   ): Promise<boolean> {
-    return this.sendWorksWorkflowNotification(
-      approverEmail,
-      approverName,
-      `Compra anticipada sobre el acta ${data.identifier}`,
-      "Compra anticipada pendiente de autorización",
-      `Gerencia de Proyectos solicita comprar materiales contra el acta provisional ${data.identifier}, que todavía no tiene código de contabilidad. Justificación: ${justificacion}`,
-      data,
-      "#b45309",
-      "Autorizar compra",
-    );
+    const html = this.plantillaGerencia({
+      destinatario: approverName,
+      tipo: "Requiere su autorización",
+      titulo: `Compra anticipada sobre el acta ${data.identifier}`,
+      entradilla:
+        "Gerencia de Proyectos pide comprar materiales contra un acta provisional, que todavía no tiene código de contabilidad.",
+      datos: [
+        ["Acta provisional", data.identifier],
+        ["Obra", data.workName],
+        ["Municipio", data.municipality],
+        ["Obras agrupadas", data.worksCount],
+        ["Solicita", data.actorName || data.createdBy],
+      ],
+      nota: justificacion,
+      accionUrl: data.actionUrl,
+      accionLabel: "Revisar y autorizar",
+    });
+
+    return this.sendEmail({
+      to: approverEmail,
+      subject: `Su autorización: compra anticipada sobre el acta ${data.identifier}`,
+      html,
+    });
   }
 
   /** Respuesta de Gerencia a quien pidió comprar por anticipado. */
@@ -1176,21 +1374,37 @@ export class NotificationsService {
   // PRESUPUESTO DEL DIRECTOR
   // ============================================
 
+  /** Presupuesto del Director esperando la autorización de Gerencia. */
   async notifyDirectorBudgetForAuthorization(
     approverEmail: string,
     approverName: string,
     data: WorksNotificationData,
   ): Promise<boolean> {
-    return this.sendWorksWorkflowNotification(
-      approverEmail,
-      approverName,
-      `Presupuesto ${data.identifier} pendiente de autorización`,
-      "Presupuesto pendiente de autorización",
-      "Un Presupuesto del Director espera la autorización de Gerencia.",
-      data,
-      "#2563eb",
-      "Autorizar presupuesto",
-    );
+    const html = this.plantillaGerencia({
+      destinatario: approverName,
+      tipo: "Requiere su autorización",
+      titulo: `Presupuesto del acta ${data.identifier}`,
+      entradilla:
+        "la Directora Financiera terminó su revisión y el presupuesto queda pendiente de su autorización.",
+      monto: this.pesos(data.amount),
+      montoEtiqueta: "Valor del presupuesto",
+      datos: [
+        ["Acta", data.identifier],
+        ["Obra", data.workName],
+        ["Municipio", data.municipality],
+        ["Elaborado por", data.createdBy],
+        ["Enviado por", data.actorName],
+      ],
+      nota: data.comments,
+      accionUrl: data.actionUrl,
+      accionLabel: "Revisar y autorizar",
+    });
+
+    return this.sendEmail({
+      to: approverEmail,
+      subject: `Su autorización: presupuesto del acta ${data.identifier}`,
+      html,
+    });
   }
 
   async notifyDirectorBudgetApproved(
