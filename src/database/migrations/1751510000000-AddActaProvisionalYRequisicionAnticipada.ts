@@ -48,6 +48,12 @@ export class AddActaProvisionalYRequisicionAnticipada1751510000000
 
     // Se busca por (empresa, proyecto, numero) al aprobar el acta, y por acta
     // pendiente de codigo en la bandeja de control.
+    //
+    // El indice tambien esta declarado con @Index en la entidad Requisition, y ahi
+    // es donde de verdad se sostiene: la conexion corre con `synchronize: true` y
+    // en cada arranque TypeORM borra todo indice que no encuentre en la entidad.
+    // Creado solo aqui, viviria hasta el siguiente despliegue. Se deja igualmente
+    // para que la migracion describa el esquema completo.
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_requisitions_acta"
         ON "requisitions" ("company_id", "project_id", "acta_number")

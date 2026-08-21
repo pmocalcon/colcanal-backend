@@ -7,6 +7,7 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from "typeorm";
 import { Company } from "./company.entity";
 import { Project } from "./project.entity";
@@ -21,7 +22,24 @@ import { RequisitionApproval } from "./requisition-approval.entity";
 
 /**
  * Requisición de compra: empresa, proyecto, código, prioridad y estado; origen del flujo de compras.
+ *
+ * Sobre el índice de abajo: va declarado aquí y no solo en la migración que lo creó.
+ *
+ * La conexión corre con `synchronize: true`, y en cada arranque TypeORM borra de
+ * la tabla todo índice que no encuentre declarado en la entidad. Un índice creado
+ * únicamente por migración vive hasta el siguiente despliegue y desaparece sin que
+ * nadie se entere: hoy `requisitions` no tiene un solo índice secundario, solo la
+ * llave primaria y el único de `requisition_number`, que sobreviven por ser
+ * constraints.
+ *
+ * Es parcial porque `acta_number` solo lo llena el camino de requisición
+ * anticipada; en el resto está vacío y no hay nada que indexar. Con las tres
+ * columnas se resuelve la identidad del acta —(empresa, proyecto, número)—, que es
+ * por donde se busca al aprobarla para bajarle el código de contabilidad.
  */
+@Index("IDX_requisitions_acta", ["companyId", "projectId", "actaNumber"], {
+  where: '"acta_number" IS NOT NULL',
+})
 @Entity("requisitions")
 export class Requisition {
   @PrimaryGeneratedColumn({ name: "requisition_id" })
