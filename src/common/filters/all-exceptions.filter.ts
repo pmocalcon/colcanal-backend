@@ -107,10 +107,30 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message: Array.isArray(message) ? message : [message],
     };
 
-    // Log the error with request context
-    this.logger.error(
-      `${request.method} ${request.url} - Status: ${status} - Error: ${JSON.stringify(errorResponse)}`,
-    );
+    // El nivel se elige por el código, no todo es un error.
+    //
+    // Antes cada excepción salía como ERROR, incluidos los 401 de una sesión
+    // vencida y los 404 de una ruta que no existe. Eso no es una falla del
+    // servidor: es comportamiento normal de los clientes. El resultado era que la
+    // vista de errores de Render vivía llena de ruido, y un fallo de verdad
+    // —un correo que no sale, una consulta que revienta— quedaba enterrado entre
+    // sesiones caducadas.
+    //
+    //   5xx        -> error, que es lo que hay que mirar
+    //   400/409/422 -> warn, reglas de negocio que alguien incumplió
+    //   401/403/404 -> debug, ruido cotidiano; sigue en el registro completo
+    const ruidoCotidiano = status === 401 || status === 403 || status === 404;
+    const nivel: 'error' | 'warn' | 'debug' =
+      status >= 500 ? 'error' : ruidoCotidiano ? 'debug' : 'warn';
+
+    // A los de 5xx se les deja el detalle completo; a los demás una línea, que
+    // es lo que se necesita para seguirles el rastro.
+    const resumen =
+      nivel === 'error'
+        ? `${request.method} ${request.url} - Status: ${status} - Error: ${JSON.stringify(errorResponse)}`
+        : `${request.method} ${request.url} - ${status} ${error}`;
+
+    this.logger[nivel](resumen);
 
     response.status(status).json(errorResponse);
   }
