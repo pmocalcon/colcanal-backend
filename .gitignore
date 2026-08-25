@@ -67,3 +67,6 @@ uploads/
 # incapacidades de todo el personal. Es un archivo de paso, no un dato del proyecto.
 talento-humano.json
 *.xlsx
+# Byproducto de correr los extractores de scripts/
+__pycache__/
+*.pyc
