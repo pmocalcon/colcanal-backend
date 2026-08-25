@@ -88,3 +88,8 @@ export * from "./th-incapacidad.entity";
 export * from "./th-ausentismo.entity";
 export * from "./th-prestamo.entity";
 export * from "./th-prestamo-pago.entity";
+export * from "./th-horas-extra.entity";
+export * from "./th-horas-extra-detalle.entity";
+export * from "./th-vacacion.entity";
+export * from "./th-novedad-nomina.entity";
+export * from "./th-nomina-liquidacion.entity";

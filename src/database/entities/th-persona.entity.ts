@@ -94,6 +94,10 @@ export class ThPersona {
   @Column({ name: "total_salarios", type: "numeric", precision: 14, scale: 2, nullable: true })
   totalSalarios: string | null;
 
+  /** Tarifa de riesgo ARL. Fracción, no porcentaje: 0.0435 es el 4,35 %. */
+  @Column({ name: "nivel_riesgo", type: "numeric", precision: 8, scale: 6, nullable: true })
+  nivelRiesgo: string | null;
+
   /** Fracción, no porcentaje: 0.3783 es el 37,83 %. Así viene del archivo. */
   @Column({ name: "carga_prestacional_pct", type: "numeric", precision: 8, scale: 6, nullable: true })
   cargaPrestacionalPct: string | null;

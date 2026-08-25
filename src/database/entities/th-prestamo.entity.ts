@@ -83,6 +83,18 @@ export class ThPrestamo {
   @Column({ type: "numeric", precision: 14, scale: 2, nullable: true })
   saldo: string | null;
 
+  /**
+   * Columnas auxiliares del Excel de prestamos: la nomina no descuenta necesariamente
+   * `valor_cuota`, sino el valor que Contabilidad deja en "CUOTA A DESCONTAR" para el
+   * nombre exacto que aparece en la hoja NOVEDADES NOMINA.
+   */
+  @Index()
+  @Column({ name: "nombre_nomina", type: "varchar", length: 160, nullable: true })
+  nombreNomina: string | null;
+
+  @Column({ name: "cuota_descontar", type: "numeric", precision: 14, scale: 2, nullable: true })
+  cuotaDescontar: string | null;
+
   @Column({ type: "text", nullable: true })
   observaciones: string | null;
 

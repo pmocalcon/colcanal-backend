@@ -15,6 +15,7 @@ import { OperationCenter } from "../../database/entities/operation-center.entity
 import { Authorization } from "../../database/entities/authorization.entity";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PurchasesService } from "../purchases/purchases.service";
+import { TalentoHumanoService } from "../talento-humano/talento-humano.service";
 import { CreateSolicitudDto, UpdateSolicitudDto } from "./dto";
 import {
   JURIDICA_TRANSICIONES,
@@ -68,6 +69,12 @@ import {
   HorasExtrasEstado,
 } from "./horas-extras-workflow";
 import {
+  VACACIONES_TRANSICIONES,
+  VACACIONES_ESTADOS,
+  VACACIONES_NOTIFICAR_AL_LLEGAR,
+  VacacionesEstado,
+} from "./vacaciones-workflow";
+import {
   SIGLA_CONTRATO,
   SIGLA_SIN_TIPO,
   ACCION_ALERTA_VENCIMIENTO,
@@ -75,12 +82,48 @@ import {
   ACCION_NOTIFICACION_INICIO,
   DIAS_ALERTA_VENCIMIENTO,
   ESTADOS_CONTRATO_VIGENTE,
+  esRequisicionDePersonal,
   formatearConsecutivo,
   mismoNombre,
   numeroDeConsecutivo,
   vencimientoDe,
 } from "./juridica-contratos";
 import { ROLES_ADMINISTRATIVA, ROLES_JURIDICA } from "./juridica-workflow";
+
+/**
+ * Los tipos de hora extra con su recargo, **espejo exacto** de `TIPOS_HORA` en
+ * `HorasExtrasPage.tsx` (frontend). Hace falta acá para recalcular horas y liquidación
+ * al aprobar la planilla: si un factor cambia en el papel, hay que cambiarlo en los dos
+ * sitios o la liquidación que se guarda deja de cuadrar con la que se imprime.
+ */
+const TIPOS_HORA_EXTRA = [
+  { key: "diurna", factor: 1.25 },
+  { key: "recargoNocturno", factor: 0.35 },
+  { key: "nocturna", factor: 1.75 },
+  { key: "diurnaFestiva", factor: 2.15 },
+  { key: "nocturnaFestiva", factor: 2.65 },
+] as const;
+
+/** Texto → número. Acepta la coma decimal, igual que `num()` en `HorasExtrasPage.tsx`. */
+function numHorasExtras(v: unknown): number {
+  const limpio = String(v ?? "").replace(/[^\d,.-]/g, "").replace(",", ".");
+  const n = parseFloat(limpio);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Las casillas DÍA/MES/AÑO del formato de vacaciones, a fecha ISO. Null si falta
+ * cualquiera de las tres o si no arma una fecha real (p. ej. 31 de febrero).
+ */
+function fechaISO(f: { dia?: string; mes?: string; anio?: string } | undefined | null): string | null {
+  const dia = parseInt(String(f?.dia ?? ""), 10);
+  const mes = parseInt(String(f?.mes ?? ""), 10);
+  const anio = parseInt(String(f?.anio ?? ""), 10);
+  if (!dia || !mes || !anio) return null;
+  const d = new Date(Date.UTC(anio, mes - 1, dia));
+  if (d.getUTCFullYear() !== anio || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
+  return `${anio}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+}
 
 @Injectable()
 export class GestionConocimientoService implements OnModuleInit {
@@ -99,6 +142,7 @@ export class GestionConocimientoService implements OnModuleInit {
     private readonly authorizationRepo: Repository<Authorization>,
     private readonly purchases: PurchasesService,
     private readonly notifications: NotificationsService,
+    private readonly talentoHumano: TalentoHumanoService,
   ) {}
 
   /** Código del material "POLIZA / CERTIFICACIONES" en Gestión de Compras. */
@@ -156,6 +200,17 @@ export class GestionConocimientoService implements OnModuleInit {
     return (
       s.gestion === "talento-humano" &&
       s.formato === GestionConocimientoService.FORMATO_HORAS_EXTRAS
+    );
+  }
+
+  /** Formato de la Solicitud de Vacaciones: firma, Vo.Bo. jefe, Vo.Bo. TH y Gerencia. */
+  private static readonly FORMATO_VACACIONES = "GTH-018-F";
+
+  /** True si la solicitud es una Solicitud de Vacaciones (GTH-018-F). */
+  private esVacaciones(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "talento-humano" &&
+      s.formato === GestionConocimientoService.FORMATO_VACACIONES
     );
   }
 
@@ -847,6 +902,11 @@ export class GestionConocimientoService implements OnModuleInit {
       return this.transitionHorasExtras(solicitud, accion, userId, motivo);
     }
 
+    // La Solicitud de Vacaciones (GTH-018-F) recorre los cuatro recuadros del papel.
+    if (this.esVacaciones(solicitud)) {
+      return this.transitionVacaciones(solicitud, accion, userId, motivo);
+    }
+
     const t = JURIDICA_TRANSICIONES[accion];
     if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
 
@@ -911,6 +971,23 @@ export class GestionConocimientoService implements OnModuleInit {
         : null;
       omitirAutorizacion = creador?.role?.category === CATEGORIA_DIRECTOR_AREA;
       if (omitirAutorizacion) destino = "pendiente_firma_gerencia";
+    }
+
+    /*
+     * Una requisición de personal termina al firmarse el contrato.
+     *
+     * Lo que sigue en el flujo —pólizas, verificación y aprobación de garantías,
+     * designación de supervisor y acta de inicio— es del contrato con un tercero: a un
+     * empleado no se le exige póliza ni se le designa supervisor de contrato. Dejarla
+     * seguir por ahí obligaba a Jurídica a atravesar seis etapas que no le aplican para
+     * poder cerrar el trámite.
+     *
+     * Se cambia el destino y no se bloquean las acciones siguientes: las requisiciones de
+     * personal que ya venían corriendo por pólizas cuando esto se cerró siguen en esos
+     * estados, y quitarles la salida las dejaría trancadas para siempre.
+     */
+    if (accion === "firmar_contrato" && esRequisicionDePersonal(solicitud.data)) {
+      destino = "finalizado";
     }
 
     const ahora = new Date();
@@ -2153,6 +2230,21 @@ export class GestionConocimientoService implements OnModuleInit {
         (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
       data.firmaGerencia = user?.nombre ?? "";
       data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
+
+      // Gerencia acaba de aprobar el desembolso: nace en la cartera real. Va antes de
+      // guardar la solicitud para no dejarla marcada "aprobado" sin que el préstamo
+      // exista de verdad si esto falla.
+      await this.talentoHumano.createPrestamo({
+        nombre: data.nombreCompleto || "",
+        identificacion: data.numero || null,
+        mesInicio: data.fechaDesembolso || null,
+        numeroCuotas: data.numeroCuotas ? Number(data.numeroCuotas) : null,
+        valorPrestamo: data.valorAprobado || null,
+        valorCuota: data.valorCuota || null,
+        valorCancelado: "0",
+        saldo: data.valorAprobado || null,
+        observaciones: `Generado al aprobar la solicitud GTH-007-F N.º ${solicitud.solicitudId}.`,
+      });
     }
 
     // Al devolver al borrador se borran las firmas y las condiciones pactadas: el
@@ -2306,13 +2398,18 @@ export class GestionConocimientoService implements OnModuleInit {
     const hoy = ahora.toISOString().slice(0, 10);
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
 
-    // Sin nombre y sin fecha del permiso, el papel no dice quién falta ni cuándo.
+    // Sin nombre, identificación y fecha del permiso, el papel no dice quién falta ni
+    // cuándo. La identificación no está en el modelo impreso, pero sin ella el permiso
+    // aprobado no se puede registrar en la base real de ausentismos (th_ausentismos),
+    // que la exige.
     if (accion === "enviar") {
       const falta =
-        !String(data.nombre ?? "").trim() || !String(data.fechaPermiso ?? "").trim();
+        !String(data.nombre ?? "").trim() ||
+        !String(data.identificacion ?? "").trim() ||
+        !String(data.fechaPermiso ?? "").trim();
       if (falta) {
         throw new BadRequestException(
-          "Diligencia el nombre y la fecha del permiso antes de enviarlo a aprobación.",
+          "Diligencia el nombre, la identificación y la fecha del permiso antes de enviarlo a aprobación.",
         );
       }
       data.nombreSolicitante = String(data.nombreSolicitante ?? "").trim() || data.nombre;
@@ -2335,6 +2432,25 @@ export class GestionConocimientoService implements OnModuleInit {
       if (accion === "aprobar_jefe") {
         data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
         data.aprobadoPor = user?.nombre ?? "";
+
+        // El jefe acaba de conceder el permiso: nace en el registro real de
+        // ausentismos. Va antes de guardar la solicitud para no dejarla marcada
+        // "aprobado" sin que el ausentismo exista de verdad si esto falla.
+        await this.talentoHumano.createAusentismo({
+          identificacion: data.identificacion,
+          nombre: data.nombre || "",
+          cargo: data.cargo || null,
+          fechaInicio: data.fechaPermiso || null,
+          fechaFin: data.fechaPermiso || null,
+          motivo: data.tipoPermiso || null,
+          observaciones: [
+            data.motivo ? `Motivo: ${data.motivo}` : null,
+            data.horario ? `Horario: ${data.horario}` : null,
+            `Generado al aprobar la solicitud GTH-009-F N.º ${solicitud.solicitudId}.`,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        });
       }
     }
 
@@ -2506,6 +2622,63 @@ export class GestionConocimientoService implements OnModuleInit {
       }
     }
 
+    // Gerencia de Proyectos acaba de aprobar: la planilla nace en la base real, lista
+    // para que Dirección Administrativa la lleve a nómina. Va antes de guardar la
+    // solicitud para no dejarla marcada "aprobado" sin que la planilla exista de
+    // verdad si esto falla.
+    if (accion === "aprobar_gp") {
+      const valorHora = numHorasExtras(data.valorHora);
+      const filas: Record<string, any>[] = Array.isArray(data.filas) ? data.filas : [];
+      const detalle = filas.map((fl) => {
+        const horas = (fl.horas ?? {}) as Record<string, string>;
+        const liquidacion = TIPOS_HORA_EXTRA.reduce(
+          (s, tp) => s + numHorasExtras(horas[tp.key]) * tp.factor,
+          0,
+        );
+        return {
+          fecha: fl.fecha || null,
+          proyecto: fl.proyecto || null,
+          region: fl.region || null,
+          horaEntrada: fl.horaEntrada || null,
+          horaSalida: fl.horaSalida || null,
+          almuerzo: fl.almuerzo || null,
+          codigoLabor: fl.codigoLabor || null,
+          labor: fl.labor || null,
+          diurna: horas.diurna || null,
+          recargoNocturno: horas.recargoNocturno || null,
+          nocturna: horas.nocturna || null,
+          diurnaFestiva: horas.diurnaFestiva || null,
+          nocturnaFestiva: horas.nocturnaFestiva || null,
+          liquidacion: valorHora ? String(liquidacion * valorHora) : null,
+        };
+      });
+      const totalHoras = filas.reduce(
+        (s, fl) => s + TIPOS_HORA_EXTRA.reduce((ss, tp) => ss + numHorasExtras((fl.horas ?? {})[tp.key]), 0),
+        0,
+      );
+      const totalLiquidacion = filas.reduce((s, fl) => {
+        const horas = (fl.horas ?? {}) as Record<string, string>;
+        return (
+          s + valorHora * TIPOS_HORA_EXTRA.reduce((ss, tp) => ss + numHorasExtras(horas[tp.key]) * tp.factor, 0)
+        );
+      }, 0);
+
+      await this.talentoHumano.registrarPlanilla(
+        {
+          nombre: data.nombre || "",
+          identificacion: data.cedula || null,
+          cargo: data.cargo || null,
+          salario: data.salario || null,
+          periodo: data.periodo || null,
+          valorHora: data.valorHora || null,
+          totalHoras: totalHoras ? String(totalHoras) : null,
+          totalLiquidacion: totalLiquidacion ? String(totalLiquidacion) : null,
+          observaciones: `Generada al aprobar la solicitud GTH-016-F N.º ${solicitud.solicitudId}.`,
+        },
+        detalle,
+      );
+    }
+
     const entrada = {
       estado: t.to,
       accion,
@@ -2589,6 +2762,211 @@ export class GestionConocimientoService implements OnModuleInit {
             ? "Ya recorrió las tres revisiones y queda lista para liquidar en nómina."
             : "Ingresa al sistema para continuar con el trámite."
         }</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
+  }
+
+  // ============================================
+  // Flujo de la Solicitud de Vacaciones (GTH-018-F)
+  // ============================================
+
+  /**
+   * Aplica una transición del flujo de vacaciones: los cuatro recuadros de
+   * "APROBACIÓN" del papel, en orden — firma del empleado, Vo.Bo. del jefe inmediato,
+   * Vo.Bo. de Talento Humano y fecha de aprobación de Gerencia.
+   *
+   * El paso del jefe usa la misma tabla de autorizaciones que el permiso y el
+   * anticipo: no hay una lista de roles aprobadores porque la jerarquía ya está en la
+   * base y duplicarla aquí la haría envejecer.
+   */
+  private async transitionVacaciones(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+  ): Promise<GcSolicitud> {
+    const t = VACACIONES_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `La solicitud está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+    const esPmo = esRolPmo(rol);
+
+    let autorizado = esPmo;
+    if (!autorizado) {
+      if (t.jefeAutorizador) {
+        autorizado = await this.puedeAprobarComoJefe(solicitud, userId, rol);
+      } else if (t.soloCreador) {
+        autorizado = solicitud.createdBy === userId;
+      } else {
+        autorizado = t.roles.includes(rol);
+      }
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    // Sin nombre y sin documento, el papel no dice de quién son las vacaciones.
+    if (accion === "enviar") {
+      const falta = !String(data.nombres ?? "").trim() || !String(data.documento ?? "").trim();
+      if (falta) {
+        throw new BadRequestException(
+          "Diligencia el nombre y el documento de identidad antes de enviar la solicitud.",
+        );
+      }
+      data.enviadoPor = user?.nombre ?? "";
+    } else if (accion === "aprobar_jefe") {
+      data.voBoJefeNombre = user?.nombre ?? "";
+      data.voBoJefeFecha = data.voBoJefeFecha || hoy;
+    } else if (accion === "aprobar_th") {
+      data.voBoTalentoHumanoNombre = user?.nombre ?? "";
+      data.voBoTalentoHumanoFecha = data.voBoTalentoHumanoFecha || hoy;
+    } else if (accion === "aprobar_gerencia") {
+      data.aprobadoPorGerencia = user?.nombre ?? "";
+      // Las casillas día/mes/año del papel: se llenan solo si nadie las llenó antes.
+      if (!String(data.fechaAprobacion?.dia ?? "").trim()) {
+        data.fechaAprobacion = {
+          dia: String(ahora.getDate()).padStart(2, "0"),
+          mes: String(ahora.getMonth() + 1).padStart(2, "0"),
+          anio: String(ahora.getFullYear()),
+        };
+      }
+
+      // Gerencia acaba de aprobar: las vacaciones nacen en la base real, con los días
+      // y valores que confirmó Recursos Humanos (bloque "USO EXCLUSIVO ÁREA RECURSOS
+      // HUMANOS"), que son los que de verdad se conceden y pueden no ser los mismos
+      // que pidió el empleado arriba. Va antes de guardar la solicitud para no dejarla
+      // marcada "aprobado" sin que el registro exista de verdad si esto falla.
+      const ladoPeriodo = (p: { mes?: string; anio?: string }) =>
+        [p?.mes, p?.anio].filter((v) => String(v ?? "").trim()).join("/");
+      const periodoCausado = [ladoPeriodo(data.periodoDe ?? {}), ladoPeriodo(data.periodoA ?? {})]
+        .filter(Boolean)
+        .join(" a ");
+      const diasDisfrutar = data.rhDiasDisfrutar || data.diasDisfrutar;
+      const diasCompensar = data.rhDiasCompensar || data.diasCompensar;
+
+      await this.talentoHumano.createVacacion({
+        identificacion: data.documento || "",
+        nombre: data.nombres || "",
+        cargo: data.cargo || null,
+        area: data.areaCargo || null,
+        fechaIngreso: fechaISO(data.fechaIngreso),
+        periodoCausado: periodoCausado || null,
+        fechaInicio: fechaISO(data.rhFechaInicio) || fechaISO(data.fechaInicio),
+        fechaFinal: fechaISO(data.rhFechaFinal) || fechaISO(data.fechaFinal),
+        diasDisfrutar: diasDisfrutar ? Number(diasDisfrutar) : null,
+        diasCompensar: diasCompensar ? Number(diasCompensar) : null,
+        diasPendientes: data.rhDiasPendientes ? Number(data.rhDiasPendientes) : null,
+        valorPrima: data.valorPrima || null,
+        valorAnticipo: data.valorAnticipo || null,
+        fechaPago: fechaISO(data.fechaPago),
+        fechaAprobacion: fechaISO(data.fechaAprobacion),
+        observaciones: `Generadas al aprobar la solicitud GTH-018-F N.º ${solicitud.solicitudId}.`,
+      });
+    }
+
+    // Al devolver al borrador se borran los Vo.Bo. dados: el recorrido vuelve a
+    // empezar y dejarlos diría que alguien avaló unas fechas que ya no son las mismas.
+    if (t.to === "borrador") {
+      data.enviadoPor = "";
+      data.voBoJefeNombre = "";
+      data.voBoJefeFecha = "";
+      data.voBoTalentoHumanoNombre = "";
+      data.voBoTalentoHumanoFecha = "";
+      data.aprobadoPorGerencia = "";
+      data.fechaAprobacion = { dia: "", mes: "", anio: "" };
+    }
+
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarVacaciones(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar la solicitud de vacaciones: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  /** Notifica por correo al actor que sigue en el flujo de vacaciones. */
+  private async notificarVacaciones(
+    solicitud: GcSolicitud,
+    estado: VacacionesEstado,
+    motivo?: string,
+  ): Promise<void> {
+    const destino = VACACIONES_NOTIFICAR_AL_LLEGAR[estado];
+    let usuarios: User[] = [];
+
+    if (destino === "creador") {
+      if (solicitud.createdBy) {
+        const creador = await this.userRepo.findOne({
+          where: { userId: solicitud.createdBy },
+        });
+        if (creador) usuarios = [creador];
+      }
+    } else if (destino === "jefe") {
+      usuarios = await this.jefesDelCreador(solicitud);
+    } else {
+      const activos = await this.userRepo.find({
+        where: { estado: true },
+        relations: ["role"],
+      });
+      const objetivo = destino.map((r) => r.toLowerCase());
+      usuarios = activos.filter((u) =>
+        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      );
+    }
+
+    const label = VACACIONES_ESTADOS[estado].label;
+    const nro = String(solicitud.solicitudId);
+    const quien = String(solicitud.data?.nombres ?? "").trim();
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Solicitud de vacaciones N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>La solicitud de vacaciones <b>N.º ${nro}</b> (formato GTH-018-F)${
+          quien ? ` de <b>${quien}</b>` : ""
+        } pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`,
       });

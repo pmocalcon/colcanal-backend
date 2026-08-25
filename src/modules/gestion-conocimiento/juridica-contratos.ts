@@ -31,6 +31,39 @@ export const SIGLA_CONTRATO: Record<string, string> = {
 /** Sigla de respaldo cuando la solicitud no tiene tipo de contrato definido. */
 export const SIGLA_SIN_TIPO = "CT";
 
+/**
+ * Tipos de contrato que arrancan con la Requisición de Personal (GTH-001-F).
+ *
+ * Son los que implican **seleccionar a una persona**: hay una vacante, un cargo y un
+ * proceso de selección detrás. Quedan fuera `prestacion-de-servicios` (se contrata a un
+ * proveedor por su propuesta) y `pasantias` (llega por convenio).
+ *
+ * Espejo de `TIPOS_CON_REQUISICION_PERSONAL` del frontend. Las dos listas tienen que decir
+ * lo mismo: con esto se decide dónde termina el trámite, y si discreparan el botón que ve
+ * el usuario y lo que acepta el servidor irían por caminos distintos.
+ */
+const TIPOS_CON_REQUISICION_PERSONAL = new Set([
+  "termino-indefinido",
+  "termino-fijo",
+  "obra-labor",
+  "prestacion-de-servicios-profesionales",
+]);
+
+/**
+ * Cuál de las dos requisiciones rige la solicitud.
+ *
+ * Manda lo elegido a mano en el selector; mientras nadie elija, se deduce del tipo de
+ * contrato, para que las solicitudes anteriores al selector no queden sin clasificar.
+ */
+export const esRequisicionDePersonal = (
+  data: Record<string, any> | null | undefined,
+): boolean => {
+  const elegido = data?.tipoRequisicion;
+  if (elegido === "personal") return true;
+  if (elegido === "servicios") return false;
+  return TIPOS_CON_REQUISICION_PERSONAL.has(String(data?.tipoContrato ?? ""));
+};
+
 /** "PS - 0001" */
 export const formatearConsecutivo = (sigla: string, numero: number): string =>
   `${sigla} - ${String(numero).padStart(4, "0")}`;

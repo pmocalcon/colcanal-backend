@@ -222,4 +222,74 @@ export class TalentoHumanoController {
   deletePrestamo(@Param("id", ParseIntPipe) id: number) {
     return this.service.deletePrestamo(id);
   }
+
+  // ── Horas extras ──
+
+  @Get("horas-extras")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Planillas de horas extras aprobadas, de la más reciente a la más vieja" })
+  listHorasExtras(@Query("buscar") buscar?: string) {
+    return this.service.listHorasExtras({ buscar });
+  }
+
+  @Get("horas-extras/resumen")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Planillas, horas y liquidación proyectada" })
+  resumenHorasExtras() {
+    return this.service.resumenHorasExtras();
+  }
+
+  @Get("horas-extras/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "La planilla con su detalle día a día" })
+  getHorasExtra(@Param("id", ParseIntPipe) id: number) {
+    return this.service.getHorasExtra(id);
+  }
+
+  @Patch("horas-extras/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  updateHorasExtra(@Param("id", ParseIntPipe) id: number, @Body() body: Record<string, any>) {
+    return this.service.updateHorasExtra(id, body);
+  }
+
+  @Delete("horas-extras/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Borra la planilla y su detalle" })
+  deleteHorasExtra(@Param("id", ParseIntPipe) id: number) {
+    return this.service.deleteHorasExtra(id);
+  }
+
+  // ── Vacaciones ──
+
+  @Get("vacaciones")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Vacaciones aprobadas, de la más reciente a la más vieja" })
+  listVacaciones(@Query("buscar") buscar?: string, @Query("anio") anio?: string) {
+    return this.service.listVacaciones({ buscar, anio });
+  }
+
+  @Get("vacaciones/resumen")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Registros y días concedidos, por año" })
+  resumenVacaciones(@Query("anio") anio?: string) {
+    return this.service.resumenVacaciones(anio);
+  }
+
+  @Get("vacaciones/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  getVacacion(@Param("id", ParseIntPipe) id: number) {
+    return this.service.getVacacion(id);
+  }
+
+  @Patch("vacaciones/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  updateVacacion(@Param("id", ParseIntPipe) id: number, @Body() body: Record<string, any>) {
+    return this.service.updateVacacion(id, body);
+  }
+
+  @Delete("vacaciones/:id")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  deleteVacacion(@Param("id", ParseIntPipe) id: number) {
+    return this.service.deleteVacacion(id);
+  }
 }

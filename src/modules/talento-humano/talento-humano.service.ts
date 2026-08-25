@@ -6,6 +6,9 @@ import { ThIncapacidad } from "../../database/entities/th-incapacidad.entity";
 import { ThAusentismo } from "../../database/entities/th-ausentismo.entity";
 import { ThPrestamo } from "../../database/entities/th-prestamo.entity";
 import { ThPrestamoPago } from "../../database/entities/th-prestamo-pago.entity";
+import { ThHorasExtra } from "../../database/entities/th-horas-extra.entity";
+import { ThHorasExtraDetalle } from "../../database/entities/th-horas-extra-detalle.entity";
+import { ThVacacion } from "../../database/entities/th-vacacion.entity";
 
 /**
  * Talento humano: personal, incapacidades, ausentismos y préstamos.
@@ -45,6 +48,16 @@ export interface FiltroAusentismos {
   buscar?: string;
 }
 
+export interface FiltroHorasExtras {
+  buscar?: string;
+}
+
+export interface FiltroVacaciones {
+  buscar?: string;
+  /** Solo las que inician desde este año, en ISO (YYYY). */
+  anio?: string;
+}
+
 @Injectable()
 export class TalentoHumanoService {
   constructor(
@@ -58,6 +71,12 @@ export class TalentoHumanoService {
     private readonly prestamoRepo: Repository<ThPrestamo>,
     @InjectRepository(ThPrestamoPago)
     private readonly pagoRepo: Repository<ThPrestamoPago>,
+    @InjectRepository(ThHorasExtra)
+    private readonly horasExtraRepo: Repository<ThHorasExtra>,
+    @InjectRepository(ThHorasExtraDetalle)
+    private readonly horasExtraDetalleRepo: Repository<ThHorasExtraDetalle>,
+    @InjectRepository(ThVacacion)
+    private readonly vacacionRepo: Repository<ThVacacion>,
   ) {}
 
   // ============================================================
@@ -397,6 +416,158 @@ export class TalentoHumanoService {
       prestado: Number(f?.prestado ?? 0),
       cancelado: Number(f?.cancelado ?? 0),
       saldo: Number(f?.saldo ?? 0),
+    };
+  }
+
+  // ============================================================
+  // HORAS EXTRAS
+  // ============================================================
+
+  /**
+   * Las planillas aprobadas, de la más reciente a la más vieja.
+   *
+   * **No trae el detalle día a día.** Son decenas de renglones por planilla e
+   * hidratarlos con `leftJoinAndSelect` es lo que tumbó por memoria el listado de
+   * levantamientos: con colecciones, acotar el padre no acota al hijo. Se piden por
+   * planilla en `getHorasExtra`.
+   */
+  async listHorasExtras(filtros: FiltroHorasExtras = {}): Promise<ThHorasExtra[]> {
+    const q = this.horasExtraRepo.createQueryBuilder("h");
+    if (filtros.buscar) {
+      q.andWhere("(h.nombre ILIKE :q OR h.identificacion ILIKE :q)", {
+        q: `%${filtros.buscar}%`,
+      });
+    }
+    return q.orderBy("h.created_at", "DESC").getMany();
+  }
+
+  /** La planilla con su detalle día a día, en orden cronológico. */
+  async getHorasExtra(
+    id: number,
+  ): Promise<ThHorasExtra & { detalle: ThHorasExtraDetalle[] }> {
+    const planilla = await this.horasExtraRepo.findOne({ where: { horasExtraId: id } });
+    if (!planilla) throw new NotFoundException("Planilla de horas extras no encontrada");
+
+    const detalle = await this.horasExtraDetalleRepo.find({
+      where: { horasExtraId: id },
+      order: { fecha: "ASC", detalleId: "ASC" },
+    });
+    return { ...planilla, detalle };
+  }
+
+  /**
+   * Registra la planilla ya aprobada: la cabecera y sus renglones en un solo movimiento,
+   * porque nacen juntos —no hay un paso posterior que agregue renglones sueltos, a
+   * diferencia de las cuotas de un préstamo, que se van descontando mes a mes—.
+   */
+  async registrarPlanilla(
+    data: Partial<ThHorasExtra>,
+    detalle: Partial<ThHorasExtraDetalle>[],
+  ): Promise<ThHorasExtra & { detalle: ThHorasExtraDetalle[] }> {
+    const planilla = await this.horasExtraRepo.save(this.horasExtraRepo.create(data));
+    const filas = detalle.length
+      ? await this.horasExtraDetalleRepo.save(
+          detalle.map((d) =>
+            this.horasExtraDetalleRepo.create({ ...d, horasExtraId: planilla.horasExtraId }),
+          ),
+        )
+      : [];
+    return { ...planilla, detalle: filas };
+  }
+
+  async updateHorasExtra(id: number, data: Partial<ThHorasExtra>): Promise<ThHorasExtra> {
+    const planilla = await this.horasExtraRepo.findOne({ where: { horasExtraId: id } });
+    if (!planilla) throw new NotFoundException("Planilla de horas extras no encontrada");
+    Object.assign(planilla, data);
+    return this.horasExtraRepo.save(planilla);
+  }
+
+  /**
+   * Borra la planilla y su detalle a mano, como en `deletePrestamo`: sin llave foránea
+   * no hay cascada que arrastre los renglones, y quedarían huérfanos sumando en los
+   * informes de una planilla que ya no está.
+   */
+  async deleteHorasExtra(id: number): Promise<void> {
+    const planilla = await this.horasExtraRepo.findOne({ where: { horasExtraId: id } });
+    if (!planilla) throw new NotFoundException("Planilla de horas extras no encontrada");
+    await this.horasExtraDetalleRepo.delete({ horasExtraId: id });
+    await this.horasExtraRepo.remove(planilla);
+  }
+
+  /** Cuántas planillas, horas y liquidación proyectada hay registradas. */
+  async resumenHorasExtras(): Promise<{
+    planillas: number;
+    totalHoras: number;
+    totalLiquidacion: number;
+  }> {
+    const f = await this.horasExtraRepo
+      .createQueryBuilder("h")
+      .select("COUNT(*)", "planillas")
+      .addSelect("COALESCE(SUM(h.total_horas), 0)", "totalHoras")
+      .addSelect("COALESCE(SUM(h.total_liquidacion), 0)", "totalLiquidacion")
+      .getRawOne<Record<string, string>>();
+
+    return {
+      planillas: Number(f?.planillas ?? 0),
+      totalHoras: Number(f?.totalHoras ?? 0),
+      totalLiquidacion: Number(f?.totalLiquidacion ?? 0),
+    };
+  }
+
+  // ============================================================
+  // VACACIONES
+  // ============================================================
+
+  /** Las vacaciones aprobadas, de la más reciente a la más vieja. */
+  async listVacaciones(filtros: FiltroVacaciones = {}): Promise<ThVacacion[]> {
+    const q = this.vacacionRepo.createQueryBuilder("v");
+    if (filtros.anio) {
+      q.andWhere("EXTRACT(YEAR FROM v.fecha_inicio) = :anio", { anio: Number(filtros.anio) });
+    }
+    if (filtros.buscar) {
+      q.andWhere("(v.nombre ILIKE :q OR v.identificacion ILIKE :q)", {
+        q: `%${filtros.buscar}%`,
+      });
+    }
+    return q.orderBy("v.created_at", "DESC").getMany();
+  }
+
+  async getVacacion(id: number): Promise<ThVacacion> {
+    const v = await this.vacacionRepo.findOne({ where: { vacacionId: id } });
+    if (!v) throw new NotFoundException("Vacaciones no encontradas");
+    return v;
+  }
+
+  async createVacacion(data: Partial<ThVacacion>): Promise<ThVacacion> {
+    return this.vacacionRepo.save(this.vacacionRepo.create(data));
+  }
+
+  async updateVacacion(id: number, data: Partial<ThVacacion>): Promise<ThVacacion> {
+    const v = await this.getVacacion(id);
+    Object.assign(v, data);
+    return this.vacacionRepo.save(v);
+  }
+
+  async deleteVacacion(id: number): Promise<void> {
+    await this.vacacionRepo.remove(await this.getVacacion(id));
+  }
+
+  /** Cuántas vacaciones y cuántos días concedidos hay registrados en el año en curso. */
+  async resumenVacaciones(
+    anio?: string,
+  ): Promise<{ registros: number; diasDisfrutar: number; diasCompensar: number }> {
+    const q = this.vacacionRepo
+      .createQueryBuilder("v")
+      .select("COUNT(*)", "registros")
+      .addSelect("COALESCE(SUM(v.dias_disfrutar), 0)", "diasDisfrutar")
+      .addSelect("COALESCE(SUM(v.dias_compensar), 0)", "diasCompensar");
+    if (anio) q.where("EXTRACT(YEAR FROM v.fecha_inicio) = :anio", { anio: Number(anio) });
+
+    const f = await q.getRawOne<Record<string, string>>();
+    return {
+      registros: Number(f?.registros ?? 0),
+      diasDisfrutar: Number(f?.diasDisfrutar ?? 0),
+      diasCompensar: Number(f?.diasCompensar ?? 0),
     };
   }
 }
