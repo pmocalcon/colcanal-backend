@@ -429,6 +429,9 @@ def leer_prestamos(ruta, personal):
     """
     ws = openpyxl.load_workbook(ruta, data_only=True)["Prestamos"]
     indice = indice_por_nombre(personal)
+    h64 = _SIN_TILDES(texto(ws.cell(4, 64).value) or "").upper()
+    h65 = _SIN_TILDES(texto(ws.cell(4, 65).value) or "").upper()
+    tiene_descuento_nomina = "NOMBRE" in h64 and "CUOTA" in h65
 
     prestamos, sin_cedula = [], 0
     for r in range(4, ws.max_row + 1):
@@ -466,7 +469,9 @@ def leer_prestamos(ruta, personal):
             "valorCuota": numero(c(9)),
             "valorCancelado": numero(c(62)),   # BJ
             "saldo": numero(c(63)),            # BK
-            "observaciones": texto(c(64)),     # BL
+            "nombreNomina": texto(c(64), 160) if tiene_descuento_nomina else None,  # BL
+            "cuotaDescontar": numero(c(65)) if tiene_descuento_nomina else None,    # BM
+            "observaciones": None if tiene_descuento_nomina else texto(c(64)),      # BL
             "pagos": pagos,
         })
 

@@ -16,3 +16,17 @@ export const ROLES_TALENTO_HUMANO = [
   "Director PMO",
   "Analista PMO",
 ] as const;
+
+/**
+ * Quién puede **mandarle la nómina a Financiera** una vez revisada.
+ *
+ * Más corto que `ROLES_TALENTO_HUMANO` a propósito: revisar la liquidación y autorizar
+ * que se pague no son la misma responsabilidad, y este es el paso con el que sale la
+ * plata. Analista Administrativo queda por fuera —diligencia y consulta, no autoriza—.
+ */
+export const ROLES_ENVIAR_NOMINA = [
+  "Coordinador Talento Humano",
+  "Director Financiero y Administrativo",
+  "Gerencia",
+  "Director PMO",
+] as const;

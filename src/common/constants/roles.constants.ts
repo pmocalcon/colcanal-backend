@@ -72,6 +72,34 @@ export const ROLES_PMO: readonly string[] = [
 export const esRolPmo = (nombreRol?: string | null): boolean =>
   ROLES_PMO.includes((nombreRol ?? "").trim());
 
+/**
+ * Los directores de proyecto, uno por regional.
+ *
+ * Van escritos completos y **no** desde `ROLE_NAMES.DIRECTOR_PROYECTO`: esa constante
+ * dice «Director de Proyecto» a secas y en la base no existe ningún rol con ese nombre
+ * —son cuatro, cada uno con su regional al final—. Usarla dejaría a los cuatro por fuera
+ * sin que nada fallara: el guard simplemente no encontraría coincidencia.
+ */
+export const ROLES_DIRECTOR_PROYECTO: readonly string[] = [
+  "Director de Proyecto Antioquia",
+  "Director de Proyecto Putumayo",
+  "Director de Proyecto Quindío",
+  "Director de Proyecto Valle",
+];
+
+/**
+ * Quién entra a Factura de concesión.
+ *
+ * El PMO la diligencia y los directores de proyecto la **validan**: antes de que la
+ * factura quede guardada, el director del municipio digita su valor contra la factura
+ * física que tiene en la mano. Sin este acceso el validador no sería de ellos, que es
+ * justo el punto: quien revisa no puede ser el mismo que digitó las cifras.
+ */
+export const ROLES_FACTURA: readonly string[] = [
+  ...ROLES_PMO,
+  ...ROLES_DIRECTOR_PROYECTO,
+];
+
 export type RoleName = (typeof ROLE_NAMES)[keyof typeof ROLE_NAMES];
 export type RoleSlug = (typeof ROLE_SLUGS)[keyof typeof ROLE_SLUGS];
 export type RoleCategory =

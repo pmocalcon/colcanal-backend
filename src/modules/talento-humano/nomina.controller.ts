@@ -27,9 +27,12 @@ export class NominaController {
 
   @Get("novedades")
   @Roles(...ROLES_TALENTO_HUMANO)
-  @ApiOperation({ summary: "Personal activo del periodo, con su novedad si ya la diligenciaron" })
-  listNovedades(@Query("periodo") periodo: string) {
-    return this.service.listNovedades(periodo);
+  @ApiOperation({
+    summary:
+      "Personal activo del periodo, con su novedad y lo que aportan los formatos aprobados (horas extras, incapacidad, vacaciones)",
+  })
+  listNovedades(@Query("periodo") periodo: string, @Query("smmlv") smmlv?: string) {
+    return this.service.listNovedades(periodo, smmlv ? Number(smmlv) : undefined);
   }
 
   @Post("novedades")

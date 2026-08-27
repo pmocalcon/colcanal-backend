@@ -41,6 +41,32 @@ export class ThPrestamoPago {
   @Column({ type: "numeric", precision: 14, scale: 2 })
   valor: string;
 
+  /**
+   * `CUOTA` es el descuento pactado del mes; `ABONO` es un pago extraordinario —una
+   * prima, la liquidación, plata que la persona puso de más para acabar antes—.
+   *
+   * Hasta ahora los abonos se anotaban a mano en la observación del préstamo y por eso
+   * el saldo de la hoja no siempre cuadraba con la suma de las cuotas. Separarlos deja
+   * ver de dónde salió cada peso.
+   */
+  @Column({ type: "varchar", length: 12, default: "CUOTA" })
+  tipo: string;
+
+  /**
+   * De dónde salió la plata: `NOMINA` se le descuenta del pago del mes —y la nómina lo
+   * suma a la cuota de ese periodo—; `DIRECTO` es por fuera —consignación, prima,
+   * cruce con vacaciones— y solo baja el saldo.
+   */
+  @Column({ type: "varchar", length: 12, default: "NOMINA" })
+  medio: string;
+
+  /** Cuándo se hizo, para los abonos directos. Los de nómina van por año y mes. */
+  @Column({ type: "date", nullable: true })
+  fecha: string | null;
+
+  @Column({ type: "text", nullable: true })
+  observaciones: string | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;
 }

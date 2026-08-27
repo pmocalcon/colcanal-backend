@@ -1451,6 +1451,9 @@ export class PurchasesService {
         'items.material.materialGroup',
         'logs',
         'logs.user',
+        // El rol de quien hizo cada movimiento. Sin esto el historial mostraba «Sin rol»
+        // a la misma persona que dos bloques más arriba aparece con su cargo.
+        'logs.user.role',
         'approvals',
         'approvals.user',
         'approvals.user.role',

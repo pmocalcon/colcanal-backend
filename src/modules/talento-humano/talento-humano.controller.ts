@@ -202,12 +202,27 @@ export class TalentoHumanoController {
 
   @Post("prestamos/:id/pagos")
   @Roles(...ROLES_TALENTO_HUMANO)
-  @ApiOperation({ summary: "Registra el descuento de un mes" })
+  @ApiOperation({
+    summary: "Registra la cuota del mes o un abono extraordinario, y mueve el saldo",
+  })
   registrarPago(
     @Param("id", ParseIntPipe) id: number,
-    @Body() body: { anio: number; mes: number; valor: number },
+    @Body() body: {
+      anio: number; mes: number; valor: number;
+      tipo?: string; medio?: string; fecha?: string | null; observaciones?: string | null;
+    },
   ) {
     return this.service.registrarPago(id, body);
+  }
+
+  @Delete("prestamos/:id/pagos/:pagoId")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Borra un pago y le devuelve la plata al saldo" })
+  eliminarPago(
+    @Param("id", ParseIntPipe) id: number,
+    @Param("pagoId", ParseIntPipe) pagoId: number,
+  ) {
+    return this.service.eliminarPago(id, pagoId);
   }
 
   @Patch("prestamos/:id")
@@ -291,5 +306,55 @@ export class TalentoHumanoController {
   @Roles(...ROLES_TALENTO_HUMANO)
   deleteVacacion(@Param("id", ParseIntPipe) id: number) {
     return this.service.deleteVacacion(id);
+  }
+  // ── Parámetros de nómina ──
+
+  @Get("parametros")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Salario mínimo y auxilio de transporte, por año" })
+  listParametros() {
+    return this.service.listParametros();
+  }
+
+  @Get("parametros/:anio")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Los parámetros de un año; null si ese año no está cargado" })
+  getParametros(@Param("anio", ParseIntPipe) anio: number) {
+    return this.service.getParametros(anio);
+  }
+
+  @Post("parametros")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Crea o actualiza el año (upsert por año)" })
+  guardarParametros(@Body() body: Record<string, any>) {
+    return this.service.guardarParametros(body);
+  }
+
+  @Delete("parametros/:anio")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  borrarParametros(@Param("anio", ParseIntPipe) anio: number) {
+    return this.service.borrarParametros(anio);
+  }
+
+  // ── Catálogo de bancos ──
+
+  @Get("bancos")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Entidades financieras y su código en el archivo plano del banco" })
+  listBancos() {
+    return this.service.listBancos();
+  }
+
+  @Post("bancos")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Crea o actualiza una entidad (upsert por código)" })
+  guardarBanco(@Body() body: Record<string, any>) {
+    return this.service.guardarBanco(body);
+  }
+
+  @Delete("bancos/:codigo")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  borrarBanco(@Param("codigo", ParseIntPipe) codigo: number) {
+    return this.service.borrarBanco(codigo);
   }
 }

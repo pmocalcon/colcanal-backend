@@ -28,6 +28,21 @@ export class GcSolicitud {
   @Column({ name: "formato", type: "varchar", length: 40 })
   formato: string;
 
+  /**
+   * El consecutivo del documento **dentro de su formato**, que es el número con el que la
+   * gente lo llama: «la solicitud N.º 4».
+   *
+   * No es `solicitudId`. Ese es la llave de la tabla, la comparten todos los formatos y,
+   * sobre todo, **se gasta en cada borrador que alguien abre y descarta**: así fue como
+   * la contratación llegó a mostrar el N.º 26 teniendo cinco solicitudes. Este número se
+   * asigna cuando el documento deja de ser borrador, que es cuando empieza a existir.
+   *
+   * Va en nulo mientras sea borrador. Un borrador todavía no es un documento y no tiene
+   * por qué llevarse un número que quizá nadie use.
+   */
+  @Column({ name: "numero", type: "int", nullable: true })
+  numero: number | null;
+
   /** Estado del flujo (máquina de estados de Jurídica). */
   @Column({ name: "estado", type: "varchar", length: 40, default: "borrador" })
   estado: string;

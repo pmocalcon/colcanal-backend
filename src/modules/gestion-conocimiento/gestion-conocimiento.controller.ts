@@ -45,6 +45,27 @@ export class GestionConocimientoController {
     return this.service.create(dto, userId);
   }
 
+  /**
+   * Lo que ya se sabe de una cédula, para prellenar el encabezado de un formato.
+   *
+   * Va antes de `@Get(":id")` porque si no, «ficha» lo tomaría como un id y fallaría al
+   * convertirlo a número.
+   *
+   * Sin `@Roles`: los formatos de Talento Humano los diligencia cualquier empleado, y si
+   * el prellenado pidiera permisos que ellos no tienen, la casilla no serviría justo para
+   * quien la va a usar. El salario es lo único que se recorta por rol, y eso lo decide el
+   * servicio.
+   */
+  @Get("ficha")
+  @ApiOperation({ summary: "Datos de una persona para prellenar un formato" })
+  @ApiQuery({ name: "identificacion", required: true, type: String })
+  async ficha(
+    @Query("identificacion") identificacion: string,
+    @CurrentUser("userId") userId: number,
+  ) {
+    return this.service.fichaParaFormato(identificacion, userId);
+  }
+
   @Get()
   @ApiOperation({ summary: "Listar solicitudes (filtra por gestión y por propias)" })
   @ApiQuery({ name: "gestion", required: false, type: String })

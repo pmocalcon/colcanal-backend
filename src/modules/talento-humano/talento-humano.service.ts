@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, ILike, MoreThanOrEqual } from "typeorm";
 import { ThPersona } from "../../database/entities/th-persona.entity";
@@ -9,6 +9,8 @@ import { ThPrestamoPago } from "../../database/entities/th-prestamo-pago.entity"
 import { ThHorasExtra } from "../../database/entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../../database/entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../../database/entities/th-vacacion.entity";
+import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.entity";
+import { ThBanco } from "../../database/entities/th-banco.entity";
 
 /**
  * Talento humano: personal, incapacidades, ausentismos y préstamos.
@@ -18,6 +20,84 @@ import { ThVacacion } from "../../database/entities/th-vacacion.entity";
  * se pide uno nuevo; `th_prestamos` es la **cartera**: lo prestado, lo descontado por
  * nómina y el saldo. Lo que se administra acá es la cartera.
  */
+
+/**
+ * La ficha con lo que se calcula al leerla: la edad y los días del año en curso.
+ *
+ * Va como un tipo aparte y no como columnas de la entidad para que se vea de un vistazo
+ * qué se guarda y qué no. Lo de aquí no se puede editar: sale de otro lado.
+ */
+export type ThPersonaConResumen = ThPersona & {
+  /** Años cumplidos. Nulo si no hay fecha de nacimiento. */
+  edad: number | null;
+  /** Días de incapacidad registrados este año. */
+  diasIncapacidad: number;
+  /** Días de permiso este año, contando las horas sueltas como días de ocho. */
+  diasPermiso: number;
+};
+
+/** La jornada con la que se convierten las horas de permiso a días. */
+const HORAS_POR_DIA = 8;
+
+/**
+ * Años cumplidos a hoy.
+ *
+ * La fecha se parte a mano en vez de pasarla por `new Date(...)`: una cadena «1996-08-27»
+ * se interpreta como medianoche **en UTC**, y en Colombia —cinco horas atrás— eso cae el
+ * 26 de agosto. Con `new Date` la edad subía el día antes del cumpleaños.
+ */
+const edadDe = (fechaNacimiento: string | null): number | null => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(fechaNacimiento ?? "");
+  if (!m) return null;
+  const [anioN, mesN, diaN] = [Number(m[1]), Number(m[2]), Number(m[3])];
+
+  const hoy = new Date();
+  let anios = hoy.getFullYear() - anioN;
+  // Si todavía no ha llegado su cumpleaños este año, le falta uno.
+  const mesesDeDiferencia = hoy.getMonth() + 1 - mesN;
+  if (mesesDeDiferencia < 0 || (mesesDeDiferencia === 0 && hoy.getDate() < diaN)) anios -= 1;
+  return anios >= 0 && anios < 130 ? anios : null;
+};
+
+/** Lo que lleva una ficha cuando no hay contra qué cruzarla. */
+const SIN_RESUMEN = (p: ThPersona) => ({
+  edad: edadDe(p.fechaNacimiento),
+  diasIncapacidad: 0,
+  diasPermiso: 0,
+});
+
+/**
+ * Lo que la ficha le presta a un formato de Talento Humano cuando se escribe la cédula.
+ *
+ * Es un recorte a propósito, no la ficha entera: estos formatos los diligencia cualquier
+ * empleado, y el buscador está abierto a quien tenga sesión. Va lo que el formato pide en
+ * su encabezado —quién es, con qué documento, en qué cargo— y nada de lo que no.
+ */
+export interface FichaParaFormato {
+  personaId: number;
+  identificacion: string;
+  nombre: string;
+  primerApellido: string;
+  segundoApellido: string;
+  primerNombre: string;
+  segundoNombre: string;
+  /** CC, CE, TI… Vacío se lee como CC, que es lo que es casi toda la base. */
+  tipoId: string | null;
+  estadoCivil: string | null;
+  correo: string | null;
+  cargo: string | null;
+  area: string | null;
+  empresaProyecto: string | null;
+  fechaIngreso: string | null;
+  diasVacacionesPendientes: number | null;
+  /**
+   * Solo va con `incluirSalario`. Sin eso queda en nulo y el formato lo pide a mano.
+   *
+   * Cualquiera con sesión puede consultar una cédula, así que devolverlo siempre haría
+   * del prellenado un consultor de sueldos ajenos.
+   */
+  salario: string | null;
+}
 
 export interface FiltroPersonal {
   estado?: string;
@@ -77,6 +157,10 @@ export class TalentoHumanoService {
     private readonly horasExtraDetalleRepo: Repository<ThHorasExtraDetalle>,
     @InjectRepository(ThVacacion)
     private readonly vacacionRepo: Repository<ThVacacion>,
+    @InjectRepository(ThParametroNomina)
+    private readonly parametroRepo: Repository<ThParametroNomina>,
+    @InjectRepository(ThBanco)
+    private readonly bancoRepo: Repository<ThBanco>,
   ) {}
 
   // ============================================================
@@ -90,7 +174,7 @@ export class TalentoHumanoService {
    * se busca entero. Paginar obligaría a pedir página por página para contar cuántos hay
    * activos, que es justo lo que se mira al abrirla.
    */
-  async listPersonal(filtros: FiltroPersonal = {}): Promise<ThPersona[]> {
+  async listPersonal(filtros: FiltroPersonal = {}): Promise<ThPersonaConResumen[]> {
     const where: Record<string, unknown>[] = [];
     const base: Record<string, unknown> = {};
     if (filtros.estado) base.estado = ILike(`${filtros.estado}%`);
@@ -105,10 +189,185 @@ export class TalentoHumanoService {
       where.push(base);
     }
 
-    return this.personaRepo.find({ where, order: { nombre: "ASC" } });
+    const personas = await this.personaRepo.find({ where, order: { nombre: "ASC" } });
+    return this.conResumen(personas);
+  }
+
+  /**
+   * Le agrega a cada ficha lo que **no se guarda en ella**: la edad y los días de
+   * incapacidad y de permiso del año.
+   *
+   * Ninguno de los tres se guarda a propósito. La edad cambia sola cada año. Los días
+   * viven en los módulos de Incapacidades y Ausentismos, donde se registran uno por uno;
+   * una copia en la ficha quedaría vieja el día siguiente y nadie sabría cuál de las dos
+   * cifras creer.
+   *
+   * Se calcula del año en curso, que es como se lee la cifra —«cuántos días lleva este
+   * año»—, y en dos consultas agrupadas para las ochenta y seis fichas, no una por cada
+   * una.
+   */
+  private async conResumen(personas: ThPersona[]): Promise<ThPersonaConResumen[]> {
+    if (personas.length === 0) return [];
+    const anio = new Date().getFullYear();
+    const desde = `${anio}-01-01`;
+    const hasta = `${anio}-12-31`;
+    const cedulas = [...new Set(personas.map((p) => p.identificacion).filter(Boolean))];
+    if (cedulas.length === 0) return personas.map((p) => ({ ...p, ...SIN_RESUMEN(p) }));
+
+    const [incapacidades, ausencias] = await Promise.all([
+      this.incapacidadRepo
+        .createQueryBuilder("i")
+        .select("i.identificacion", "identificacion")
+        .addSelect("COALESCE(SUM(i.total_dias), 0)", "dias")
+        .where("i.identificacion IN (:...cedulas)", { cedulas })
+        .andWhere("i.fecha_inicio BETWEEN :desde AND :hasta", { desde, hasta })
+        .groupBy("i.identificacion")
+        .getRawMany<{ identificacion: string; dias: string }>(),
+      this.ausentismoRepo
+        .createQueryBuilder("a")
+        .select("a.identificacion", "identificacion")
+        .addSelect("COALESCE(SUM(a.dias_permiso), 0)", "dias")
+        .addSelect("COALESCE(SUM(a.horas_ausencia), 0)", "horas")
+        .where("a.identificacion IN (:...cedulas)", { cedulas })
+        .andWhere("a.fecha_inicio BETWEEN :desde AND :hasta", { desde, hasta })
+        .groupBy("a.identificacion")
+        .getRawMany<{ identificacion: string; dias: string; horas: string }>(),
+    ]);
+
+    const diasIncapacidad = new Map(incapacidades.map((f) => [f.identificacion, Number(f.dias)]));
+    /*
+     * Los permisos se registran casi siempre en horas —«salió dos horas al médico»— y
+     * `dias_permiso` queda en cero. Sumar solo los días diría que nadie pidió permiso
+     * nunca teniendo setecientas horas registradas, así que las horas se convierten a
+     * días de ocho.
+     */
+    const diasPermiso = new Map(
+      ausencias.map((f) => [f.identificacion, Number(f.dias) + Number(f.horas) / HORAS_POR_DIA]),
+    );
+
+    return personas.map((p) => ({
+      ...p,
+      edad: edadDe(p.fechaNacimiento),
+      diasIncapacidad: diasIncapacidad.get(p.identificacion) ?? 0,
+      diasPermiso: Math.round((diasPermiso.get(p.identificacion) ?? 0) * 10) / 10,
+    }));
+  }
+
+  /**
+   * La ficha de una cédula, recortada para prellenar un formato.
+   *
+   * Devuelve **una sola**: si la cédula tiene varios contratos en el grupo, se toma la
+   * activa —y entre varias activas, la de mayor salario, que es el contrato principal—.
+   * El encabezado del formato lleva un cargo y un área, no dos.
+   *
+   * Nulo si no está: el formato se sigue pudiendo diligenciar a mano. Alguien recién
+   * contratado puede no tener ficha todavía, y eso no puede trancarle una solicitud.
+   */
+  async fichaParaFormato(
+    identificacion: string,
+    incluirSalario = false,
+  ): Promise<FichaParaFormato | null> {
+    const cedula = String(identificacion ?? "").trim();
+    if (!cedula) return null;
+
+    const candidatas = await this.personaRepo.find({ where: { identificacion: cedula } });
+    if (candidatas.length === 0) return null;
+
+    const activas = candidatas.filter((p) => /^activo/i.test(p.estado ?? ""));
+    const elegibles = activas.length > 0 ? activas : candidatas;
+    const p = elegibles.sort((a, b) => Number(b.salario ?? 0) - Number(a.salario ?? 0))[0];
+
+    const { apellidos, nombres } = this.partirNombre(p);
+    const [primerApellido, ...restoApellidos] = apellidos.split(/\s+/).filter(Boolean);
+    const [primerNombre, ...restoNombres] = nombres.split(/\s+/).filter(Boolean);
+
+    return {
+      personaId: p.personaId,
+      identificacion: p.identificacion,
+      nombre: p.nombre,
+      primerApellido: primerApellido ?? "",
+      // El resto se junta: «DE LA CRUZ» es un solo apellido, y partirlo por espacios lo
+      // repartiría en dos casillas del formato.
+      segundoApellido: restoApellidos.join(" "),
+      primerNombre: primerNombre ?? "",
+      segundoNombre: restoNombres.join(" "),
+      tipoId: p.tipoId,
+      estadoCivil: p.estadoCivil,
+      correo: p.correo,
+      cargo: p.cargo,
+      area: p.area,
+      empresaProyecto: p.empresaProyecto,
+      fechaIngreso: p.fechaIngreso,
+      diasVacacionesPendientes: p.diasVacacionesPendientes,
+      salario: incluirSalario ? p.salario : null,
+    };
+  }
+
+  /**
+   * Apellidos y nombres de la ficha.
+   *
+   * Si están corregidos a mano se usan tal cual —**siempre que estén completos**—. Si no,
+   * se parte `nombre`, que viene «APELLIDOS NOMBRES» en una sola cadena: dos apellidos
+   * cuando hay cuatro palabras o más, uno cuando hay tres. No siempre acierta —«CASTILLO
+   * JORGE EDUARDO» es un apellido y dos nombres— y por eso la ficha guarda la corrección.
+   *
+   * Lo de «completos» no es paranoia: en la base hay una docena de fichas que traen
+   * `apellidos = 'BAEZA'` para «BAEZA MARÍN YAKI MICHELL», con el segundo apellido
+   * perdido en la importación de los datos bancarios. Eso no es una corrección, es un
+   * dato roto, y usarlo tal cual imprimiría a la persona con un apellido de menos en cada
+   * formato que firme.
+   */
+  private partirNombre(p: ThPersona): { apellidos: string; nombres: string } {
+    const guardados = {
+      apellidos: (p.apellidos ?? "").trim(),
+      nombres: (p.nombres ?? "").trim(),
+    };
+    if ((guardados.apellidos || guardados.nombres) && this.cubreElNombre(p, guardados)) {
+      return guardados;
+    }
+
+    const palabras = (p.nombre ?? "").trim().split(/\s+/).filter(Boolean);
+    if (palabras.length === 0) return { apellidos: "", nombres: "" };
+    if (palabras.length === 1) return { apellidos: palabras[0], nombres: "" };
+    const cuantos = palabras.length >= 4 ? 2 : 1;
+    return {
+      apellidos: palabras.slice(0, cuantos).join(" "),
+      nombres: palabras.slice(cuantos).join(" "),
+    };
+  }
+
+  /**
+   * Si el corte guardado usa exactamente las mismas palabras que `nombre`.
+   *
+   * Se comparan como conjunto y sin tildes: partir bien es repartir las palabras en dos
+   * casillas, no quitar ni agregar ninguna. Sin tildes porque el archivo del banco las
+   * quita —«HERNANDEZ» contra «HERNÁNDEZ»— y esa diferencia no significa que falte nada.
+   */
+  private cubreElNombre(
+    p: ThPersona,
+    corte: { apellidos: string; nombres: string },
+  ): boolean {
+    const normalizar = (v: string): string[] =>
+      v
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase()
+        .split(/\s+/)
+        .filter(Boolean)
+        .sort();
+
+    const enLaFicha = normalizar(p.nombre ?? "");
+    const enElCorte = normalizar(`${corte.apellidos} ${corte.nombres}`);
+    return (
+      enLaFicha.length === enElCorte.length &&
+      enLaFicha.every((palabra, i) => palabra === enElCorte[i])
+    );
   }
 
   async getPersona(id: number): Promise<ThPersona> {
+    // Sin resumen: quien pide una ficha suelta la va a editar, y los calculados no se
+    // editan. El listado, que es donde se leen, sí los trae.
     const persona = await this.personaRepo.findOne({ where: { personaId: id } });
     if (!persona) throw new NotFoundException("Persona no encontrada");
     return persona;
@@ -365,25 +624,105 @@ export class TalentoHumanoService {
   }
 
   /**
-   * Registra el descuento de un mes.
+   * Registra un pago: la cuota del mes o un abono extraordinario.
+   *
+   * Además de dejar el renglón, **mueve lo descontado y el saldo del préstamo**. Se suma
+   * y se resta en vez de recalcular desde cero a propósito: los saldos que vienen del
+   * Excel traen cruces con vacaciones y abonos anotados a mano que no cuadran con la
+   * suma de las cuotas, y recalcularlos cambiaría cifras que nadie decidió cambiar. Lo
+   * que se registre de acá en adelante sí queda cuadrado.
+   *
+   * Un abono con `medio: "NOMINA"` lo descuenta además la nómina de ese periodo, sumado
+   * a la cuota. Uno `DIRECTO` —consignación, prima, liquidación— solo baja el saldo.
    *
    * `valor` se guarda como texto porque así declara la entidad las columnas `numeric`:
    * es lo que Postgres devuelve al leerlas, y tenerlo distinto al escribir que al leer
    * es la forma de que un centavo se pierda en una conversión a `number`.
    */
+  /**
+   * Cuántos abonos se aceptan sobre un mismo préstamo en un mismo mes.
+   *
+   * No es una limitación técnica: es que un mes con más de siete abonos deja de ser una
+   * cartera y pasa a ser una digitación repetida —el caso real es teclear el mismo abono
+   * varias veces sin darse cuenta, que baja el saldo de más y no salta a la vista hasta
+   * que alguien cuadra—. Las cuotas de nómina no cuentan: esas las pone el sistema, una
+   * por mes.
+   */
+  private static readonly MAX_ABONOS_POR_MES = 7;
+
   async registrarPago(
     prestamoId: number,
-    data: { anio: number; mes: number; valor: number | string },
+    data: {
+      anio: number; mes: number; valor: number | string;
+      tipo?: string; medio?: string; fecha?: string | null; observaciones?: string | null;
+    },
   ): Promise<ThPrestamoPago> {
-    await this.getPrestamo(prestamoId); // valida que exista
-    return this.pagoRepo.save(
-      this.pagoRepo.create({
-        prestamoId,
-        anio: data.anio,
-        mes: data.mes,
-        valor: String(data.valor),
-      }),
-    );
+    const prestamo = await this.getPrestamo(prestamoId);
+
+    const valor = Number(data.valor);
+    if (!(valor > 0)) throw new BadRequestException("El valor del pago tiene que ser mayor que cero");
+    if (!Number.isInteger(Number(data.anio))) throw new BadRequestException("El año no es válido");
+    const mes = Number(data.mes);
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) throw new BadRequestException("El mes no es válido");
+
+    const tipo = (data.tipo ?? "CUOTA").toUpperCase();
+    const medio = (data.medio ?? "NOMINA").toUpperCase();
+    if (!["CUOTA", "ABONO"].includes(tipo)) throw new BadRequestException("Tipo de pago no válido");
+    if (!["NOMINA", "DIRECTO"].includes(medio)) throw new BadRequestException("Medio de pago no válido");
+
+    if (tipo === "ABONO") {
+      const yaHay = await this.pagoRepo.count({
+        where: { prestamoId, anio: Number(data.anio), mes, tipo: "ABONO" },
+      });
+      if (yaHay >= TalentoHumanoService.MAX_ABONOS_POR_MES) {
+        throw new BadRequestException(
+          `Este préstamo ya tiene ${yaHay} abonos en ${mes}/${data.anio}, que es el tope de ` +
+            `${TalentoHumanoService.MAX_ABONOS_POR_MES} por mes. Si hay más pagos, únelos en uno solo ` +
+            "o revisa si alguno quedó repetido.",
+        );
+      }
+    }
+
+    return this.pagoRepo.manager.transaction(async (manager) => {
+      const pago = await manager.save(
+        manager.create(ThPrestamoPago, {
+          prestamoId,
+          anio: Number(data.anio),
+          mes,
+          valor: String(valor),
+          tipo,
+          medio,
+          fecha: data.fecha ?? null,
+          observaciones: data.observaciones ?? null,
+        }),
+      );
+      await manager.update(ThPrestamo, prestamoId, {
+        valorCancelado: String(Number(prestamo.valorCancelado ?? 0) + valor),
+        saldo: String(Number(prestamo.saldo ?? 0) - valor),
+      });
+      return pago;
+    });
+  }
+
+  /**
+   * Borra un pago y le devuelve la plata al saldo.
+   *
+   * Es lo que hace falta cuando alguien se equivoca digitando: sin esto, corregir un
+   * abono de más obligaría a inventar otro en negativo.
+   */
+  async eliminarPago(prestamoId: number, pagoId: number): Promise<void> {
+    const prestamo = await this.getPrestamo(prestamoId);
+    const pago = await this.pagoRepo.findOne({ where: { pagoId, prestamoId } });
+    if (!pago) throw new NotFoundException("Ese pago no existe en este préstamo");
+
+    const valor = Number(pago.valor);
+    await this.pagoRepo.manager.transaction(async (manager) => {
+      await manager.delete(ThPrestamoPago, { pagoId });
+      await manager.update(ThPrestamo, prestamoId, {
+        valorCancelado: String(Number(prestamo.valorCancelado ?? 0) - valor),
+        saldo: String(Number(prestamo.saldo ?? 0) + valor),
+      });
+    });
   }
 
   /**
@@ -569,5 +908,101 @@ export class TalentoHumanoService {
       diasDisfrutar: Number(f?.diasDisfrutar ?? 0),
       diasCompensar: Number(f?.diasCompensar ?? 0),
     };
+  }
+  // ============================================================
+  // PARÁMETROS DE NÓMINA
+  // ============================================================
+
+  /** Los años cargados, del más reciente al más viejo. */
+  listParametros(): Promise<ThParametroNomina[]> {
+    return this.parametroRepo.find({ order: { anio: "DESC" } });
+  }
+
+  /**
+   * Los parámetros de un año.
+   *
+   * Devuelve `null` en vez de reventar cuando el año no está cargado: quien llama decide
+   * qué hacer —la pantalla lo pide para que lo llenen, la nómina se cae con un mensaje
+   * que dice qué falta—. Que no exista el año es una situación normal cada 1º de enero,
+   * no un error del programa.
+   */
+  getParametros(anio: number): Promise<ThParametroNomina | null> {
+    return this.parametroRepo.findOne({ where: { anio } });
+  }
+
+  /**
+   * Crea o actualiza el año. Es upsert por `anio`, que es único: guardar dos veces el
+   * mismo año lo corrige, no lo duplica.
+   */
+  async guardarParametros(data: Partial<ThParametroNomina>): Promise<ThParametroNomina> {
+    const anio = Number(data.anio);
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+      throw new BadRequestException("El año no es válido");
+    }
+    const smmlv = Number(data.smmlv);
+    const auxilio = Number(data.auxilioTransporte);
+    if (!(smmlv > 0)) throw new BadRequestException("El salario mínimo tiene que ser mayor que cero");
+    if (!(auxilio >= 0)) throw new BadRequestException("El auxilio de transporte no puede ser negativo");
+
+    const fila = (await this.parametroRepo.findOne({ where: { anio } }))
+      ?? this.parametroRepo.create({ anio });
+    fila.smmlv = String(smmlv);
+    fila.auxilioTransporte = String(auxilio);
+    fila.observaciones = data.observaciones ?? fila.observaciones ?? null;
+    return this.parametroRepo.save(fila);
+  }
+
+  async borrarParametros(anio: number): Promise<void> {
+    const fila = await this.parametroRepo.findOne({ where: { anio } });
+    if (!fila) throw new NotFoundException("Ese año no está cargado");
+    await this.parametroRepo.remove(fila);
+  }
+
+  // ============================================================
+  // CATÁLOGO DE BANCOS
+  // ============================================================
+
+  /**
+   * Las entidades financieras con el código que las identifica en el archivo plano que se
+   * sube al portal bancario. Ordenadas por nombre porque así se buscan; el código no
+   * sigue ningún orden útil para leerlo.
+   */
+  listBancos(): Promise<ThBanco[]> {
+    return this.bancoRepo.find({ order: { nombre: "ASC" } });
+  }
+
+  /**
+   * Crea o actualiza una entidad. Es upsert por `codigo`, que es único: volver a guardar
+   * el mismo código lo corrige en vez de duplicarlo.
+   */
+  async guardarBanco(data: Partial<ThBanco>): Promise<ThBanco> {
+    const codigo = Number(data.codigo);
+    if (!Number.isInteger(codigo) || codigo <= 0) {
+      throw new BadRequestException("El código del banco es un número entero mayor que cero");
+    }
+    const nombre = (data.nombre ?? "").trim();
+    if (!nombre) throw new BadRequestException("Escribe el nombre de la entidad");
+
+    // Dos entidades con el mismo nombre harían ambigua la resolución desde la ficha de
+    // personal, que casa por nombre y no por id.
+    const repetido = (await this.bancoRepo.find()).find(
+      (b) => b.nombre.trim().toUpperCase() === nombre.toUpperCase() && b.codigo !== codigo,
+    );
+    if (repetido) {
+      throw new BadRequestException(
+        `«${nombre}» ya está cargado con el código ${repetido.codigo}`,
+      );
+    }
+
+    const fila = (await this.bancoRepo.findOne({ where: { codigo } })) ?? this.bancoRepo.create({ codigo });
+    fila.nombre = nombre;
+    fila.activo = data.activo ?? fila.activo ?? true;
+    return this.bancoRepo.save(fila);
+  }
+
+  async borrarBanco(codigo: number): Promise<void> {
+    const fila = await this.bancoRepo.findOne({ where: { codigo } });
+    if (!fila) throw new NotFoundException("Ese banco no está en el catálogo");
+    await this.bancoRepo.remove(fila);
   }
 }

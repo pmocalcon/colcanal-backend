@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { GcSolicitud } from "../../database/entities/gc-solicitud.entity";
+import { alcanceDe, veTodasLasSolicitudes } from "./visibilidad";
 import { User } from "../../database/entities/user.entity";
 import { Material } from "../../database/entities/material.entity";
 import { OperationCenter } from "../../database/entities/operation-center.entity";
@@ -16,6 +17,7 @@ import { Authorization } from "../../database/entities/authorization.entity";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PurchasesService } from "../purchases/purchases.service";
 import { TalentoHumanoService } from "../talento-humano/talento-humano.service";
+import { ROLES_TALENTO_HUMANO } from "../talento-humano/talento-humano.roles";
 import { CreateSolicitudDto, UpdateSolicitudDto } from "./dto";
 import {
   JURIDICA_TRANSICIONES,
@@ -52,6 +54,7 @@ import {
   PRESTAMO_TRANSICIONES,
   PRESTAMO_ESTADOS,
   PRESTAMO_NOTIFICAR_AL_LLEGAR,
+  PRESTAMO_ENTERAR_AL_LLEGAR,
   PrestamoEstado,
 } from "./prestamo-workflow";
 import {
@@ -173,6 +176,33 @@ export class GestionConocimientoService implements OnModuleInit {
   /** Formato de la Solicitud de Préstamo: usa su propia máquina de estados. */
   private static readonly FORMATO_PRESTAMO = "GTH-007-F";
 
+  /**
+   * Quién ve el salario al prellenar un formato: los mismos que ya ven la nómina.
+   *
+   * El prellenado está abierto a cualquiera con sesión —los formatos los diligencia todo
+   * el mundo—, así que devolver el salario siempre convertiría la casilla de la cédula en
+   * un consultor de sueldos ajenos. Para el resto la casilla llega vacía y se digita.
+   */
+  private static readonly ROLES_VEN_SALARIO: readonly string[] = [
+    ...ROLES_TALENTO_HUMANO,
+  ];
+
+  /**
+   * Lo que ya sabemos de una persona, para no volver a digitarlo en cada formato.
+   *
+   * El nombre, el documento, el cargo y el área están en su ficha de personal; volver a
+   * escribirlos en cada solicitud es a la vez trabajo repetido y una fuente de errores
+   * —la cédula bien y el nombre mal, o el cargo de hace dos ascensos—.
+   */
+  async fichaParaFormato(identificacion: string, userId?: number) {
+    const user = userId
+      ? await this.userRepo.findOne({ where: { userId }, relations: ["role"] })
+      : null;
+    const rol = (user?.role?.nombreRol ?? "").trim();
+    const veSalario = GestionConocimientoService.ROLES_VEN_SALARIO.includes(rol);
+    return this.talentoHumano.fichaParaFormato(identificacion, veSalario);
+  }
+
   /** True si la solicitud es una Solicitud de Préstamo (GTH-007-F). */
   private esPrestamo(s: GcSolicitud): boolean {
     return (
@@ -278,6 +308,36 @@ export class GestionConocimientoService implements OnModuleInit {
     return this.solicitudRepo.save(solicitud);
   }
 
+  /**
+   * Le pone su consecutivo a la solicitud la primera vez que deja de ser borrador.
+   *
+   * No se asigna al crearla porque crear es apenas abrir el formulario: cada borrador
+   * abandonado se llevaría un número y el consecutivo avanzaría sin que exista el
+   * documento. Se gasta cuando el trámite arranca de verdad.
+   *
+   * Va **por formato**: GTH-002-F y GF-005-F son documentos distintos, cada uno con su
+   * propia numeración, aunque compartan tabla.
+   *
+   * Si dos solicitudes salieran de borrador en el mismo instante podrían pedir el mismo
+   * número; el índice único de `(formato, numero)` hace que la segunda falle en vez de
+   * quedar duplicada en silencio. Con el volumen real —unas pocas al mes— es una
+   * salvaguarda, no un caso esperado.
+   */
+  private async asignarNumero(solicitud: GcSolicitud): Promise<void> {
+    if (solicitud.numero != null || solicitud.estado === "borrador") return;
+
+    const q = this.solicitudRepo
+      .createQueryBuilder("s")
+      .select("MAX(s.numero)", "max");
+    // `formato` puede venir en nulo en filas viejas; `= NULL` no casa con nada y las
+    // dejaría a todas pidiendo el número 1.
+    if (solicitud.formato) q.where("s.formato = :formato", { formato: solicitud.formato });
+    else q.where("s.formato IS NULL");
+
+    const fila = await q.getRawOne<{ max: string | number | null }>();
+    solicitud.numero = Number(fila?.max ?? 0) + 1;
+  }
+
   async findAll(
     gestion?: string,
     mine?: boolean,
@@ -285,13 +345,85 @@ export class GestionConocimientoService implements OnModuleInit {
   ): Promise<GcSolicitud[]> {
     const where: Record<string, unknown> = {};
     if (gestion) where.gestion = gestion;
+    // `mine` es un filtro que pide el usuario ("muéstrame solo las mías"), no la
+    // restricción: esa la aplica `filtrarVisibles` más abajo y no se puede quitar desde
+    // el navegador.
     if (mine && userId) where.createdBy = userId;
     const solicitudes = await this.solicitudRepo.find({
       where,
       order: { updatedAt: "DESC" },
     });
     if (!userId) return solicitudes;
-    return this.anotarAccionesPendientes(solicitudes, userId);
+    const anotadas = await this.anotarAccionesPendientes(solicitudes, userId);
+    return this.filtrarVisibles(anotadas, userId);
+  }
+
+  /**
+   * Deja solo las solicitudes que este usuario tiene por qué ver.
+   *
+   * Tres alcances, de más ancho a más angosto:
+   *
+   *  1. Las áreas que tramitan o firman —Jurídica, Administrativa, Financiera, Gerencia y
+   *     el PMO— ven el listado completo.
+   *  2. Los roles con alcance acotado ven además las de cierta gente: Gerencia de
+   *     Proyectos ve las que piden los directores de proyecto y el director técnico, que
+   *     es lo que le toca autorizar. Ver `ALCANCE_POR_ROL`.
+   *  3. Los demás ven **las suyas**.
+   *
+   * Sobre esos tres, todo el mundo ve además aquellas en las que le toca actuar ahora y
+   * aquellas en las que ya actuó. No es una excepción a la regla, es lo que la hace
+   * viable: sin eso, una solicitud que espera la firma de alguien le llegaría a una
+   * bandeja donde no aparece, y el trámite se quedaría quieto sin que nadie sepa por qué.
+   * El jefe que ya autorizó la de alguien de su equipo tampoco tendría cómo volver a
+   * mirarla.
+   *
+   * Se filtra **después** de anotar las acciones pendientes porque es justamente ese
+   * cálculo —que ya resuelve rol y jerarquía— el que dice si le toca actuar.
+   */
+  private async filtrarVisibles(
+    solicitudes: GcSolicitud[],
+    userId: number,
+  ): Promise<GcSolicitud[]> {
+    if (solicitudes.length === 0) return solicitudes;
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol;
+    if (veTodasLasSolicitudes(rol)) return solicitudes;
+
+    // Quiénes, de los que crearon algo en esta lista, caen dentro del alcance del rol.
+    // Se resuelve sobre los creadores que hay y no sobre toda la tabla de usuarios: son
+    // un puñado y así una sola consulta basta.
+    const alcance = alcanceDe(rol);
+    const enAlcance = new Set<number>();
+    if (alcance) {
+      const creadorIds = [
+        ...new Set(solicitudes.map((s) => s.createdBy).filter(Boolean)),
+      ] as number[];
+      if (creadorIds.length > 0) {
+        const creadores = await this.userRepo.find({
+          where: { userId: In(creadorIds) },
+          relations: ["role"],
+        });
+        for (const c of creadores) {
+          if (alcance.includes((c.role?.nombreRol ?? "").trim())) enAlcance.add(c.userId);
+        }
+      }
+    }
+
+    // `accionesPendientes` lo pega `anotarAccionesPendientes` con Object.assign y no está
+    // declarado en la entidad, así que hay que nombrarlo para leerlo.
+    type ConAcciones = GcSolicitud & { accionesPendientes?: unknown[] };
+
+    return (solicitudes as ConAcciones[]).filter(
+      (s) =>
+        s.createdBy === userId ||
+        (s.createdBy != null && enAlcance.has(s.createdBy)) ||
+        (s.accionesPendientes?.length ?? 0) > 0 ||
+        (s.historial ?? []).some((h) => h?.userId === userId),
+    );
   }
 
   /**
@@ -1001,6 +1133,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
 
     // Firmas automáticas del recuadro AUTORIZACIONES del formato:
@@ -1763,6 +1896,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
 
     // Firmas automáticas del recuadro del formato y registro del pago.
@@ -1872,6 +2006,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
 
     // Firmas automáticas del recuadro "REVISIÓN Y APROBACIÓN" del formato.
@@ -2086,6 +2221,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = t.to;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
     solicitud.data = data;
 
@@ -2223,17 +2359,19 @@ export class GestionConocimientoService implements OnModuleInit {
       }
       data.firmaAdministrativa = user?.nombre ?? "";
       data.fechaFirmaAdministrativa = data.fechaFirmaAdministrativa || hoy;
-    } else if (accion === "aprobar_gerencia") {
-      // El valor aprobado es de Gerencia: puede ser menor que el solicitado. Si no lo
-      // manda, se toma el solicitado, que es lo que dice el papel cuando se aprueba tal cual.
-      data.valorAprobado =
-        (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
-      data.firmaGerencia = user?.nombre ?? "";
-      data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
 
-      // Gerencia acaba de aprobar el desembolso: nace en la cartera real. Va antes de
-      // guardar la solicitud para no dejarla marcada "aprobado" sin que el préstamo
-      // exista de verdad si esto falla.
+      /*
+       * Con esta firma se cierra el recorrido, y es aquí donde el préstamo nace en la
+       * cartera real.
+       *
+       * No al autorizar Gerencia, aunque sea quien decide el valor: en ese momento no
+       * existen todavía la fecha de desembolso, el número de cuotas ni la cuota, que
+       * son de este paso. Creado antes, el préstamo entraba a la cartera en blanco y
+       * la cuota había que digitarla otra vez a mano.
+       *
+       * Va antes de guardar la solicitud para no dejarla marcada «aprobado» sin que el
+       * préstamo exista de verdad si esto falla.
+       */
       await this.talentoHumano.createPrestamo({
         nombre: data.nombreCompleto || "",
         identificacion: data.numero || null,
@@ -2245,6 +2383,13 @@ export class GestionConocimientoService implements OnModuleInit {
         saldo: data.valorAprobado || null,
         observaciones: `Generado al aprobar la solicitud GTH-007-F N.º ${solicitud.solicitudId}.`,
       });
+    } else if (accion === "aprobar_gerencia") {
+      // El valor aprobado es de Gerencia: puede ser menor que el solicitado. Si no lo
+      // manda, se toma el solicitado, que es lo que dice el papel cuando se aprueba tal cual.
+      data.valorAprobado =
+        (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
+      data.firmaGerencia = user?.nombre ?? "";
+      data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
     }
 
     // Al devolver al borrador se borran las firmas y las condiciones pactadas: el
@@ -2271,6 +2416,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = t.to;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
     solicitud.data = data;
 
@@ -2283,56 +2429,98 @@ export class GestionConocimientoService implements OnModuleInit {
     return guardada;
   }
 
-  /** Notifica por correo al actor que sigue en el flujo del préstamo. */
+  /** Los usuarios activos que tienen alguno de estos roles. */
+  private async usuariosPorRol(roles: string[]): Promise<User[]> {
+    if (roles.length === 0) return [];
+    const activos = await this.userRepo.find({
+      where: { estado: true },
+      relations: ["role"],
+    });
+    const objetivo = roles.map((r) => r.toLowerCase());
+    return activos.filter((u) =>
+      objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+    );
+  }
+
+  /**
+   * Avisa por correo del movimiento del préstamo.
+   *
+   * Salen dos correos distintos: el de **quien debe actuar**, que lo manda a entrar a
+   * continuar el trámite, y el de **quien solo se entera** —Gerencia cuando la solicitud
+   * apenas sale del empleado—, que dice explícitamente que todavía no tiene que hacer
+   * nada. Mandarle a alguien el primero cuando aún no le toca es enviarlo a una pantalla
+   * donde no hay botón.
+   *
+   * Quien ya está en la lista de los que deben actuar no recibe además la copia.
+   */
   private async notificarPrestamo(
     solicitud: GcSolicitud,
     estado: PrestamoEstado,
     motivo?: string,
   ): Promise<void> {
     const destino = PRESTAMO_NOTIFICAR_AL_LLEGAR[estado];
-    let usuarios: User[] = [];
+    let deben: User[] = [];
 
     if (destino === "creador") {
       if (solicitud.createdBy) {
         const creador = await this.userRepo.findOne({
           where: { userId: solicitud.createdBy },
         });
-        if (creador) usuarios = [creador];
+        if (creador) deben = [creador];
       }
     } else {
-      const activos = await this.userRepo.find({
-        where: { estado: true },
-        relations: ["role"],
-      });
-      const objetivo = destino.map((r) => r.toLowerCase());
-      usuarios = activos.filter((u) =>
-        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
-      );
+      deben = await this.usuariosPorRol(destino);
     }
+    const seEnteran = await this.usuariosPorRol(PRESTAMO_ENTERAR_AL_LLEGAR[estado]);
 
     const label = PRESTAMO_ESTADOS[estado].label;
     const nro = String(solicitud.solicitudId);
     const empleado = String(solicitud.data?.nombreCompleto ?? "").trim();
+    const valor = String(solicitud.data?.valorSolicitado ?? "").trim();
+    const pie =
+      '<p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>';
+    const encabezado = `La solicitud de préstamo <b>N.º ${nro}</b> (formato GTH-007-F)${
+      empleado ? ` de <b>${empleado}</b>` : ""
+    }`;
 
     const enviados = new Set<string>();
-    for (const u of usuarios) {
+    const enviar = async (u: User, subject: string, cuerpo: string) => {
       const to = u.emailNotificacion || u.email;
-      if (!to || enviados.has(to.toLowerCase())) continue;
+      if (!to || enviados.has(to.toLowerCase())) return;
       enviados.add(to.toLowerCase());
       await this.notifications.sendEmail({
         to,
-        subject: `Solicitud de préstamo N.º ${nro} · ${label}`,
+        subject,
         html: `
       <div style="font-family:Arial,sans-serif;color:#1f2937">
         <p>Hola ${u.nombre ?? ""},</p>
-        <p>La solicitud de préstamo <b>N.º ${nro}</b> (formato GTH-007-F)${
-          empleado ? ` de <b>${empleado}</b>` : ""
-        } pasó al estado <b>${label}</b>.</p>
+        ${cuerpo}
         ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
-        <p>Ingresa al sistema para continuar con el trámite.</p>
-        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+        ${pie}
       </div>`,
       });
+    };
+
+    // Primero los que deben actuar: así, si alguien está en las dos listas, le llega el
+    // correo que le pide hacer algo y no el informativo.
+    for (const u of deben) {
+      await enviar(
+        u,
+        `Solicitud de préstamo N.º ${nro} · ${label}`,
+        `<p>${encabezado} pasó al estado <b>${label}</b>.</p>
+         <p>Ingresa al sistema para continuar con el trámite.</p>`,
+      );
+    }
+
+    for (const u of seEnteran) {
+      await enviar(
+        u,
+        `Para tu información · Solicitud de préstamo N.º ${nro}`,
+        `<p>${encabezado}${valor ? ` por <b>${valor}</b>` : ""} entró al trámite y está en
+         <b>${label}</b>.</p>
+         <p>Es solo para que la tengas presente: <b>todavía no hay nada que aprobar</b>.
+         Cuando Dirección Administrativa firme, te llega el aviso para decidir.</p>`,
+      );
     }
   }
 
@@ -2472,6 +2660,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = t.to;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
     solicitud.data = data;
 
@@ -2689,6 +2878,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = t.to;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
     solicitud.data = data;
 
@@ -2906,6 +3096,7 @@ export class GestionConocimientoService implements OnModuleInit {
     };
     solicitud.estado = t.to;
     solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
     solicitud.data = data;
 

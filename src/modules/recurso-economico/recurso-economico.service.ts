@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RecursoEconomico } from "../../database/entities/recurso-economico.entity";
@@ -132,6 +132,82 @@ export class RecursoEconomicoService {
   async save(data: Record<string, any>): Promise<{ data: Record<string, any> }> {
     const fila = await this.fila();
     fila.data = data ?? {};
+    const guardada = await this.repo.save(fila);
+    return { data: guardada.data };
+  }
+
+  /**
+   * Estampa el visto bueno del director sobre **una sola factura**.
+   *
+   * Existe aparte de `save` porque el módulo guarda todo en un jsonb único: si el
+   * director validara con `save`, el servidor recibiría el bloque entero —interventoría,
+   * retenciones, todas las facturas de todos los municipios— escrito por alguien que solo
+   * tenía que confirmar una cifra. Bastaría con que su pantalla llegara desactualizada
+   * para que al validar sobrescribiera lo que el PMO acababa de digitar.
+   *
+   * Aquí solo se toca `facturas[periodo][companyId].visto`, y el nombre lo pone el
+   * servidor con quien está firmado: es una constancia de quién revisó, y una constancia
+   * que la puede escribir el cliente no prueba nada.
+   */
+  async validarFactura(
+    periodo: string,
+    companyId: number,
+    valor: number,
+    revisor: { nombre: string; rol?: string },
+  ): Promise<{ data: Record<string, any> }> {
+    const fila = await this.fila();
+    const data = fila.data ?? {};
+    const facturas = (data.facturas ?? {}) as Record<string, Record<string, any>>;
+    const mes = facturas[periodo] ?? {};
+    const factura = mes[String(companyId)];
+
+    if (!factura) {
+      throw new NotFoundException(
+        `No hay factura de ${periodo} para ese municipio. El PMO tiene que diligenciarla primero.`,
+      );
+    }
+
+    fila.data = {
+      ...data,
+      facturas: {
+        ...facturas,
+        [periodo]: {
+          ...mes,
+          [String(companyId)]: {
+            ...factura,
+            visto: {
+              nombre: revisor.nombre,
+              rol: revisor.rol,
+              fecha: new Date().toISOString().slice(0, 10),
+              valor: Math.round(valor),
+            },
+          },
+        },
+      },
+    };
+    const guardada = await this.repo.save(fila);
+    return { data: guardada.data };
+  }
+
+  /** Quita el visto bueno de una factura, sin tocar nada más. */
+  async quitarVistoFactura(
+    periodo: string,
+    companyId: number,
+  ): Promise<{ data: Record<string, any> }> {
+    const fila = await this.fila();
+    const data = fila.data ?? {};
+    const facturas = (data.facturas ?? {}) as Record<string, Record<string, any>>;
+    const mes = facturas[periodo] ?? {};
+    const factura = mes[String(companyId)];
+    if (!factura) return { data };
+
+    fila.data = {
+      ...data,
+      facturas: {
+        ...facturas,
+        [periodo]: { ...mes, [String(companyId)]: { ...factura, visto: null } },
+      },
+    };
     const guardada = await this.repo.save(fila);
     return { data: guardada.data };
   }

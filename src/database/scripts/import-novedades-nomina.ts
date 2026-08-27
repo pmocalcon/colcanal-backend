@@ -30,6 +30,15 @@ interface NovedadJson {
   embargo: number | null;
   retencionFuente: number | null;
   serviciosGruporecordar: number | null;
+  /**
+   * Campos opcionales: la hoja NOVEDADES NÓMINA no los tiene, pero la hoja NÓMINA sí
+   * trae algunos escritos a mano. Cuando vienen en el JSON pisan lo que propondría el
+   * formato aprobado, que es justo lo que hace la novedad digitada en la pantalla.
+   */
+  vacacionesHabiles?: number | null;
+  vacacionesNoHabiles?: number | null;
+  incapacidadEmpresa?: number | null;
+  incapacidadEmpleado?: number | null;
 }
 
 interface Json {
@@ -116,6 +125,10 @@ async function importar() {
           embargo: numOrNull(n.embargo),
           retencionFuente: numOrNull(n.retencionFuente),
           serviciosGruporecordar: numOrNull(n.serviciosGruporecordar),
+          vacacionesHabiles: numOrNull(n.vacacionesHabiles ?? null),
+          vacacionesNoHabiles: numOrNull(n.vacacionesNoHabiles ?? null),
+          incapacidadEmpresa: numOrNull(n.incapacidadEmpresa ?? null),
+          incapacidadEmpleado: numOrNull(n.incapacidadEmpleado ?? null),
         }),
       );
       await repoTx.insert(filas);
