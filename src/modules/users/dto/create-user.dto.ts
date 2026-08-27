@@ -37,6 +37,10 @@ export class CreateUserDto {
   })
   @IsString()
   @MinLength(8, { message: "La contraseña debe tener al menos 8 caracteres" })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, {
+    message:
+      "La contraseña debe incluir mayúscula, minúscula y número",
+  })
   password: string;
 
   @ApiProperty({

@@ -13,6 +13,11 @@ import { Gestion } from "../../database/entities/gestion.entity";
 import { RoleGestion } from "../../database/entities/role-gestion.entity";
 import { RolePermission } from "../../database/entities/role-permission.entity";
 import { LoginDto } from "./dto/login.dto";
+import {
+  ChangePasswordDto,
+  PASSWORD_REGEX,
+  PASSWORD_RULE_MSG,
+} from "./dto/change-password.dto";
 
 // Constantes para los IDs de permisos (basado en tabla permisos)
 const PERMISO_IDS = {
@@ -49,6 +54,10 @@ const PERMISO_ACTIONS: Record<number, string[]> = {
   7: ['exportar'],
   8: ['validar'],
 };
+
+// Bloqueo de cuenta por intentos fallidos consecutivos.
+const MAX_INTENTOS = 5;
+const BLOQUEO_MINUTOS = 15;
 
 @Injectable()
 export class AuthService {
@@ -129,11 +138,46 @@ export class AuthService {
         throw new UnauthorizedException("User account is inactive");
       }
 
+      // Cuenta bloqueada por intentos fallidos: no se prueba la contraseña.
+      if (user.bloqueadoHasta && user.bloqueadoHasta.getTime() > Date.now()) {
+        const minutos = Math.ceil(
+          (user.bloqueadoHasta.getTime() - Date.now()) / 60000,
+        );
+        throw new UnauthorizedException(
+          `Cuenta bloqueada por intentos fallidos. Intenta de nuevo en ${minutos} minuto(s).`,
+        );
+      }
+
       // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
+        // Suma un intento fallido; al llegar al tope, bloquea temporalmente.
+        const intentos = (user.intentosFallidos ?? 0) + 1;
+        const bloquea = intentos >= MAX_INTENTOS;
+        await this.userRepository.update(user.userId, {
+          intentosFallidos: bloquea ? 0 : intentos,
+          ...(bloquea
+            ? {
+                bloqueadoHasta: new Date(
+                  Date.now() + BLOQUEO_MINUTOS * 60000,
+                ),
+              }
+            : {}),
+        });
+        if (bloquea) {
+          throw new UnauthorizedException(
+            `Cuenta bloqueada por ${BLOQUEO_MINUTOS} minutos tras ${MAX_INTENTOS} intentos fallidos.`,
+          );
+        }
         throw new UnauthorizedException("Invalid credentials");
       }
+
+      // Cuentas exentas (p. ej. la representante legal) nunca se fuerzan a
+      // cambiar la clave temporal, aunque su fila lo pida.
+      const exentos: string[] =
+        this.configService.get("passwordExemptEmails") || [];
+      const debeCambiar =
+        !!user.debeCambiarPassword && !exentos.includes(email.toLowerCase());
 
       // Generate tokens
       const permissions = await this.buildPermissions(user.rolId);
@@ -156,10 +200,14 @@ export class AuthService {
         expiresIn: `${this.configService.get("jwt.refreshExpiresIn") || 604800}s`,
       });
 
-      // Hash and store refresh token
+      // Hash and store refresh token. De paso: sella el último acceso y
+      // limpia el contador de intentos y cualquier bloqueo previo.
       const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
       await this.userRepository.update(user.userId, {
         refreshToken: hashedRefreshToken,
+        ultimoAcceso: new Date(),
+        intentosFallidos: 0,
+        bloqueadoHasta: null as unknown as Date,
       });
 
       return {
@@ -172,6 +220,7 @@ export class AuthService {
           cargo: user.cargo,
           rolId: user.rolId,
           nombreRol: user.role.nombreRol,
+          debeCambiarPassword: debeCambiar,
         },
       };
     } catch (error) {
@@ -185,6 +234,105 @@ export class AuthService {
       // For any other error, throw a generic BadRequestException
       throw new BadRequestException("An error occurred during login");
     }
+  }
+
+  /**
+   * Cambio de contraseña por el propio usuario. Exige la clave actual,
+   * verifica robustez, y baja la bandera debeCambiarPassword. Nunca
+   * permite repetir la misma contraseña.
+   */
+  async cambiarPassword(userId: number, dto: ChangePasswordDto) {
+    const user = await this.userRepository.findOne({ where: { userId } });
+    if (!user) {
+      throw new UnauthorizedException("User not found");
+    }
+
+    const actualValida = await bcrypt.compare(dto.passwordActual, user.password);
+    if (!actualValida) {
+      throw new BadRequestException("La contraseña actual no es correcta");
+    }
+
+    if (!PASSWORD_REGEX.test(dto.passwordNueva)) {
+      throw new BadRequestException(PASSWORD_RULE_MSG);
+    }
+
+    const esLaMisma = await bcrypt.compare(dto.passwordNueva, user.password);
+    if (esLaMisma) {
+      throw new BadRequestException(
+        "La nueva contraseña debe ser distinta de la actual",
+      );
+    }
+
+    const hashed = await bcrypt.hash(dto.passwordNueva, 10);
+    await this.userRepository.update(userId, {
+      password: hashed,
+      debeCambiarPassword: false,
+    });
+
+    return { message: "Contraseña actualizada correctamente" };
+  }
+
+  /**
+   * Impersonación para pruebas: emite tokens del usuario destino sin conocer ni
+   * tocar su contraseña, y sin sobrescribir su refresh token (no interrumpe su
+   * sesión real). El token lleva marca de quién impersona, para auditoría. El
+   * control de que quien llama sea administrador se hace en el controlador.
+   */
+  async impersonar(
+    targetUserId: number,
+    admin: { userId: number; email: string },
+  ) {
+    const target = await this.userRepository.findOne({
+      where: { userId: targetUserId },
+      relations: ["role"],
+    });
+    if (!target) {
+      throw new UnauthorizedException("Usuario a impersonar no encontrado");
+    }
+    if (!target.estado) {
+      throw new BadRequestException("La cuenta a impersonar está inactiva");
+    }
+
+    const permissions = await this.buildPermissions(target.rolId);
+    const payload = {
+      sub: target.userId,
+      email: target.email,
+      roleId: target.rolId,
+      roleName: target.role.nombreRol,
+      permissions,
+      impersonatedBy: admin.userId,
+      impersonatorEmail: admin.email,
+    };
+
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.configService.get("jwt.secret") || "change-this-secret",
+      expiresIn: `${this.configService.get("jwt.expiresIn") || 3600}s`,
+    });
+    const refreshToken = this.jwtService.sign(payload, {
+      secret:
+        this.configService.get("jwt.refreshSecret") ||
+        "change-this-refresh-secret",
+      expiresIn: `${this.configService.get("jwt.refreshExpiresIn") || 604800}s`,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        userId: target.userId,
+        email: target.email,
+        nombre: target.nombre,
+        cargo: target.cargo,
+        rolId: target.rolId,
+        nombreRol: target.role.nombreRol,
+        // Impersonando no se fuerza el cambio de clave del otro.
+        debeCambiarPassword: false,
+      },
+      impersonatedBy: {
+        userId: admin.userId,
+        email: admin.email,
+      },
+    };
   }
 
   async refreshToken(user: User) {

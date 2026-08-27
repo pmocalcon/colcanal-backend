@@ -20,6 +20,16 @@ export default () => ({
   },
   corporateEmailDomain:
     process.env.CORPORATE_EMAIL_DOMAIN || "@canalcongroup.com",
+  // Correos que nunca son forzados a cambiar la contraseña temporal.
+  // Coma-separados. Pensado para cuentas de representación (p. ej. la de la
+  // representante legal) cuya clave se conserva por decisión de la empresa.
+  passwordExemptEmails: (
+    process.env.PASSWORD_EXEMPT_EMAILS ||
+    "gerencia@canalcongroup.com,gerencia1@canalcongroup.com"
+  )
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL || "60", 10),
     limit: parseInt(process.env.THROTTLE_LIMIT || "10", 10),

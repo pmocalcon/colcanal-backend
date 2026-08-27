@@ -54,6 +54,27 @@ export class User {
   @Column({ type: "boolean", default: true, nullable: true })
   estado: boolean;
 
+  /**
+   * Obliga a cambiar la contraseña en el próximo ingreso.
+   * Nace en true (usuario recién creado con clave temporal); el propio
+   * usuario lo baja a false al fijar su contraseña personal. Con esto la
+   * clave sembrada compartida deja de servir para operar el sistema.
+   */
+  @Column({ name: "debe_cambiar_password", type: "boolean", default: true })
+  debeCambiarPassword: boolean;
+
+  /** Momento del último inicio de sesión exitoso. */
+  @Column({ name: "ultimo_acceso", type: "timestamptz", nullable: true })
+  ultimoAcceso: Date;
+
+  /** Intentos de login fallidos consecutivos; se reinicia al entrar bien. */
+  @Column({ name: "intentos_fallidos", type: "int", default: 0 })
+  intentosFallidos: number;
+
+  /** Si está en el futuro, la cuenta está bloqueada por intentos fallidos. */
+  @Column({ name: "bloqueado_hasta", type: "timestamptz", nullable: true })
+  bloqueadoHasta: Date;
+
   @CreateDateColumn({
     name: "creado_en",
     type: "timestamptz",

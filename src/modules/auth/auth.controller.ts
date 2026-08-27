@@ -3,6 +3,9 @@ import {
   Post,
   Body,
   Get,
+  Param,
+  ParseIntPipe,
+  ForbiddenException,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -14,9 +17,11 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import {
   LoginResponseDto,
   UserResponseDto,
@@ -24,6 +29,7 @@ import {
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../../database/entities/user.entity';
+import { esRolPmo } from '../../common/constants';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -31,6 +37,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -42,37 +50,9 @@ export class AuthController {
     Solo se aceptan correos electrónicos del siguiente dominio corporativo:
     - **@canalcongroup.com** - Canal Con Group
 
-    ## Usuarios de prueba disponibles
-
-    ### 1. Gerencia (Aprueba requisiciones)
-    - Email: \`gerencia@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: Gerencia
-
-    ### 2. Director Técnico (Revisa y aprueba)
-    - Email: \`director.tecnico@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: Director Técnico
-
-    ### 3. Analista PMO (Crea requisiciones)
-    - Email: \`analista.pmo@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: Analista PMO
-
-    ### 4. PQRS El Cerrito (Crea requisiciones)
-    - Email: \`pqrs.elcerrito@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: PQRS El Cerrito
-
-    ### 5. Compras (Cotiza y gestiona)
-    - Email: \`compras@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: Compras
-
-    ### 6. Director PMO (Revisa requisiciones)
-    - Email: \`director.pmo@canalcongroup.com\`
-    - Password: \`Canalco2025!\`
-    - Rol: Director PMO
+    ## Credenciales
+    Las credenciales de los usuarios no se publican en esta documentación.
+    Solicítalas al administrador del sistema.
 
     ## Cómo usar el API con Swagger
 
@@ -153,6 +133,55 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('cambiar-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Cambiar la contraseña propia',
+    description:
+      'Permite al usuario autenticado fijar una contraseña personal. ' +
+      'Exige la contraseña actual y baja la bandera que obliga al cambio ' +
+      'en el primer ingreso.',
+  })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada' })
+  @ApiResponse({
+    status: 400,
+    description: 'Contraseña actual incorrecta, débil o igual a la anterior',
+  })
+  async cambiarPassword(
+    @CurrentUser() user: User,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.cambiarPassword(user.userId, dto);
+  }
+
+  @Post('impersonar/:userId')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Iniciar sesión como otro usuario (solo PMO)',
+    description:
+      'Herramienta de pruebas. Emite un token del rol destino sin conocer su ' +
+      'contraseña. Reservado al PMO; queda marcado en el token quién impersona.',
+  })
+  @ApiResponse({ status: 200, description: 'Tokens del usuario impersonado' })
+  @ApiResponse({ status: 403, description: 'Solo PMO' })
+  async impersonar(
+    @CurrentUser() admin: User,
+    @Param('userId', ParseIntPipe) userId: number,
+  ) {
+    // La impersonación es exclusiva del PMO, el comodín transversal del sistema.
+    if (!esRolPmo(admin.role?.nombreRol)) {
+      throw new ForbiddenException(
+        'Solo el PMO puede iniciar sesión como otro usuario.',
+      );
+    }
+    return this.authService.impersonar(userId, {
+      userId: admin.userId,
+      email: admin.email,
+    });
   }
 
   @Public()

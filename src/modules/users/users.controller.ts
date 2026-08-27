@@ -153,6 +153,53 @@ export class UsersController {
   }
 
   // ============================================
+  // PANEL DE CREDENCIALES
+  // ============================================
+
+  @Get("credenciales/estado")
+  @ApiOperation({
+    summary: "Estado de credenciales de todos los usuarios",
+    description:
+      "Devuelve, por usuario, si su clave es temporal, personal o exenta, " +
+      "si está bloqueado y su último acceso. No devuelve contraseñas.",
+  })
+  @ApiResponse({ status: 200, description: "Estado de credenciales" })
+  async credencialesEstado(@Request() req) {
+    this.checkAccess(req);
+    return this.usersService.credencialesEstado();
+  }
+
+  @Post("credenciales/restablecer-lote")
+  @ApiOperation({
+    summary: "Restablecer contraseñas en lote",
+    description:
+      "Genera una clave temporal por usuario y la devuelve una vez. " +
+      "Omite las cuentas exentas.",
+  })
+  @ApiResponse({ status: 201, description: "Temporales generadas" })
+  async restablecerLote(@Request() req, @Body("userIds") userIds: number[]) {
+    this.checkAccess(req);
+    return this.usersService.restablecerPasswordLote(userIds ?? []);
+  }
+
+  @Post(":id/restablecer-password")
+  @ApiOperation({
+    summary: "Restablecer la contraseña de un usuario",
+    description:
+      "Genera una clave temporal fuerte, la asigna y la devuelve una sola " +
+      "vez. El usuario quedará obligado a cambiarla al ingresar.",
+  })
+  @ApiParam({ name: "id", description: "ID del usuario" })
+  @ApiResponse({ status: 201, description: "Clave temporal generada" })
+  async restablecerPassword(
+    @Request() req,
+    @Param("id", ParseIntPipe) id: number,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.restablecerPassword(id);
+  }
+
+  // ============================================
   // CRUD DE ROLES
   // ============================================
 

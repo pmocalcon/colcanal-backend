@@ -7,6 +7,9 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, In, Not } from "typeorm";
 import * as bcrypt from "bcrypt";
+import { ConfigService } from "@nestjs/config";
+
+import { generarPasswordTemporal } from "../auth/password.util";
 
 import { User } from "../../database/entities/user.entity";
 import { Role } from "../../database/entities/role.entity";
@@ -44,7 +47,109 @@ export class UsersService {
     private roleGestionRepository: Repository<RoleGestion>,
     @InjectRepository(Gestion)
     private gestionRepository: Repository<Gestion>,
+    private configService: ConfigService,
   ) {}
+
+  // ============================================
+  // PANEL DE CREDENCIALES
+  // ============================================
+
+  /** Los correos exentos del cambio forzado (representación legal). */
+  private correosExentos(): string[] {
+    return this.configService.get<string[]>("passwordExemptEmails") ?? [];
+  }
+
+  /**
+   * Estado de acceso de cada usuario para el panel de credenciales.
+   * No devuelve contraseñas —no existen en claro—: devuelve en qué punto
+   * está cada cuenta y cuándo entró por última vez.
+   */
+  async credencialesEstado() {
+    const exentos = this.correosExentos();
+    const users = await this.userRepository.find({
+      relations: ["role"],
+      order: { nombre: "ASC" },
+    });
+
+    return users.map((u) => {
+      const exenta = exentos.includes(u.email.toLowerCase());
+      const bloqueada =
+        !!u.bloqueadoHasta && u.bloqueadoHasta.getTime() > Date.now();
+      const estadoClave = exenta
+        ? "exenta"
+        : u.debeCambiarPassword
+          ? "temporal"
+          : "personal";
+      return {
+        userId: u.userId,
+        nombre: u.nombre,
+        email: u.email,
+        cargo: u.cargo,
+        nombreRol: u.role?.nombreRol ?? null,
+        activo: u.estado,
+        estadoClave, // 'temporal' | 'personal' | 'exenta'
+        exenta,
+        bloqueada,
+        ultimoAcceso: u.ultimoAcceso ?? null,
+      };
+    });
+  }
+
+  /**
+   * Restablece la contraseña de un usuario a una temporal fuerte y aleatoria,
+   * lo obliga a cambiarla al entrar, y devuelve la clave en claro UNA vez para
+   * entregársela. No se almacena en claro en ninguna parte.
+   */
+  async restablecerPassword(userId: number) {
+    const user = await this.userRepository.findOne({ where: { userId } });
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID ${userId} no encontrado`);
+    }
+    const temporal = generarPasswordTemporal();
+    const hashed = await bcrypt.hash(temporal, 10);
+    await this.userRepository.update(userId, {
+      password: hashed,
+      debeCambiarPassword: true,
+      intentosFallidos: 0,
+      bloqueadoHasta: null as unknown as Date,
+    });
+    return {
+      userId: user.userId,
+      email: user.email,
+      nombre: user.nombre,
+      passwordTemporal: temporal,
+    };
+  }
+
+  /**
+   * Restablece en lote. Devuelve la lista de temporales generadas, una por
+   * usuario, para repartir. Las cuentas exentas se omiten y se reportan.
+   */
+  async restablecerPasswordLote(userIds: number[]) {
+    const exentos = this.correosExentos();
+    const resultado: Array<{
+      userId: number;
+      email: string;
+      nombre: string;
+      passwordTemporal: string;
+    }> = [];
+    const omitidas: Array<{ email: string; motivo: string }> = [];
+
+    for (const id of userIds) {
+      const user = await this.userRepository.findOne({ where: { userId: id } });
+      if (!user) {
+        omitidas.push({ email: `#${id}`, motivo: "no existe" });
+        continue;
+      }
+      if (exentos.includes(user.email.toLowerCase())) {
+        omitidas.push({ email: user.email, motivo: "cuenta exenta" });
+        continue;
+      }
+      const r = await this.restablecerPassword(id);
+      resultado.push(r);
+    }
+    return { restablecidas: resultado, omitidas };
+  }
 
   // ============================================
   // CRUD DE USUARIOS
@@ -186,13 +291,18 @@ export class UsersService {
       }
     }
 
-    // Si se actualiza la contraseña, hashearla
+    // Si se actualiza la contraseña, hashearla. Un reset hecho por un
+    // administrador obliga al usuario a fijar su propia clave al ingresar.
+    const forzarCambio = Boolean(updateUserDto.password);
     if (updateUserDto.password) {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
     }
 
     // Actualizar usuario
-    await this.userRepository.update(userId, updateUserDto);
+    await this.userRepository.update(userId, {
+      ...updateUserDto,
+      ...(forzarCambio ? { debeCambiarPassword: true } : {}),
+    });
 
     return this.findOne(userId);
   }
