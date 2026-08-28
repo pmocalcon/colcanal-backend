@@ -331,6 +331,21 @@ async function seed() {
         slug: "notificaciones",
         icono: "Bell",
       },
+      // Módulos fijos del frontend, ahora también como gestión para poder
+      // graduar su visibilidad por rol desde el checklist de administración.
+      // El acceso real de TH y RE lo sigue cerrando RolesGuard en el backend.
+      { nombre: "Aprobaciones", slug: "aprobaciones", icono: "Stamp" },
+      {
+        nombre: "Gestión del conocimiento",
+        slug: "gestion-conocimiento",
+        icono: "BookOpen",
+      },
+      { nombre: "Talento Humano", slug: "talento-humano", icono: "Users" },
+      {
+        nombre: "Recurso Económico",
+        slug: "recurso-economico",
+        icono: "Wallet",
+      },
     ];
 
     const gestiones = await gestionRepository.save(gestionesData);

@@ -17,6 +17,7 @@ import { Authorization } from "../../database/entities/authorization.entity";
 import { Permission } from "../../database/entities/permission.entity";
 import { RolePermission } from "../../database/entities/role-permission.entity";
 import { RoleGestion } from "../../database/entities/role-gestion.entity";
+import { RoleGestionPermission } from "../../database/entities/role-gestion-permission.entity";
 import { Gestion } from "../../database/entities/gestion.entity";
 
 import {
@@ -45,10 +46,72 @@ export class UsersService {
     private rolePermissionRepository: Repository<RolePermission>,
     @InjectRepository(RoleGestion)
     private roleGestionRepository: Repository<RoleGestion>,
+    @InjectRepository(RoleGestionPermission)
+    private roleGestionPermissionRepository: Repository<RoleGestionPermission>,
     @InjectRepository(Gestion)
     private gestionRepository: Repository<Gestion>,
     private configService: ConfigService,
   ) {}
+
+  // ============================================
+  // PERMISOS POR MÓDULO (matriz rol × módulo × permiso)
+  // ============================================
+
+  /** Devuelve, por módulo, los permisos que el rol tiene asignados. */
+  async getModulePermissions(rolId: number) {
+    const role = await this.roleRepository.findOne({ where: { rolId } });
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+    const rows = await this.roleGestionPermissionRepository.find({
+      where: { rolId },
+    });
+    const porGestion = new Map<number, number[]>();
+    for (const r of rows) {
+      const arr = porGestion.get(r.gestionId) ?? [];
+      arr.push(r.permisoId);
+      porGestion.set(r.gestionId, arr);
+    }
+    return [...porGestion.entries()].map(([gestionId, permisoIds]) => ({
+      gestionId,
+      permisoIds,
+    }));
+  }
+
+  /**
+   * Reemplaza toda la matriz de permisos por módulo del rol. Recibe, por módulo,
+   * la lista de permisos marcados. Es un reemplazo completo: lo que no venga, se
+   * quita.
+   */
+  async setModulePermissions(
+    rolId: number,
+    asignaciones: Array<{ gestionId: number; permisoIds: number[] }>,
+  ) {
+    const role = await this.roleRepository.findOne({ where: { rolId } });
+    if (!role) {
+      throw new NotFoundException(`Rol con ID ${rolId} no encontrado`);
+    }
+
+    await this.roleGestionPermissionRepository.delete({ rolId });
+
+    const filas: RoleGestionPermission[] = [];
+    for (const item of asignaciones) {
+      const unicos = [...new Set(item.permisoIds)];
+      for (const permisoId of unicos) {
+        filas.push(
+          this.roleGestionPermissionRepository.create({
+            rolId,
+            gestionId: item.gestionId,
+            permisoId,
+          }),
+        );
+      }
+    }
+    if (filas.length > 0) {
+      await this.roleGestionPermissionRepository.save(filas);
+    }
+    return this.getModulePermissions(rolId);
+  }
 
   // ============================================
   // PANEL DE CREDENCIALES

@@ -1808,6 +1808,24 @@ export class PurchasesService {
       queryBuilder.where('requisitionStatus.code IN (:...statuses)', {
         statuses: ['aprobada_gerencia', 'cotizada', 'en_orden_compra', 'pendiente_recepcion'],
       });
+    } else if (roleName === 'Gerencia de Proyectos') {
+      // Gerencia de Proyectos autoriza requisiciones de proyectos que lo requieren
+      // (UTAP y proyectos de Canales & Contactos distintos de Oficina Principal).
+      // Ve lo pendiente de su autorización y todo el recorrido de lo que autorizó.
+      // El acotado a "las que pasaron por su autorización" se hace en el bucle,
+      // que ya tiene los approvals cargados.
+      queryBuilder.where('requisitionStatus.code IN (:...statuses)', {
+        statuses: [
+          'pendiente_autorizacion',
+          'autorizado',
+          'rechazada_autorizador',
+          'aprobada_gerencia',
+          'rechazada_gerencia',
+          'cotizada',
+          'en_orden_compra',
+          'pendiente_recepcion',
+        ],
+      });
     }
 
     queryBuilder
@@ -1915,6 +1933,43 @@ export class PurchasesService {
             } else if (req.status.code === 'en_orden_compra') {
               lastActionLabel = 'En orden de compra';
             }
+          }
+        }
+      } else if (roleName === 'Gerencia de Proyectos') {
+        // Solo le corresponden las que pasaron (o están pasando) por SU autorización.
+        // Las de Oficina Principal, que no requieren su firma, se descartan aunque
+        // hayan llegado a aprobada_gerencia.
+        const pasoPorAutorizacion =
+          ['pendiente_autorizacion', 'autorizado', 'rechazada_autorizador'].includes(
+            req.status.code,
+          ) ||
+          req.approvals?.some((a) =>
+            ['autorizado', 'rechazada_autorizador'].includes(a.newStatus?.code),
+          );
+        if (!pasoPorAutorizacion) {
+          continue;
+        }
+
+        isPending = req.status.code === 'pendiente_autorizacion';
+
+        if (!isPending) {
+          const approval = req.approvals?.find((a) =>
+            ['autorizado', 'rechazada_autorizador'].includes(a.newStatus?.code),
+          );
+          if (approval) {
+            lastActionDate = approval.createdAt;
+            lastActionLabel =
+              approval.newStatus.code === 'autorizado' ? 'Autorizada' : 'Rechazada';
+          } else if (req.status.code === 'aprobada_gerencia') {
+            lastActionLabel = 'Aprobada por gerencia';
+          } else if (req.status.code === 'rechazada_gerencia') {
+            lastActionLabel = 'Rechazada por gerencia';
+          } else if (req.status.code === 'cotizada') {
+            lastActionLabel = 'Cotizada';
+          } else if (req.status.code === 'en_orden_compra') {
+            lastActionLabel = 'En orden de compra';
+          } else if (req.status.code === 'pendiente_recepcion') {
+            lastActionLabel = 'Pendiente de recepción';
           }
         }
       } else if (roleName === 'Compras') {
@@ -3085,13 +3140,27 @@ export class PurchasesService {
       }
     }
 
-    // Gerencia de Proyectos puede ver requisiciones pendientes de autorización, autorizadas y rechazadas por ellos
+    // Gerencia de Proyectos ve lo pendiente de su autorización, lo que autorizó o
+    // rechazó, y todo lo que avanzó después (aprobada por gerencia, cotizada, orden,
+    // recepción) SIEMPRE que haya pasado por su autorización. Así el detalle es
+    // consistente con el listado de "Autorizar Requisiciones".
     if (user.role.nombreRol === 'Gerencia de Proyectos') {
       if (
         status?.code === 'pendiente_autorizacion' ||
         status?.code === 'autorizado' ||
         status?.code === 'rechazada_autorizador'
       ) {
+        return true;
+      }
+      // ¿Avanzó pero pasó por su autorización? Se comprueba en el historial.
+      const full = await this.requisitionRepository.findOne({
+        where: { requisitionId: requisition.requisitionId },
+        relations: ['approvals', 'approvals.newStatus'],
+      });
+      const pasoPorAutorizacion = full?.approvals?.some((a) =>
+        ['autorizado', 'rechazada_autorizador'].includes(a.newStatus?.code),
+      );
+      if (pasoPorAutorizacion) {
         return true;
       }
     }

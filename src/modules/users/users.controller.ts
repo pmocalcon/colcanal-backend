@@ -369,6 +369,36 @@ export class UsersController {
     return this.usersService.getRolePermissions(rolId);
   }
 
+  @Get("roles/:rolId/module-permissions")
+  @ApiOperation({
+    summary: "Permisos por módulo de un rol (matriz módulo × permiso)",
+  })
+  @ApiParam({ name: "rolId", description: "ID del rol" })
+  @ApiResponse({ status: 200, description: "Permisos por módulo del rol" })
+  async getModulePermissions(
+    @Request() req,
+    @Param("rolId", ParseIntPipe) rolId: number,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.getModulePermissions(rolId);
+  }
+
+  @Put("roles/:rolId/module-permissions")
+  @ApiOperation({
+    summary: "Asignar permisos por módulo a un rol (reemplazo completo)",
+  })
+  @ApiParam({ name: "rolId", description: "ID del rol" })
+  @ApiResponse({ status: 200, description: "Permisos por módulo actualizados" })
+  async setModulePermissions(
+    @Request() req,
+    @Param("rolId", ParseIntPipe) rolId: number,
+    @Body("asignaciones")
+    asignaciones: Array<{ gestionId: number; permisoIds: number[] }>,
+  ) {
+    this.checkAccess(req);
+    return this.usersService.setModulePermissions(rolId, asignaciones ?? []);
+  }
+
   @Post()
   @ApiOperation({ summary: "Crear un nuevo usuario" })
   @ApiResponse({ status: 201, description: "Usuario creado exitosamente" })

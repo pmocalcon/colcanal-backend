@@ -15,10 +15,17 @@ import { User } from "../../database/entities/user.entity";
 import { RolePermission } from "../../database/entities/role-permission.entity";
 import { Gestion } from "../../database/entities/gestion.entity";
 import { RoleGestion } from "../../database/entities/role-gestion.entity";
+import { RoleGestionPermission } from "../../database/entities/role-gestion-permission.entity";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RolePermission, Gestion, RoleGestion]),
+    TypeOrmModule.forFeature([
+      User,
+      RolePermission,
+      Gestion,
+      RoleGestion,
+      RoleGestionPermission,
+    ]),
     PassportModule.register({ defaultStrategy: "jwt" }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

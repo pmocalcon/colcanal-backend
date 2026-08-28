@@ -6,6 +6,7 @@ export { User } from './user.entity';
 export { Authorization } from './authorization.entity';
 export { Gestion } from './gestion.entity';
 export { RoleGestion } from './role-gestion.entity';
+export { RoleGestionPermission } from './role-gestion-permission.entity';
 
 // Business entities
 export { Company } from './company.entity';

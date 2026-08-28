@@ -12,6 +12,7 @@ import { User } from "../../database/entities/user.entity";
 import { Gestion } from "../../database/entities/gestion.entity";
 import { RoleGestion } from "../../database/entities/role-gestion.entity";
 import { RolePermission } from "../../database/entities/role-permission.entity";
+import { RoleGestionPermission } from "../../database/entities/role-gestion-permission.entity";
 import { LoginDto } from "./dto/login.dto";
 import {
   ChangePasswordDto,
@@ -70,11 +71,37 @@ export class AuthService {
     private roleGestionRepository: Repository<RoleGestion>,
     @InjectRepository(RolePermission)
     private rolePermissionRepository: Repository<RolePermission>,
+    @InjectRepository(RoleGestionPermission)
+    private roleGestionPermissionRepository: Repository<RoleGestionPermission>,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
 
   private async buildPermissions(rolId: number): Promise<string[]> {
+    // Modelo por módulo (matriz rol × módulo × permiso). Si el rol ya tiene filas
+    // aquí, manda esto: permite Aprobar en Compras y solo Ver en Usuarios.
+    const modPerms = await this.roleGestionPermissionRepository.find({
+      where: { rolId },
+      relations: ["gestion", "permission"],
+    });
+    if (modPerms.length > 0) {
+      const perms = new Set<string>();
+      for (const mp of modPerms) {
+        const prefix =
+          GESTION_PERMISSION_PREFIX[mp.gestion.slug] ?? mp.gestion.slug;
+        const actions = PERMISO_ACTIONS[mp.permisoId];
+        if (actions) {
+          for (const action of actions) perms.add(`${prefix}:${action}`);
+        } else {
+          // Permiso no estándar: se emite con su nombre directo.
+          perms.add(mp.permission.nombrePermiso);
+        }
+      }
+      return [...perms];
+    }
+
+    // Fallback al modelo global (permiso × todos los módulos del rol) mientras el
+    // backfill a la tabla por módulo no se haya corrido. No rompe a nadie.
     const [roleGestiones, rolePermisos] = await Promise.all([
       this.roleGestionRepository.find({ where: { rolId }, relations: ['gestion'] }),
       this.rolePermissionRepository.find({ where: { rolId }, relations: ['permission'] }),
