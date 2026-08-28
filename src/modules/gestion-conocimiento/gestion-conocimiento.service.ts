@@ -2591,13 +2591,16 @@ export class GestionConocimientoService implements OnModuleInit {
     // aprobado no se puede registrar en la base real de ausentismos (th_ausentismos),
     // que la exige.
     if (accion === "enviar") {
+      // `desde` es del formato v2; `fechaPermiso` es la clave vieja, que se sigue
+      // aceptando para no bloquear permisos que nacieron con el formato anterior.
+      const desde = String(data.desde ?? data.fechaPermiso ?? "").trim();
       const falta =
         !String(data.nombre ?? "").trim() ||
         !String(data.identificacion ?? "").trim() ||
-        !String(data.fechaPermiso ?? "").trim();
+        !desde;
       if (falta) {
         throw new BadRequestException(
-          "Diligencia el nombre, la identificación y la fecha del permiso antes de enviarlo a aprobación.",
+          "Diligencia el nombre, la identificación y la fecha de inicio (Desde) del permiso antes de enviarlo a aprobación.",
         );
       }
       data.nombreSolicitante = String(data.nombreSolicitante ?? "").trim() || data.nombre;
@@ -2624,16 +2627,32 @@ export class GestionConocimientoService implements OnModuleInit {
         // El jefe acaba de conceder el permiso: nace en el registro real de
         // ausentismos. Va antes de guardar la solicitud para no dejarla marcada
         // "aprobado" sin que el ausentismo exista de verdad si esto falla.
+        // Campos del formato v2, con respaldo a las claves viejas para permisos
+        // creados antes del rediseño (fechaPermiso/motivo/horario/tipoPermiso).
+        const desde = data.desde || data.fechaPermiso || null;
+        const hasta = data.hasta || data.desde || data.fechaPermiso || null;
+        const descripcion = data.descripcionMotivo || data.motivo || "";
+        const horario =
+          data.horaDesde || data.horaHasta
+            ? [data.horaDesde, data.horaHasta].filter(Boolean).join(" a ")
+            : data.horario || "";
+        const remuneracionEtiqueta =
+          data.remuneracion === "no-remunerado"
+            ? "Permiso no remunerado"
+            : data.remuneracion === "remunerado"
+              ? "Permiso remunerado"
+              : null;
         await this.talentoHumano.createAusentismo({
           identificacion: data.identificacion,
           nombre: data.nombre || "",
           cargo: data.cargo || null,
-          fechaInicio: data.fechaPermiso || null,
-          fechaFin: data.fechaPermiso || null,
-          motivo: data.tipoPermiso || null,
+          fechaInicio: desde,
+          fechaFin: hasta,
+          motivo: data.tipoPermiso || remuneracionEtiqueta || "Permiso",
           observaciones: [
-            data.motivo ? `Motivo: ${data.motivo}` : null,
-            data.horario ? `Horario: ${data.horario}` : null,
+            descripcion ? `Motivo: ${descripcion}` : null,
+            horario ? `Horario: ${horario}` : null,
+            data.anexaSoporte === "si" && data.tipoSoporte ? `Soporte: ${data.tipoSoporte}` : null,
             `Generado al aprobar la solicitud GTH-009-F N.º ${solicitud.solicitudId}.`,
           ]
             .filter(Boolean)
