@@ -418,12 +418,16 @@ export class InvoicesService {
       );
     }
 
-    // Marcar todas las facturas como enviadas a contabilidad
+    // Marcar todas las facturas como enviadas a contabilidad. `sentDate` es la fecha que
+    // digita quien envía; `ahora` es la del sistema en el instante del envío, que es la
+    // que pide la auditoría porque no se puede retrasar ni adelantar.
     const sentDate = new Date(sendToAccountingDto.sentToAccountingDate);
+    const ahora = new Date();
 
     for (const invoice of purchaseOrder.invoices) {
       invoice.sentToAccounting = true;
       invoice.sentToAccountingDate = sentDate;
+      invoice.sentToAccountingAt = ahora;
       await this.invoiceRepository.save(invoice);
     }
 

@@ -107,6 +107,13 @@ const TIPOS_HORA_EXTRA = [
   { key: "nocturnaFestiva", factor: 2.65 },
 ] as const;
 
+/**
+ * Divisor para el valor de la hora: salario mensual ÷ 210. El formato ya no pide el valor
+ * hora a mano —la planilla solo registra horas, como el papel oficial—; el valor hora sale
+ * del salario que la ficha de Personal tiene para la persona, al aprobar la planilla.
+ */
+const DIVISOR_HORA_EXTRA = 210;
+
 /** Texto → número. Acepta la coma decimal, igual que `num()` en `HorasExtrasPage.tsx`. */
 function numHorasExtras(v: unknown): number {
   const limpio = String(v ?? "").replace(/[^\d,.-]/g, "").replace(",", ".");
@@ -2642,12 +2649,35 @@ export class GestionConocimientoService implements OnModuleInit {
             : data.remuneracion === "remunerado"
               ? "Permiso remunerado"
               : null;
+
+        // Días y horas del permiso, para que la nómina pueda descontarlos (solo los no
+        // remunerados). Si va de varios días, se guardan días completos; si es dentro de
+        // un día con hora de inicio y fin, las horas —la nómina las pasa a fracción de día
+        // con la jornada de ese día—.
+        let diasPermiso: number | null = null;
+        let horasAusencia: number | null = null;
+        if (desde && hasta && desde !== hasta) {
+          const d0 = new Date(`${desde}T00:00:00Z`).getTime();
+          const d1 = new Date(`${hasta}T00:00:00Z`).getTime();
+          const dias = Math.round((d1 - d0) / 86_400_000) + 1;
+          if (dias > 0) diasPermiso = dias;
+        } else if (data.horaDesde && data.horaHasta) {
+          const aMin = (t: string) => {
+            const [h, m] = String(t).split(":").map(Number);
+            return (h || 0) * 60 + (m || 0);
+          };
+          const mins = aMin(data.horaHasta) - aMin(data.horaDesde);
+          if (mins > 0) horasAusencia = Math.round((mins / 60) * 100) / 100;
+        }
+
         await this.talentoHumano.createAusentismo({
           identificacion: data.identificacion,
           nombre: data.nombre || "",
           cargo: data.cargo || null,
           fechaInicio: desde,
           fechaFin: hasta,
+          diasPermiso,
+          horasAusencia: horasAusencia != null ? String(horasAusencia) : null,
           motivo: data.tipoPermiso || remuneracionEtiqueta || "Permiso",
           observaciones: [
             descripcion ? `Motivo: ${descripcion}` : null,
@@ -2804,13 +2834,17 @@ export class GestionConocimientoService implements OnModuleInit {
     // no hay nada que liquidar y el error se descubriría tres pasos más adelante.
     if (accion === "enviar") {
       const filas = Array.isArray(data.filas) ? data.filas : [];
+      // El valor hora ya no se teclea: sale del salario de la ficha al aprobar. Lo que no
+      // puede faltar es la cédula (con ella se ubica ese salario) y el periodo (con él la
+      // nómina ubica el mes de la planilla).
       if (
         !String(data.nombre ?? "").trim() ||
-        !String(data.valorHora ?? "").trim() ||
+        !String(data.cedula ?? "").trim() ||
+        !String(data.periodo ?? "").trim() ||
         filas.length === 0
       ) {
         throw new BadRequestException(
-          "Diligencia el nombre del trabajador, el valor hora y al menos un renglón antes de enviar.",
+          "Diligencia el nombre y la cédula del trabajador, el mes/año y al menos un renglón antes de enviar.",
         );
       }
     }
@@ -2835,7 +2869,11 @@ export class GestionConocimientoService implements OnModuleInit {
     // solicitud para no dejarla marcada "aprobado" sin que la planilla exista de
     // verdad si esto falla.
     if (accion === "aprobar_gp") {
-      const valorHora = numHorasExtras(data.valorHora);
+      // El valor hora se deriva del salario que la ficha de Personal tiene para la cédula,
+      // dividido entre 210. La planilla ya no lo trae tecleado.
+      const ficha = await this.talentoHumano.fichaParaFormato(String(data.cedula ?? ""), true);
+      const salarioFicha = numHorasExtras(ficha?.salario ?? "");
+      const valorHora = salarioFicha > 0 ? salarioFicha / DIVISOR_HORA_EXTRA : 0;
       const filas: Record<string, any>[] = Array.isArray(data.filas) ? data.filas : [];
       const detalle = filas.map((fl) => {
         const horas = (fl.horas ?? {}) as Record<string, string>;
@@ -2876,9 +2914,9 @@ export class GestionConocimientoService implements OnModuleInit {
           nombre: data.nombre || "",
           identificacion: data.cedula || null,
           cargo: data.cargo || null,
-          salario: data.salario || null,
+          salario: ficha?.salario ?? null,
           periodo: data.periodo || null,
-          valorHora: data.valorHora || null,
+          valorHora: valorHora ? String(valorHora) : null,
           totalHoras: totalHoras ? String(totalHoras) : null,
           totalLiquidacion: totalLiquidacion ? String(totalLiquidacion) : null,
           observaciones: `Generada al aprobar la solicitud GTH-016-F N.º ${solicitud.solicitudId}.`,

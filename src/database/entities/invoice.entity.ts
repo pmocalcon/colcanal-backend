@@ -47,6 +47,13 @@ export class Invoice {
   @Column({ name: "sent_to_accounting_date", type: "date", nullable: true })
   sentToAccountingDate: Date | null;
 
+  // Fecha/hora del sistema en el momento real del envío a Contabilidad. Distinta de
+  // `sentToAccountingDate`, que es la fecha que digita quien envía: esta la pone el
+  // servidor y no se puede retrasar ni adelantar, para que la auditoría tenga el
+  // instante en que de verdad pasó.
+  @Column({ name: "sent_to_accounting_at", type: "timestamptz", nullable: true })
+  sentToAccountingAt: Date | null;
+
   // Campos para recepción por contabilidad
   @Column({ name: "received_by_accounting", default: false })
   receivedByAccounting: boolean;

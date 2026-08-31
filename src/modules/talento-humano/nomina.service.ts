@@ -8,6 +8,7 @@ import { ThIncapacidad } from "../../database/entities/th-incapacidad.entity";
 import { ThHorasExtra } from "../../database/entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../../database/entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../../database/entities/th-vacacion.entity";
+import { ThAusentismo } from "../../database/entities/th-ausentismo.entity";
 import { ThNovedadNomina } from "../../database/entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../../database/entities/th-nomina-liquidacion.entity";
 import { User } from "../../database/entities/user.entity";
@@ -61,6 +62,12 @@ export interface SugerenciasNovedad {
   vacacionesHabiles: number | null;
   /** La cuota de la póliza funeraria que tiene la persona en su ficha. */
   serviciosGruporecordar: number | null;
+  /**
+   * Días que el empleado no trabajó en el periodo y que bajan de los 30: vacaciones
+   * disfrutadas, los días de incapacidad que asume la empresa y los permisos no
+   * remunerados. Con esto la nómina propone `diasTrabajados = 30 − diasDescontados`.
+   */
+  diasDescontados: number | null;
   origen: string[];
 }
 
@@ -71,6 +78,7 @@ export const SUGERENCIAS_VACIAS = (): SugerenciasNovedad => ({
   incapacidadEmpleado: null,
   vacacionesHabiles: null,
   serviciosGruporecordar: null,
+  diasDescontados: null,
   origen: [],
 });
 
@@ -215,6 +223,8 @@ export class NominaService {
     private readonly horasExtraDetalleRepo: Repository<ThHorasExtraDetalle>,
     @InjectRepository(ThVacacion)
     private readonly vacacionRepo: Repository<ThVacacion>,
+    @InjectRepository(ThAusentismo)
+    private readonly ausentismoRepo: Repository<ThAusentismo>,
     @InjectRepository(ThNovedadNomina)
     private readonly novedadRepo: Repository<ThNovedadNomina>,
     @InjectRepository(ThNominaLiquidacion)
@@ -630,7 +640,7 @@ export class NominaService {
       porIdentificacion.set(p.identificacion, [...(porIdentificacion.get(p.identificacion) ?? []), p]);
     }
 
-    const [incapacidades, planillas, vacaciones] = await Promise.all([
+    const [incapacidades, planillas, vacaciones, ausentismos] = await Promise.all([
       // La incapacidad se carga al mes en que empieza, entera. Partirla entre dos meses
       // exigiría prorratear un valor que ya viene calculado y cuadrado con la EPS.
       this.incapacidadRepo.find({
@@ -639,6 +649,10 @@ export class NominaService {
       // El periodo de la planilla es texto libre: toca traerlas y filtrarlas en memoria.
       this.horasExtraRepo.find({ where: { identificacion: In(identificaciones) } }),
       this.vacacionRepo.find({
+        where: { identificacion: In(identificaciones), fechaInicio: Between(inicio, fin) },
+      }),
+      // Los permisos (ausentismos) del periodo: solo los NO remunerados bajan los días.
+      this.ausentismoRepo.find({
         where: { identificacion: In(identificaciones), fechaInicio: Between(inicio, fin) },
       }),
     ]);
@@ -656,6 +670,8 @@ export class NominaService {
       const persona = this.contratoQueRecibe(candidatos, inc.proyecto);
 
       suma(persona, "incapacidadEmpresa", num(inc.valorAsumidoEmpresa), "Incapacidades");
+      // De la incapacidad solo bajan los días que asume la empresa, no los de la EPS.
+      suma(persona, "diasDescontados", inc.diasEmpresa ?? 0, "Incapacidades");
 
       // Los días que asume la EPS los adelanta la empresa al empleado a dos tercios del
       // salario, sin bajar del mínimo. Es la fórmula de la hoja NÓMINA, pero con los
@@ -703,9 +719,47 @@ export class NominaService {
       if (dias > 0) {
         suma(persona, "vacacionesHabiles", (num(persona.salario) / 30) * dias, "Vacaciones");
       }
+      // De los días solo bajan los disfrutados: los compensados se pagan pero la persona
+      // sí trabaja esos días.
+      suma(persona, "diasDescontados", vac.diasDisfrutar ?? 0, "Vacaciones");
+    }
+
+    for (const aus of ausentismos) {
+      // Solo los permisos NO remunerados bajan los días. El marcador («Permiso no
+      // remunerado») lo pone el formato GTH-009-F al aprobarse; los permisos importados
+      // del archivo histórico no lo traen y, sin saber si se pagaron, no cuentan.
+      if (!(aus.motivo ?? "").toLowerCase().includes("no remunerado")) continue;
+      const candidatos = porIdentificacion.get(aus.identificacion);
+      if (!candidatos?.length) continue;
+      const persona = this.contratoQueRecibe(candidatos);
+      const dias = this.diasDePermiso(aus);
+      suma(persona, "diasDescontados", dias, "Permiso no remunerado");
     }
 
     return porPersona;
+  }
+
+  /**
+   * Cuántos días de nómina vale un permiso.
+   *
+   * Un permiso de varios días descuenta días completos. Uno de horas dentro de un día se
+   * pasa a fracción de día con la jornada del día en que ocurrió —lunes a jueves 8,5 h,
+   * viernes 8 h—: un permiso de 4 horas un martes vale 4 / 8,5 de día.
+   */
+  private diasDePermiso(aus: ThAusentismo): number {
+    const diasPermiso = aus.diasPermiso ?? 0;
+    if (diasPermiso > 0) return diasPermiso;
+    const horas = num(aus.horasAusencia);
+    if (horas > 0 && aus.fechaInicio) return horas / this.jornadaDelDia(aus.fechaInicio);
+    return 0;
+  }
+
+  /** Jornada del día en horas: lunes a jueves 8,5; viernes 8; fin de semana 8,5 (caso raro). */
+  private jornadaDelDia(iso: string): number {
+    const dow = new Date(`${iso}T00:00:00Z`).getUTCDay(); // 0 dom … 6 sáb
+    if (dow >= 1 && dow <= 4) return 8.5;
+    if (dow === 5) return 8;
+    return 8.5;
   }
 
   private claveNombre(nombre: string | null): string {
@@ -740,7 +794,17 @@ export class NominaService {
       manual !== null && manual !== undefined && manual !== "" ? num(manual) : (sugerido ?? 0);
 
     const salarioBasico = num(persona.salario);
-    const diasTrabajados = novedad?.diasTrabajados ?? 30;
+    /*
+     * Los días trabajados se proponen solos: 30 menos lo que descuentan los formatos
+     * —vacaciones disfrutadas, incapacidad que asume la empresa y permisos no
+     * remunerados—. Lo digitado a mano manda, como en el resto de las novedades; pero
+     * como la novedad guarda 30 por defecto, un 30 se lee como «sin tocar» y deja pasar
+     * la sugerencia. Quien de verdad quiera 30 con ausencias de por medio, digita 30 y
+     * la sugerencia coincidiría solo si no hubiera descuentos; es el único borde.
+     */
+    const diasSugeridos = Math.max(0, 30 - (sugerencias.diasDescontados ?? 0));
+    const diasManual = novedad?.diasTrabajados;
+    const diasTrabajados = diasManual != null && diasManual !== 30 ? diasManual : diasSugeridos;
     const devengadoBasico = (salarioBasico / 30) * diasTrabajados;
 
     const horasExtras = valor(novedad?.horasExtrasValor, sugerencias.horasExtrasValor);

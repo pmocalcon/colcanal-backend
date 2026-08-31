@@ -8,6 +8,7 @@ import { ThIncapacidad } from "../entities/th-incapacidad.entity";
 import { ThHorasExtra } from "../entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../entities/th-vacacion.entity";
+import { ThAusentismo } from "../entities/th-ausentismo.entity";
 import { ThNovedadNomina } from "../entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../entities/th-nomina-liquidacion.entity";
 import { User } from "../entities/user.entity";
@@ -37,6 +38,7 @@ async function main() {
     ds.getRepository(ThHorasExtra),
     ds.getRepository(ThHorasExtraDetalle),
     ds.getRepository(ThVacacion),
+    ds.getRepository(ThAusentismo),
     ds.getRepository(ThNovedadNomina),
     ds.getRepository(ThNominaLiquidacion),
     ds.getRepository(User),

@@ -42,7 +42,7 @@ async function main() {
   const nomina = new NominaService(
     ds.getRepository(ThPersona), ds.getRepository(ThPrestamo), ds.getRepository(ThPrestamoPago),
     ds.getRepository(ThIncapacidad), ds.getRepository(ThHorasExtra), ds.getRepository(ThHorasExtraDetalle),
-    ds.getRepository(ThVacacion), ds.getRepository(ThNovedadNomina), ds.getRepository(ThNominaLiquidacion),
+    ds.getRepository(ThVacacion), ds.getRepository(ThAusentismo), ds.getRepository(ThNovedadNomina), ds.getRepository(ThNominaLiquidacion),
     ds.getRepository(User),
   );
 

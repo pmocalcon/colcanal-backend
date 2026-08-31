@@ -130,11 +130,29 @@ export class AuditService {
               po.issue_date                                  AS "issueDate",
               (CURRENT_DATE - COALESCE(po.issue_date, po.created_at)::date)::int AS "days",
               po.total_amount::float                         AS "totalAmount",
+              po.reception_status                            AS "receptionStatus",
+              po.invoice_status                              AS "invoiceStatus",
               COALESCE(f.facturado, 0)::float                AS "invoicedAmount",
-              (po.total_amount - COALESCE(f.facturado, 0))::float AS "pendingAmount"
+              (po.total_amount - COALESCE(f.facturado, 0))::float AS "pendingAmount",
+              -- Fecha del sistema en que la factura se envió a Contabilidad. Primero el
+              -- instante guardado en la factura (registros nuevos); para los viejos, sin
+              -- ese campo, la fecha de la bitácora del envío de ESTA orden —la misma que
+              -- muestra el recorrido de estados—, no la que se digitó a mano.
+              COALESCE(
+                f.sent_to_accounting_at,
+                (SELECT MIN(rl.created_at)
+                   FROM requisition_logs rl
+                  WHERE rl.requisition_id = po.requisition_id
+                    AND rl.action = 'enviar_facturas_contabilidad'
+                    AND rl.comments LIKE '%' || po.purchase_order_number || '%')
+              )                                              AS "sentToAccountingAt",
+              -- Cuándo se registró la última factura en el sistema.
+              f.invoice_registered_at                        AS "invoiceRegisteredAt"
          FROM purchase_orders po
          LEFT JOIN LATERAL (
-                SELECT SUM(i.amount) AS facturado
+                SELECT SUM(i.amount) AS facturado,
+                       MAX(i.sent_to_accounting_at) AS sent_to_accounting_at,
+                       MAX(i.created_at) AS invoice_registered_at
                   FROM invoices i
                  WHERE i.purchase_order_id = po.purchase_order_id
               ) f ON true
@@ -144,14 +162,36 @@ export class AuditService {
       [requisitionId],
     );
 
-    return filas.map((r: Record<string, unknown>) => ({
+    const orders = filas.map((r: Record<string, unknown>) => ({
       purchaseOrderNumber: String(r.purchaseOrderNumber ?? ""),
       issueDate: (r.issueDate as string) ?? null,
       days: Number(r.days ?? 0),
       totalAmount: Number(r.totalAmount ?? 0),
+      receptionStatus: (r.receptionStatus as string) ?? null,
+      invoiceStatus: (r.invoiceStatus as string) ?? null,
       invoicedAmount: Number(r.invoicedAmount ?? 0),
       pendingAmount: Number(r.pendingAmount ?? 0),
+      sentToAccountingAt: (r.sentToAccountingAt as string) ?? null,
+      invoiceRegisteredAt: (r.invoiceRegisteredAt as string) ?? null,
     }));
+
+    // El recorrido de estados de la requisición —lo que la pestaña Matriz muestra en
+    // una fila—, para tenerlo en el mismo desglose sin saltar de pestaña. Se toma la
+    // primera vez que ocurrió cada acción, en orden.
+    const estadosRaw = await this.requisitionLogRepository.query(
+      `SELECT action AS "action", MIN(created_at) AS "date"
+         FROM requisition_logs
+        WHERE requisition_id = $1
+        GROUP BY action
+        ORDER BY MIN(created_at) ASC`,
+      [requisitionId],
+    );
+    const estados = estadosRaw.map((r: Record<string, unknown>) => ({
+      action: String(r.action ?? ""),
+      date: (r.date as string) ?? null,
+    }));
+
+    return { orders, estados };
   }
 
   /**
