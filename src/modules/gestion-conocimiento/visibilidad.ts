@@ -36,11 +36,33 @@ export const ROLES_VEN_TODAS: readonly string[] = [
   "Gerencia",
   // El comodín transversal.
   "Analista PMO",
-  "Director PMO",
+  // Director PMO NO ve todo: solo lo que él crea, más lo que espera su acción y lo
+  // que ya tramitó (lo resuelve `filtrarVisibles`). Se le quitó a propósito para que
+  // su bandeja no arrastre el listado completo de cada gestión.
 ];
 
 export const veTodasLasSolicitudes = (nombreRol?: string | null): boolean =>
   ROLES_VEN_TODAS.includes((nombreRol ?? "").trim());
+
+/**
+ * Gestiones en las que **nadie** ve el listado completo, ni las áreas que tramitan o
+ * firman: cada quien ve solo lo que él crea, más lo que espera su acción y lo que ya
+ * tramitó.
+ *
+ * Contable entra acá porque un anticipo o una cuenta entre compañías es plata de quien
+ * la pide; que Financiera y Administrativa vieran el borrador de todo el mundo antes de
+ * que llegara a su paso no es tramitar, es mirar por encima del hombro. Cuando el
+ * trámite sí toca a Finanzas, `filtrarVisibles` se lo muestra igual por «acción
+ * pendiente» —no se pierde ningún paso del flujo.
+ *
+ * Es por gestión y no por rol a propósito: el mismo Director Financiero y Administrativo
+ * debe seguir viendo todo en Jurídica (allí Administrativa tramita los contratos), así
+ * que la restricción cuelga de la gestión, no de la persona.
+ */
+export const GESTIONES_SOLO_PROPIAS: readonly string[] = ["contable"];
+
+export const gestionEsSoloPropia = (gestion?: string | null): boolean =>
+  GESTIONES_SOLO_PROPIAS.includes((gestion ?? "").trim());
 
 /**
  * Roles cuyo alcance no es «todas» ni «solo las mías», sino «las de cierta gente».

@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { GcSolicitud } from "../../database/entities/gc-solicitud.entity";
-import { alcanceDe, veTodasLasSolicitudes } from "./visibilidad";
+import { alcanceDe, gestionEsSoloPropia, veTodasLasSolicitudes } from "./visibilidad";
 import { User } from "../../database/entities/user.entity";
 import { Material } from "../../database/entities/material.entity";
 import { OperationCenter } from "../../database/entities/operation-center.entity";
@@ -303,6 +303,14 @@ export class GestionConocimientoService implements OnModuleInit {
       data.consecutivo = await this.nextConsecutivoAnticipo();
     }
 
+    // Una legalización no se crea enlazada a un anticipo que aún no se ha pagado.
+    if (
+      dto.gestion === "contable" &&
+      dto.formato === GestionConocimientoService.FORMATO_LEGALIZACION
+    ) {
+      await this.validarAnticipoPagadoSiEnlazado(data);
+    }
+
     const solicitud = this.solicitudRepo.create({
       gestion: dto.gestion,
       formato: dto.formato ?? (null as unknown as string),
@@ -398,7 +406,13 @@ export class GestionConocimientoService implements OnModuleInit {
       relations: ["role"],
     });
     const rol = user?.role?.nombreRol;
-    if (veTodasLasSolicitudes(rol)) return solicitudes;
+    // Ver todo depende del rol, pero se apaga en las gestiones «solo propias» (contable):
+    // ahí ni siquiera las áreas que tramitan ven el listado ajeno, se evalúa por
+    // solicitud más abajo según su gestión.
+    const veTodo = veTodasLasSolicitudes(rol);
+    if (veTodo && !solicitudes.some((s) => gestionEsSoloPropia(s.gestion))) {
+      return solicitudes;
+    }
 
     // Quiénes, de los que crearon algo en esta lista, caen dentro del alcance del rol.
     // Se resuelve sobre los creadores que hay y no sobre toda la tabla de usuarios: son
@@ -426,6 +440,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     return (solicitudes as ConAcciones[]).filter(
       (s) =>
+        (veTodo && !gestionEsSoloPropia(s.gestion)) ||
         s.createdBy === userId ||
         (s.createdBy != null && enAlcance.has(s.createdBy)) ||
         (s.accionesPendientes?.length ?? 0) > 0 ||
@@ -565,6 +580,10 @@ export class GestionConocimientoService implements OnModuleInit {
     // Se mezcla para no perder la lista de chequeo (que vive en data.checklist).
     if (dto.data !== undefined) {
       solicitud.data = { ...(solicitud.data ?? {}), ...dto.data };
+    }
+    // Una legalización no se guarda enlazada a un anticipo que aún no se ha pagado.
+    if (this.esLegalizacion(solicitud)) {
+      await this.validarAnticipoPagadoSiEnlazado(solicitud.data);
     }
     return this.solicitudRepo.save(solicitud);
   }
@@ -2061,6 +2080,27 @@ export class GestionConocimientoService implements OnModuleInit {
         "La legalización debe estar enlazada a un anticipo (GF-005-F) por su consecutivo.",
       );
     }
+    await this.verificarAnticipoPagado(code);
+  }
+
+  /**
+   * Al guardar una legalización, si ya trae enlazado un anticipo, ese anticipo debe estar
+   * pagado. Se valida acá —no solo al enviar— para que la regla no dependa del navegador:
+   * ni siquiera se puede persistir el enlace a un anticipo que Tesorería no ha pagado.
+   *
+   * No obliga a que haya enlace (eso lo exige el paso "enviar"): un borrador sin anticipo
+   * todavía puede guardarse; lo que no se admite es un enlace a un anticipo sin pagar.
+   */
+  private async validarAnticipoPagadoSiEnlazado(
+    data: Record<string, any> | null | undefined,
+  ): Promise<void> {
+    const code = String(data?.anticipoConsecutivo ?? "").trim();
+    if (!code) return;
+    await this.verificarAnticipoPagado(code);
+  }
+
+  /** El anticipo del consecutivo dado existe y está pagado; si no, lanza. */
+  private async verificarAnticipoPagado(code: string): Promise<void> {
     const norm = (s: any) =>
       String(s ?? "").replace(/\D/g, "").replace(/^0+/, "") || "0";
     const anticipos = await this.solicitudRepo.find({

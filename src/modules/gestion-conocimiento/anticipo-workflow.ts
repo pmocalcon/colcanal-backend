@@ -3,7 +3,7 @@
  * Fuente: tablero "ANTICIPOS Y LEGALIZACIÓN".
  *   Solicitud → Aprueba Jefe (el autorizador del solicitante, como en Compras)
  *   → Aprueba Lorena (Gerencia de Proyectos) → Aprueba Gerencia (Dra. Gloria)
- *   → Entrega Aurora (Coordinador Financiero recibe y registra el pago) → Pagado.
+ *   → Entrega Aurora (rol Compras: recibe el anticipo aprobado y registra el pago) → Pagado.
  * Los SLA están en días hábiles.
  */
 
@@ -29,8 +29,12 @@ export const CATEGORIA_DIRECTOR_AREA = 'DIRECTOR_AREA';
 export const ROL_GERENCIA_PROYECTOS = 'Gerencia de Proyectos';
 /** Gerencia (Dra. Gloria) da la aprobación final antes del pago. */
 export const ROL_GERENCIA = 'Gerencia';
-/** Tesorería (Aurora): recibe el anticipo aprobado y registra el pago. */
-export const ROL_TESORERIA = 'Coordinador Financiero';
+/**
+ * Tesorería del anticipo: quien recibe el anticipo aprobado y registra el pago. Es Aurora,
+ * cuyo rol en el sistema es **Compras** (no "Coordinador Financiero"): por eso el paso de
+ * pago se enruta a ese rol, tanto para el correo de aviso como para el permiso de registrar.
+ */
+export const ROL_TESORERIA = 'Compras';
 /** Comodín transversal del sistema: Analista y Director PMO, con igual alcance. */
 export { ROLES_PMO, esRolPmo } from '../../common/constants/roles.constants';
 
