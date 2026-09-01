@@ -1908,7 +1908,7 @@ export class GestionConocimientoService implements OnModuleInit {
     if (accion === "enviar" && (await this.creadorEsDirectorArea(solicitud))) {
       destino = "pendiente_aprobacion_gerencia";
       data.firmaJefe = data.firmaJefe || user?.nombre || "";
-      data.fechaFirmaJefe = data.fechaFirmaJefe || hoy;
+      data.fechaFirmaJefe = hoy;
       data.jefeAutoAprobado = true;
     }
 
@@ -1925,16 +1925,22 @@ export class GestionConocimientoService implements OnModuleInit {
     await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
 
-    // Firmas automáticas del recuadro del formato y registro del pago.
-    if (accion === "aprobar_jefe") {
+    // Firmas automáticas del recuadro del formato y registro del pago. La fecha de cada
+    // firma es SIEMPRE la de la acción (el día en que se aprobó): no la envía el cliente,
+    // no se puede cambiar a mano y se estampa aquí sin `|| hoy`.
+    if (accion === "enviar") {
+      // El solicitante firma al enviar a aprobación.
+      data.firmaSolicitante = data.firmaSolicitante || user?.nombre || "";
+      data.fechaFirmaSolicitante = hoy;
+    } else if (accion === "aprobar_jefe") {
       data.firmaJefe = user?.nombre ?? "";
-      data.fechaFirmaJefe = data.fechaFirmaJefe || hoy;
+      data.fechaFirmaJefe = hoy;
     } else if (accion === "aprobar_gp") {
       data.firmaGerenteProy = user?.nombre ?? "";
-      data.fechaFirmaGerenteProy = data.fechaFirmaGerenteProy || hoy;
+      data.fechaFirmaGerenteProy = hoy;
     } else if (accion === "aprobar_gerencia") {
       data.firmaGerenciaGral = user?.nombre ?? "";
-      data.fechaFirmaGerenciaGral = data.fechaFirmaGerenciaGral || hoy;
+      data.fechaFirmaGerenciaGral = hoy;
     } else if (accion === "registrar_pago") {
       // Tesorería (Aurora) registra el pago: quién recibe/paga y cuándo.
       data.entregaRecibidoPor =
