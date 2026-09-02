@@ -479,6 +479,18 @@ export class GestionConocimientoService implements OnModuleInit {
     ] as number[];
     const directoresArea = new Set<number>();
     const sinAutorizador = new Set<number>(creadorIds);
+    /*
+     * Creadores que sí tienen un Director de Proyecto entre sus autorizadores. Los que
+     * NO están acá los resuelve la misma regla que aplica `esDirectorDeProyectoACargo`
+     * al ejecutar la acción.
+     *
+     * Sin esta distinción la bandeja mentía: cuando un Director de Proyecto registra él
+     * mismo una planilla —sus jefes son Gerencia y Dirección Técnica, ningún Director de
+     * Proyecto—, el servidor lo dejaba revisarla pero la lista no le mostraba nada.
+     */
+    const conDirectorACargo = new Set<number>();
+    /** Creadores que son ellos mismos Director de Proyecto: su planilla la revisan ellos. */
+    const creadorEsDirectorProyecto = new Set<number>();
     if (creadorIds.length > 0) {
       const creadores = await this.userRepo.find({
         where: { userId: In(creadorIds) },
@@ -486,11 +498,24 @@ export class GestionConocimientoService implements OnModuleInit {
       });
       for (const c of creadores) {
         if (c.role?.category === CATEGORIA_DIRECTOR_AREA) directoresArea.add(c.userId);
+        if (ROLES_DIRECTOR_PROYECTO.includes(c.role?.nombreRol ?? "")) {
+          creadorEsDirectorProyecto.add(c.userId);
+        }
       }
       const conJefe = await this.authorizationRepo.find({
         where: { usuarioAutorizadoId: In(creadorIds), esActivo: true },
+        relations: ["usuarioAutorizador", "usuarioAutorizador.role"],
       });
-      for (const r of conJefe) sinAutorizador.delete(r.usuarioAutorizadoId);
+      for (const r of conJefe) {
+        sinAutorizador.delete(r.usuarioAutorizadoId);
+        const jefe = r.usuarioAutorizador;
+        if (
+          jefe?.estado &&
+          ROLES_DIRECTOR_PROYECTO.includes(jefe.role?.nombreRol ?? "")
+        ) {
+          conDirectorACargo.add(r.usuarioAutorizadoId);
+        }
+      }
     }
 
     return solicitudes.map((s) => {
@@ -524,14 +549,25 @@ export class GestionConocimientoService implements OnModuleInit {
           if (esPmo) return true;
           if (anyT.soloCreador) return s.createdBy === userId;
           if (anyT.jefeAutorizador) {
+            const tieneRol = anyT.roles.length === 0 || anyT.roles.includes(rol);
+            // Paso que además nombra roles (horas extras): sin Director de Proyecto a
+            // cargo, la revisa el propio creador si él es director; si no tiene jefe
+            // asignado, cualquiera de ellos. Es la misma regla que al ejecutar.
+            if (
+              anyT.roles.length > 0 &&
+              s.createdBy != null &&
+              !conDirectorACargo.has(s.createdBy)
+            ) {
+              return creadorEsDirectorProyecto.has(s.createdBy)
+                ? tieneRol && s.createdBy === userId
+                : tieneRol;
+            }
             const esJefe =
               (s.createdBy != null && autorizados.has(s.createdBy)) ||
               (rol === ROL_GERENCIA &&
                 s.createdBy != null &&
                 (directoresArea.has(s.createdBy) || sinAutorizador.has(s.createdBy)));
-            // Cuando el paso además nombra roles —horas extras, donde revisa el
-            // Director de Proyecto a cargo— hay que cumplir las dos cosas.
-            return esJefe && (anyT.roles.length === 0 || anyT.roles.includes(rol));
+            return esJefe && tieneRol;
           }
           return anyT.roles.includes(rol);
         })
@@ -541,10 +577,22 @@ export class GestionConocimientoService implements OnModuleInit {
     });
   }
 
-  async findOne(id: number): Promise<GcSolicitud> {
+  /**
+   * Una solicitud, y —si se sabe quién pregunta— qué puede hacer con ella.
+   *
+   * `accionesPendientes` viaja también acá y no solo en el listado porque la pantalla
+   * de detalle es donde están los botones. Sin esto el frontend tenía que deducir la
+   * jerarquía por su cuenta, y deducía distinto: a un Director de Proyecto que
+   * registraba él mismo una planilla el servidor lo dejaba revisarla, pero la pantalla
+   * no le pintaba el botón. Quién puede hacer qué se responde en un solo sitio.
+   */
+  async findOne(id: number, userId?: number): Promise<GcSolicitud> {
     const solicitud = await this.solicitudRepo.findOne({ where: { solicitudId: id } });
     if (!solicitud) throw new NotFoundException("Solicitud no encontrada");
-    return this.conNombreDelCreador(solicitud);
+    const conNombre = await this.conNombreDelCreador(solicitud);
+    if (!userId) return conNombre;
+    const [anotada] = await this.anotarAccionesPendientes([conNombre], userId);
+    return anotada;
   }
 
   /**
@@ -3303,8 +3351,28 @@ export class GestionConocimientoService implements OnModuleInit {
     userId: number,
   ): Promise<boolean> {
     const aCargo = await this.directoresDeProyectoDelCreador(solicitud);
-    if (aCargo.length === 0) return true;
-    return aCargo.some((u) => u.userId === userId);
+    if (aCargo.length > 0) return aCargo.some((u) => u.userId === userId);
+
+    /*
+     * Nadie por encima con rol de Director de Proyecto. Pasa en dos situaciones muy
+     * distintas y no se resuelven igual:
+     *
+     *  - La registró un Director de Proyecto (sus jefes son Gerencia y Dirección
+     *    Técnica). Entonces la revisa ÉL MISMO. Dejársela a cualquiera de los cuatro
+     *    permitiría que el de Antioquia avalara las horas del Valle, que es justo lo
+     *    que la jerarquía existe para impedir.
+     *  - La registró alguien sin jefe asignado. Ahí sí la atiende cualquiera de los
+     *    cuatro: es preferible eso a que la planilla quede sin nadie que la mueva.
+     */
+    if (!solicitud.createdBy) return true;
+    const creador = await this.userRepo.findOne({
+      where: { userId: solicitud.createdBy },
+      relations: ["role"],
+    });
+    if (ROLES_DIRECTOR_PROYECTO.includes(creador?.role?.nombreRol ?? "")) {
+      return solicitud.createdBy === userId;
+    }
+    return true;
   }
 
   /** Los jefes de quien creó la solicitud, con la Gerencia solo como último recurso. */

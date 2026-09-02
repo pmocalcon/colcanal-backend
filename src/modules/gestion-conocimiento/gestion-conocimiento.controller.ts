@@ -102,9 +102,14 @@ export class GestionConocimientoController {
   }
 
   @Get(":id")
-  @ApiOperation({ summary: "Obtener una solicitud" })
-  async findOne(@Param("id", ParseIntPipe) id: number) {
-    return this.service.findOne(id);
+  @ApiOperation({
+    summary: "Obtener una solicitud, con las acciones que el usuario puede ejecutar sobre ella",
+  })
+  async findOne(
+    @Param("id", ParseIntPipe) id: number,
+    @CurrentUser("userId") userId: number,
+  ) {
+    return this.service.findOne(id, userId);
   }
 
   @Put(":id")
