@@ -44,6 +44,7 @@ import {
 } from './dto';
 import { BlockStatus } from '../../database/entities/survey.entity';
 import { NotificationsService, WorksNotificationData } from '../notifications/notifications.service';
+import { fechaLocal } from "../../utils/fecha-local.util";
 
 @Injectable()
 export class SurveysService {
@@ -563,8 +564,8 @@ export class SurveysService {
     }
 
     // Update basic fields
-    if (updateSurveyDto.requestDate) survey.requestDate = new Date(updateSurveyDto.requestDate);
-    if (updateSurveyDto.surveyDate) survey.surveyDate = new Date(updateSurveyDto.surveyDate);
+    if (updateSurveyDto.requestDate) survey.requestDate = fechaLocal(updateSurveyDto.requestDate);
+    if (updateSurveyDto.surveyDate) survey.surveyDate = fechaLocal(updateSurveyDto.surveyDate);
     if (updateSurveyDto.receivedBy !== undefined) survey.receivedBy = updateSurveyDto.receivedBy;
     if (updateSurveyDto.assignedReviewerId !== undefined) survey.assignedReviewerId = updateSurveyDto.assignedReviewerId;
     if (updateSurveyDto.requiresPhotometricStudies !== undefined) survey.requiresPhotometricStudies = updateSurveyDto.requiresPhotometricStudies;

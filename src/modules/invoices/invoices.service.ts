@@ -18,6 +18,7 @@ import {
   RejectedByAccountingDto,
 } from "./dto/received-by-accounting.dto";
 import { REQUISITION_STATUS } from "../../common/constants";
+import { fechaLocal } from "../../utils/fecha-local.util";
 
 @Injectable()
 export class InvoicesService {
@@ -267,7 +268,7 @@ export class InvoicesService {
     const invoice = this.invoiceRepository.create({
       purchaseOrderId,
       invoiceNumber,
-      issueDate: new Date(issueDate),
+      issueDate: fechaLocal(issueDate),
       amount: finalAmount,
       materialQuantity: finalMaterialQuantity,
       observations: createInvoiceDto.observations ?? null,
@@ -343,7 +344,7 @@ export class InvoicesService {
     Object.assign(invoice, updateInvoiceDto);
 
     if (updateInvoiceDto.issueDate) {
-      invoice.issueDate = new Date(updateInvoiceDto.issueDate);
+      invoice.issueDate = fechaLocal(updateInvoiceDto.issueDate);
     }
 
     const updatedInvoice = await this.invoiceRepository.save(invoice);
@@ -616,7 +617,7 @@ export class InvoicesService {
     }
 
     // Marcar todas las facturas como recibidas por contabilidad
-    const receivedDate = new Date(receivedByAccountingDto.receivedDate);
+    const receivedDate = fechaLocal(receivedByAccountingDto.receivedDate);
 
     for (const invoice of purchaseOrder.invoices) {
       invoice.receivedByAccounting = true;

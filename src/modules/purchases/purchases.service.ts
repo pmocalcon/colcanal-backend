@@ -54,6 +54,7 @@ import {
   APPROVABLE_BY_MANAGEMENT_STATUSES,
   OFFICIAL_DATA_START_DATE,
 } from '../../common/constants';
+import { fechaLocal, hoyLocal } from '../../utils/fecha-local.util';
 
 @Injectable()
 export class PurchasesService {
@@ -3995,14 +3996,14 @@ export class PurchasesService {
 
         // Obtener fecha estimada de entrega del primer ítem del proveedor (todos los ítems del mismo proveedor comparten la fecha)
         const estimatedDeliveryDate = items[0]?.item.estimatedDeliveryDate
-          ? new Date(items[0].item.estimatedDeliveryDate)
+          ? fechaLocal(items[0].item.estimatedDeliveryDate)
           : null;
 
         const purchaseOrder = queryRunner.manager.create(PurchaseOrder, {
           purchaseOrderNumber,
           requisitionId,
           supplierId,
-          issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
+          issueDate: dto.issueDate ? fechaLocal(dto.issueDate) : hoyLocal(),
           estimatedDeliveryDate,
           subtotal: orderSubtotal,
           totalIva: orderTotalIva,
