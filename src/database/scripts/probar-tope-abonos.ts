@@ -10,6 +10,7 @@ import { ThHorasExtra } from "../entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../entities/th-vacacion.entity";
 import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../entities/th-retencion-ficha.entity";
 import { ThBanco } from "../entities/th-banco.entity";
 
 /**
@@ -28,7 +29,7 @@ async function main() {
   const th = new TalentoHumanoService(
     ds.getRepository(ThPersona), ds.getRepository(ThIncapacidad), ds.getRepository(ThAusentismo),
     ds.getRepository(ThPrestamo), ds.getRepository(ThPrestamoPago), ds.getRepository(ThHorasExtra),
-    ds.getRepository(ThHorasExtraDetalle), ds.getRepository(ThVacacion), ds.getRepository(ThParametroNomina),
+    ds.getRepository(ThHorasExtraDetalle), ds.getRepository(ThVacacion), ds.getRepository(ThParametroNomina), ds.getRepository(ThRetencionFicha),
     ds.getRepository(ThBanco),
   );
 

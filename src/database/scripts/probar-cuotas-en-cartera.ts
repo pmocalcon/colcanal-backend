@@ -12,6 +12,8 @@ import { DataSource } from "typeorm";
 import { dataSourceOptions } from "../data-source";
 import { NominaService } from "../../modules/talento-humano/nomina.service";
 import { ThPersona } from "../entities/th-persona.entity";
+import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../entities/th-retencion-ficha.entity";
 import { ThNovedadNomina } from "../entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../entities/th-nomina-liquidacion.entity";
 import { User } from "../entities/user.entity";
@@ -55,6 +57,8 @@ async function main() {
     ds.getRepository(ThAusentismo),
     ds.getRepository(ThNovedadNomina),
     ds.getRepository(ThNominaLiquidacion),
+    ds.getRepository(ThParametroNomina),
+    ds.getRepository(ThRetencionFicha),
     ds.getRepository(User),
   );
 

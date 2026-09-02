@@ -1,5 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../../database/entities/th-retencion-ficha.entity";
+import {
+  calcularRetencion,
+  FICHA_RETENCION_VACIA,
+  type DetalleRetencion,
+  type FichaRetencion,
+} from "./retencion-fuente";
 import { Between, ILike, In, Repository } from "typeorm";
 import { ThPersona } from "../../database/entities/th-persona.entity";
 import { ThPrestamo } from "../../database/entities/th-prestamo.entity";
@@ -82,6 +90,21 @@ export const SUGERENCIAS_VACIAS = (): SugerenciasNovedad => ({
   origen: [],
 });
 
+/**
+ * La fila de `th_retencion_fichas` a lo que el cálculo espera. TypeORM entrega los
+ * `numeric` como string, así que la conversión va en un solo sitio.
+ */
+const aFichaRetencion = (f: ThRetencionFicha): FichaRetencion => ({
+  viviendaModo: f.viviendaModo === "PORCENTAJE" ? "PORCENTAJE" : "FIJO",
+  viviendaValor: num(f.viviendaValor),
+  viviendaPorcentaje: num(f.viviendaPorcentaje),
+  dependientes: num(f.dependientes),
+  medicinaPrepagada: num(f.medicinaPrepagada),
+  pensionesVoluntarias: num(f.pensionesVoluntarias),
+  afc: num(f.afc),
+  sujeto: f.sujeto !== false,
+});
+
 export interface FilaNominaPreview {
   personaId: number;
   identificacion: string;
@@ -113,6 +136,15 @@ export interface FilaNominaPreview {
   pension: number;
   fsp: number;
   retencionFuente: number;
+  /**
+   * Lo que dio la tabla de retenciones y su desglose paso a paso, para poder explicar
+   * la cifra sin recalcularla aparte. Difiere de `retencionFuente` si se digitó a mano.
+   *
+   * Van opcionales porque solo existen en el cálculo vivo: una nómina ya generada se lee
+   * de `th_liquidaciones` tal como se pagó, y ahí no hay desglose que reconstruir.
+   */
+  retencionCalculada?: number;
+  detalleRetencion?: DetalleRetencion;
   bonificacionDeduccion: number;
   prestamo: number;
   embargos: number;
@@ -229,6 +261,10 @@ export class NominaService {
     private readonly novedadRepo: Repository<ThNovedadNomina>,
     @InjectRepository(ThNominaLiquidacion)
     private readonly liquidacionRepo: Repository<ThNominaLiquidacion>,
+    @InjectRepository(ThParametroNomina)
+    private readonly parametroRepo: Repository<ThParametroNomina>,
+    @InjectRepository(ThRetencionFicha)
+    private readonly retencionRepo: Repository<ThRetencionFicha>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
@@ -263,6 +299,10 @@ export class NominaService {
         novedad: ThNovedadNomina | null;
         prestamoCuota: number;
         sugerencias: SugerenciasNovedad;
+        /** Lo que la persona puede restar de su base gravable este año. */
+        fichaRetencion: FichaRetencion;
+        /** UVT del año del periodo. En cero, no hay retención que calcular. */
+        uvt: number;
       }
     >
   > {
@@ -282,15 +322,31 @@ export class NominaService {
      */
     const activos = enBase.filter((p) => !esPrestacionDeServicios(p.tipoContrato));
     const porPersona = new Map(novedades.map((n) => [n.personaId, n]));
-    const [cuotasPorPersona, sugerenciasPorPersona] = await Promise.all([
-      this.cuotasPrestamosPorPersona(activos, periodo),
-      this.sugerenciasDelPeriodo(activos, periodo, smmlv),
-    ]);
+    const anio = Number(periodo.slice(0, 4));
+    const [cuotasPorPersona, sugerenciasPorPersona, fichasRetencion, parametro] =
+      await Promise.all([
+        this.cuotasPrestamosPorPersona(activos, periodo),
+        this.sugerenciasDelPeriodo(activos, periodo, smmlv),
+        this.retencionRepo.find({ where: { anio } }),
+        this.parametroRepo.findOne({ where: { anio } }),
+      ]);
+    const retencionPorPersona = new Map(
+      fichasRetencion.map((f) => [f.personaId, aFichaRetencion(f)]),
+    );
+    const uvt = num(parametro?.uvt);
     return activos.map((p) => ({
       ...p,
       novedad: porPersona.get(p.personaId) ?? null,
       prestamoCuota: cuotasPorPersona.get(p.personaId) ?? 0,
       sugerencias: sugerenciasPorPersona.get(p.personaId) ?? SUGERENCIAS_VACIAS(),
+      /*
+       * Sin ficha se calcula igual, con todas las deducciones en cero: la retención se
+       * le practica a todo el que pase el umbral, y la fórmula ya devuelve cero para
+       * quien no llega. Exigir ficha dejaría de retenerle a alguien por un olvido de
+       * configuración, sin que nada lo advirtiera.
+       */
+      fichaRetencion: retencionPorPersona.get(p.personaId) ?? FICHA_RETENCION_VACIA(),
+      uvt,
     }));
   }
 
@@ -788,6 +844,8 @@ export class NominaService {
     multiEmpresa: boolean,
     prestamoCuota: number,
     sugerencias: SugerenciasNovedad,
+    fichaRetencion: FichaRetencion,
+    uvt: number,
   ): FilaNominaPreview {
     /** Lo digitado gana; si está vacío, lo que traen los formatos; si tampoco, cero. */
     const valor = (manual: string | null | undefined, sugerido: number | null): number =>
@@ -880,7 +938,20 @@ export class NominaService {
       persona.fspModo === "NO" ? false :
       persona.aportaPension !== false && ibc >= smmlv * 4;
     const fsp = aplicaFsp ? Math.round((salarioBasico * 0.01 * diasTrabajados) / 30) : 0;
-    const retencionFuente = num(novedad?.retencionFuente);
+    /*
+     * La retención sale de la tabla de retenciones (Procedimiento 1, Art. 383 E.T.) y
+     * se calcula acá y no en `sugerenciasDelPeriodo` porque necesita el devengado y los
+     * tres aportes obligatorios de esta misma fila, que no existen hasta este punto.
+     *
+     * Lo digitado a mano manda, igual que en horas extras e incapacidades: es la salida
+     * para el caso que la tabla no alcanza a cubrir.
+     */
+    const detalleRetencion = calcularRetencion(
+      { totalDevengado, salud, pension, fsp },
+      fichaRetencion,
+      uvt,
+    );
+    const retencionFuente = valor(novedad?.retencionFuente, detalleRetencion.retencion);
     const bonificacionDeduccion = bonificacion;
     const prestamo = prestamoCuota;
     const embargos = num(novedad?.embargo);
@@ -919,6 +990,8 @@ export class NominaService {
       pension,
       fsp,
       retencionFuente,
+      retencionCalculada: detalleRetencion.retencion,
+      detalleRetencion,
       bonificacionDeduccion,
       prestamo,
       embargos,
@@ -964,6 +1037,8 @@ export class NominaService {
         multiEmpresaPorId.get(p.identificacion) ?? false,
         p.prestamoCuota,
         p.sugerencias,
+        p.fichaRetencion,
+        p.uvt,
       ),
     );
     filas.sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -1053,6 +1128,8 @@ export class NominaService {
         multiEmpresaPorId.get(p.identificacion) ?? false,
         p.prestamoCuota,
         p.sugerencias,
+        p.fichaRetencion,
+        p.uvt,
       ),
     );
 

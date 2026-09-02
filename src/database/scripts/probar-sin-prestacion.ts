@@ -3,6 +3,8 @@ import { DataSource } from "typeorm";
 import { dataSourceOptions } from "../data-source";
 import { NominaService, esPrestacionDeServicios } from "../../modules/talento-humano/nomina.service";
 import { ThPersona } from "../entities/th-persona.entity";
+import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../entities/th-retencion-ficha.entity";
 import { ThNovedadNomina } from "../entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../entities/th-nomina-liquidacion.entity";
 import { User } from "../entities/user.entity";
@@ -13,7 +15,6 @@ import { ThHorasExtra } from "../entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../entities/th-vacacion.entity";
 import { ThAusentismo } from "../entities/th-ausentismo.entity";
-import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
 
 async function main() {
   const periodo = process.argv[2] ?? "2026-08";
@@ -31,6 +32,8 @@ async function main() {
     ds.getRepository(ThAusentismo),
     ds.getRepository(ThNovedadNomina),
     ds.getRepository(ThNominaLiquidacion),
+    ds.getRepository(ThParametroNomina),
+    ds.getRepository(ThRetencionFicha),
     ds.getRepository(User),
   );
 

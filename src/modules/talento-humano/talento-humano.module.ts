@@ -22,6 +22,7 @@ import { ThVacacion } from "../../database/entities/th-vacacion.entity";
 import { ThNovedadNomina } from "../../database/entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../../database/entities/th-nomina-liquidacion.entity";
 import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../../database/entities/th-retencion-ficha.entity";
 import { ThBanco } from "../../database/entities/th-banco.entity";
 import { ThSolicitudPago } from "../../database/entities/th-solicitud-pago.entity";
 import { ThSolicitudPagoLinea } from "../../database/entities/th-solicitud-pago-linea.entity";
@@ -46,6 +47,7 @@ import { RoleGestion } from "../../database/entities/role-gestion.entity";
       ThNovedadNomina,
       ThNominaLiquidacion,
       ThParametroNomina,
+      ThRetencionFicha,
       ThBanco,
       ThSolicitudPago,
       ThSolicitudPagoLinea,

@@ -41,6 +41,17 @@ export class ThParametroNomina {
   @Column({ name: "auxilio_transporte", type: "numeric", precision: 14, scale: 2 })
   auxilioTransporte: string;
 
+  /**
+   * UVT del año. La retención en la fuente se calcula entera en UVT —los tramos del
+   * Art. 383, los topes de las deducciones— y sin ella no hay retención posible.
+   *
+   * Va aquí y no en la tabla de retenciones porque es una cifra que decreta la DIAN
+   * una vez al año, igual que el mínimo y el auxilio: es un parámetro del año, no algo
+   * de cada persona.
+   */
+  @Column({ type: "numeric", precision: 14, scale: 2, default: 0 })
+  uvt: string;
+
   @Column({ type: "text", nullable: true })
   observaciones: string | null;
 

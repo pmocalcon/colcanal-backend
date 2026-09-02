@@ -330,6 +330,35 @@ export class TalentoHumanoController {
     return this.service.guardarParametros(body);
   }
 
+  // ── Tabla de retenciones ──
+
+  @Get("retenciones/:anio")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({
+    summary:
+      "La tabla de retenciones del año: todo el personal activo con su ficha de deducciones",
+  })
+  listRetenciones(@Param("anio", ParseIntPipe) anio: number) {
+    return this.service.listRetenciones(anio);
+  }
+
+  @Post("retenciones")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Crea o actualiza la ficha de una persona (upsert por persona y año)" })
+  guardarRetencion(@Body() body: Record<string, any>) {
+    return this.service.guardarRetencion(body);
+  }
+
+  @Delete("retenciones/:anio/:personaId")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Borra la ficha: la persona queda sin deducciones, no sin retención" })
+  borrarRetencion(
+    @Param("anio", ParseIntPipe) anio: number,
+    @Param("personaId", ParseIntPipe) personaId: number,
+  ) {
+    return this.service.borrarRetencion(anio, personaId);
+  }
+
   @Delete("parametros/:anio")
   @Roles(...ROLES_TALENTO_HUMANO)
   borrarParametros(@Param("anio", ParseIntPipe) anio: number) {

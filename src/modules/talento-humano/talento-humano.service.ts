@@ -10,6 +10,7 @@ import { ThHorasExtra } from "../../database/entities/th-horas-extra.entity";
 import { ThHorasExtraDetalle } from "../../database/entities/th-horas-extra-detalle.entity";
 import { ThVacacion } from "../../database/entities/th-vacacion.entity";
 import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../../database/entities/th-retencion-ficha.entity";
 import { ThBanco } from "../../database/entities/th-banco.entity";
 
 /**
@@ -159,6 +160,8 @@ export class TalentoHumanoService {
     private readonly vacacionRepo: Repository<ThVacacion>,
     @InjectRepository(ThParametroNomina)
     private readonly parametroRepo: Repository<ThParametroNomina>,
+    @InjectRepository(ThRetencionFicha)
+    private readonly retencionRepo: Repository<ThRetencionFicha>,
     @InjectRepository(ThBanco)
     private readonly bancoRepo: Repository<ThBanco>,
   ) {}
@@ -948,8 +951,97 @@ export class TalentoHumanoService {
       ?? this.parametroRepo.create({ anio });
     fila.smmlv = String(smmlv);
     fila.auxilioTransporte = String(auxilio);
+    // El UVT es opcional al guardar el año: sin él simplemente no hay retención que
+    // calcular, y el resto de la nómina funciona igual.
+    if (data.uvt !== undefined && data.uvt !== null && String(data.uvt) !== "") {
+      const uvt = Number(data.uvt);
+      if (!(uvt >= 0)) throw new BadRequestException("El UVT no puede ser negativo");
+      fila.uvt = String(uvt);
+    }
     fila.observaciones = data.observaciones ?? fila.observaciones ?? null;
     return this.parametroRepo.save(fila);
+  }
+
+  // ── Tabla de retenciones (Procedimiento 1, Art. 383 E.T.) ──
+
+  /**
+   * La tabla del año: TODO el personal activo, cada uno con su ficha si la tiene.
+   *
+   * Devuelve a todos y no solo a los que tienen ficha porque la retención se le
+   * practica a cualquiera que pase el umbral: una lista que solo mostrara a los
+   * configurados escondería justo a quien falta configurar.
+   */
+  async listRetenciones(anio: number): Promise<
+    Array<{
+      personaId: number;
+      identificacion: string;
+      nombre: string;
+      cargo: string | null;
+      empresaProyecto: string | null;
+      salario: string | null;
+      ficha: ThRetencionFicha | null;
+    }>
+  > {
+    const [personas, fichas] = await Promise.all([
+      this.personaRepo.find({ where: { estado: ILike("ACTIVO%") }, order: { nombre: "ASC" } }),
+      this.retencionRepo.find({ where: { anio } }),
+    ]);
+    const porPersona = new Map(fichas.map((f) => [f.personaId, f]));
+    return personas.map((p) => ({
+      personaId: p.personaId,
+      identificacion: p.identificacion,
+      nombre: p.nombre,
+      cargo: p.cargo,
+      empresaProyecto: p.empresaProyecto,
+      salario: p.salario,
+      ficha: porPersona.get(p.personaId) ?? null,
+    }));
+  }
+
+  /** Crea o actualiza la ficha de una persona para un año (upsert por persona+año). */
+  async guardarRetencion(data: Record<string, any>): Promise<ThRetencionFicha> {
+    const anio = Number(data.anio);
+    const personaId = Number(data.personaId);
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+      throw new BadRequestException("El año no es válido");
+    }
+    if (!Number.isInteger(personaId) || personaId <= 0) {
+      throw new BadRequestException("Falta la persona");
+    }
+
+    /** Las cifras del formulario llegan como texto; vacío es cero, negativo no existe. */
+    const cifra = (v: unknown, etiqueta: string): string => {
+      if (v === undefined || v === null || String(v).trim() === "") return "0";
+      const n = Number(String(v).replace(/[^\d.-]/g, ""));
+      if (!Number.isFinite(n) || n < 0) {
+        throw new BadRequestException(`${etiqueta} no puede ser negativo`);
+      }
+      return String(n);
+    };
+
+    const fila =
+      (await this.retencionRepo.findOne({ where: { anio, personaId } })) ??
+      this.retencionRepo.create({ anio, personaId });
+
+    fila.viviendaModo = data.viviendaModo === "PORCENTAJE" ? "PORCENTAJE" : "FIJO";
+    fila.viviendaValor = cifra(data.viviendaValor, "El valor de vivienda");
+    fila.viviendaPorcentaje = cifra(data.viviendaPorcentaje, "El porcentaje de vivienda");
+    fila.dependientes = cifra(data.dependientes, "La deducción por dependientes");
+    fila.medicinaPrepagada = cifra(data.medicinaPrepagada, "La medicina prepagada");
+    fila.pensionesVoluntarias = cifra(data.pensionesVoluntarias, "Las pensiones voluntarias");
+    fila.afc = cifra(data.afc, "Los aportes AFC");
+    fila.sujeto = data.sujeto !== false;
+    fila.observaciones = data.observaciones ?? fila.observaciones ?? null;
+
+    if (Number(fila.viviendaPorcentaje) > 100) {
+      throw new BadRequestException("El porcentaje de vivienda no puede pasar de 100");
+    }
+    return this.retencionRepo.save(fila);
+  }
+
+  /** Borra la ficha: la persona vuelve a quedar sin deducciones, no sin retención. */
+  async borrarRetencion(anio: number, personaId: number): Promise<void> {
+    await this.retencionRepo.delete({ anio, personaId });
   }
 
   async borrarParametros(anio: number): Promise<void> {

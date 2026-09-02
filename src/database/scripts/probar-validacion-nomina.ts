@@ -4,6 +4,8 @@ import { ValidacionNominaService } from "../../modules/talento-humano/validacion
 import { NominaService } from "../../modules/talento-humano/nomina.service";
 import { NotificationsService } from "../../modules/notifications/notifications.service";
 import { ThPersona } from "../entities/th-persona.entity";
+import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
+import { ThRetencionFicha } from "../entities/th-retencion-ficha.entity";
 import { ThIncapacidad } from "../entities/th-incapacidad.entity";
 import { ThPrestamo } from "../entities/th-prestamo.entity";
 import { ThPrestamoPago } from "../entities/th-prestamo-pago.entity";
@@ -13,7 +15,6 @@ import { ThVacacion } from "../entities/th-vacacion.entity";
 import { ThAusentismo } from "../entities/th-ausentismo.entity";
 import { ThNovedadNomina } from "../entities/th-novedad-nomina.entity";
 import { ThNominaLiquidacion } from "../entities/th-nomina-liquidacion.entity";
-import { ThParametroNomina } from "../entities/th-parametro-nomina.entity";
 import { ThSolicitudPago } from "../entities/th-solicitud-pago.entity";
 import { ThSolicitudPagoLinea } from "../entities/th-solicitud-pago-linea.entity";
 import { ThBanco } from "../entities/th-banco.entity";
@@ -52,6 +53,8 @@ async function main() {
     ds.getRepository(ThPersona), ds.getRepository(ThPrestamo), ds.getRepository(ThPrestamoPago),
     ds.getRepository(ThIncapacidad), ds.getRepository(ThHorasExtra), ds.getRepository(ThHorasExtraDetalle),
     ds.getRepository(ThVacacion), ds.getRepository(ThAusentismo), ds.getRepository(ThNovedadNomina), ds.getRepository(ThNominaLiquidacion),
+    ds.getRepository(ThParametroNomina),
+    ds.getRepository(ThRetencionFicha),
     ds.getRepository(User),
   );
   const correo = new CorreoDePrueba();

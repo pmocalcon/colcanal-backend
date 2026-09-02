@@ -95,6 +95,7 @@ export * from "./th-vacacion.entity";
 export * from "./th-novedad-nomina.entity";
 export * from "./th-nomina-liquidacion.entity";
 export * from "./th-parametro-nomina.entity";
+export * from "./th-retencion-ficha.entity";
 export * from "./th-banco.entity";
 export * from "./th-solicitud-pago.entity";
 export * from "./th-solicitud-pago-linea.entity";
