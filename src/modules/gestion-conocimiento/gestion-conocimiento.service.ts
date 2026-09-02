@@ -51,6 +51,13 @@ import {
   CuentasEstado,
 } from "./cuentas-companias-workflow";
 import {
+  CAJA_MENOR_TRANSICIONES,
+  CAJA_MENOR_ESTADOS,
+  CAJA_MENOR_NOTIFICAR_AL_LLEGAR,
+  arqueoDeCajaMenor,
+  CajaMenorEstado,
+} from "./caja-menor-workflow";
+import {
   PRESTAMO_TRANSICIONES,
   PRESTAMO_ESTADOS,
   PRESTAMO_NOTIFICAR_AL_LLEGAR,
@@ -262,6 +269,17 @@ export class GestionConocimientoService implements OnModuleInit {
     );
   }
 
+  /** Formato del Reembolso de Caja Menor (G. contable). */
+  private static readonly FORMATO_CAJA_MENOR = "GF-007-F";
+
+  /** True si la solicitud es un Reembolso de Caja Menor (GF-007-F). */
+  private esCajaMenor(s: GcSolicitud): boolean {
+    return (
+      s.gestion === "contable" &&
+      s.formato === GestionConocimientoService.FORMATO_CAJA_MENOR
+    );
+  }
+
   /** Formato de la Solicitud de Anticipo (G. contable): lleva consecutivo propio. */
   private static readonly FORMATO_ANTICIPO = "GF-005-F";
 
@@ -301,6 +319,20 @@ export class GestionConocimientoService implements OnModuleInit {
       !data.consecutivo
     ) {
       data.consecutivo = await this.nextConsecutivoAnticipo();
+    }
+
+    // El Reembolso de Caja Menor estampa quién lo elabora y con qué cargo. La hoja
+    // dice «AUXILIAR ADMINISTRATIVO», pero el formato también lo diligencian PQRS y la
+    // Coordinadora Financiera: el impreso debe decir el cargo real de quien firma, no
+    // el que venía preimpreso. Se fija al crear y no se recalcula después, para que el
+    // documento conserve el cargo que tenía la persona cuando lo elaboró.
+    if (
+      dto.gestion === "contable" &&
+      dto.formato === GestionConocimientoService.FORMATO_CAJA_MENOR &&
+      creador
+    ) {
+      data.elaboradoNombre = data.elaboradoNombre || creador.nombre || "";
+      data.elaboradoCargo = data.elaboradoCargo || creador.cargo || "";
     }
 
     // Una legalización no se crea enlazada a un anticipo que aún no se ha pagado.
@@ -481,8 +513,8 @@ export class GestionConocimientoService implements OnModuleInit {
     const sinAutorizador = new Set<number>(creadorIds);
     /*
      * Creadores que sí tienen un Director de Proyecto entre sus autorizadores. Los que
-     * NO están acá los resuelve la misma regla que aplica `esDirectorDeProyectoACargo`
-     * al ejecutar la acción.
+     * NO están acá los puede atender cualquier Director de Proyecto, que es lo que hace
+     * `esDirectorDeProyectoACargo` al ejecutar la acción.
      *
      * Sin esta distinción la bandeja mentía: cuando un Director de Proyecto registra él
      * mismo una planilla —sus jefes son Gerencia y Dirección Técnica, ningún Director de
@@ -519,19 +551,20 @@ export class GestionConocimientoService implements OnModuleInit {
     }
 
     return solicitudes.map((s) => {
-      const transiciones = this.esAnticipo(s)
-        ? ANTICIPO_TRANSICIONES
-        : this.esLegalizacion(s)
-          ? LEGALIZACION_TRANSICIONES
-          : this.esCuentasCompanias(s)
-            ? CUENTAS_TRANSICIONES
-            : this.esPrestamo(s)
-              ? PRESTAMO_TRANSICIONES
-              : this.esPermiso(s)
-                ? PERMISO_TRANSICIONES
-                : this.esHorasExtras(s)
-                  ? HORAS_EXTRAS_TRANSICIONES
-                  : JURIDICA_TRANSICIONES;
+      // Cada formato con flujo propio aporta su tabla; el resto cae en Jurídica.
+      // Es una lista y no una escalera de ternarios porque ya son ocho: con cada
+      // formato nuevo la escalera se indentaba un nivel más y dejaba de leerse.
+      const porFormato: Array<[boolean, Record<string, any>]> = [
+        [this.esAnticipo(s), ANTICIPO_TRANSICIONES],
+        [this.esLegalizacion(s), LEGALIZACION_TRANSICIONES],
+        [this.esCajaMenor(s), CAJA_MENOR_TRANSICIONES],
+        [this.esCuentasCompanias(s), CUENTAS_TRANSICIONES],
+        [this.esPrestamo(s), PRESTAMO_TRANSICIONES],
+        [this.esPermiso(s), PERMISO_TRANSICIONES],
+        [this.esHorasExtras(s), HORAS_EXTRAS_TRANSICIONES],
+      ];
+      const transiciones =
+        porFormato.find(([aplica]) => aplica)?.[1] ?? JURIDICA_TRANSICIONES;
 
       const acciones = Object.entries(transiciones)
         .filter(([, t]) => t.from === s.estado)
@@ -550,14 +583,16 @@ export class GestionConocimientoService implements OnModuleInit {
           if (anyT.soloCreador) return s.createdBy === userId;
           if (anyT.jefeAutorizador) {
             const tieneRol = anyT.roles.length === 0 || anyT.roles.includes(rol);
-            // Paso que además nombra roles (horas extras): sin Director de Proyecto a
-            // cargo, la revisa el propio creador si él es director; si no tiene jefe
-            // asignado, cualquiera de ellos. Es la misma regla que al ejecutar.
+            // Paso que además nombra roles (horas extras): si el creador no tiene un
+            // Director de Proyecto a cargo, lo atiende cualquiera de ellos. Es la misma
+            // regla que aplica `esDirectorDeProyectoACargo` al ejecutar la acción.
             if (
               anyT.roles.length > 0 &&
               s.createdBy != null &&
               !conDirectorACargo.has(s.createdBy)
             ) {
+              // Si quien la registró es él mismo Director de Proyecto, se revisa él y
+              // nadie más; si no tiene jefe asignado, la atiende cualquiera.
               return creadorEsDirectorProyecto.has(s.createdBy)
                 ? tieneRol && s.createdBy === userId
                 : tieneRol;
@@ -1091,6 +1126,11 @@ export class GestionConocimientoService implements OnModuleInit {
     // Y las cuentas entre compañías (GF-004-F5), que solo custodian y concilian.
     if (this.esCuentasCompanias(solicitud)) {
       return this.transitionCuentas(solicitud, accion, userId, motivo, payload);
+    }
+
+    // El Reembolso de Caja Menor (GF-007-F) recorre las tres firmas de su pie.
+    if (this.esCajaMenor(solicitud)) {
+      return this.transitionCajaMenor(solicitud, accion, userId, motivo);
     }
 
     // La Solicitud de Préstamo (GTH-007-F) recorre las firmas de su propio formato.
@@ -2377,6 +2417,161 @@ export class GestionConocimientoService implements OnModuleInit {
         <p>Hola ${u.nombre ?? ""},</p>
         <p>La autorización de pago mediante cuentas entre compañías <b>N.º ${nro}</b>
            (formato GF-004-F5) pasó al estado <b>${label}</b>.</p>
+        ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
+      </div>`,
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Flujo del Reembolso de Caja Menor (GF-007-F)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Recorre las tres firmas del pie del formato, lo causa Contabilidad y lo paga
+   * Tesorería (rol Compras, igual que en el anticipo):
+   * borrador → pendiente_director → pendiente_gerente → pendiente_contabilidad
+   * → pendiente_pago → pagado.
+   */
+  private async transitionCajaMenor(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+  ): Promise<GcSolicitud> {
+    const t = CAJA_MENOR_TRANSICIONES[accion];
+    if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
+
+    if (solicitud.estado !== t.from) {
+      throw new BadRequestException(
+        `El reembolso está en "${solicitud.estado}" y no admite la acción "${accion}"`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+
+    let autorizado = esRolPmo(rol);
+    if (!autorizado) {
+      autorizado = t.soloCreador
+        ? solicitud.createdBy === userId
+        : t.roles.includes(rol);
+    }
+    if (!autorizado) {
+      throw new ForbiddenException("No tienes permiso para ejecutar esta acción");
+    }
+
+    if (t.requiereMotivo && (!motivo || !motivo.trim())) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    if (accion === "enviar") {
+      const d = solicitud.data ?? {};
+      if (!String(d.proyecto ?? "").trim() || !String(d.responsable ?? "").trim()) {
+        throw new BadRequestException(
+          "Indica el proyecto y el responsable de la caja menor.",
+        );
+      }
+      // Lo único que se exige es que haya algo que reembolsar. El saldo en efectivo
+      // puede quedar negativo —se gastó por encima del monto fijo, que ocurre— y eso
+      // no frena el trámite: es un dato del reembolso, no una regla.
+      if (arqueoDeCajaMenor(d).facturas <= 0) {
+        throw new BadRequestException(
+          "El reembolso no tiene facturas ni recibos: agrega al menos un registro con valor.",
+        );
+      }
+    }
+
+    const ahora = new Date();
+    const entrada = {
+      estado: t.to,
+      accion,
+      fecha: ahora.toISOString(),
+      userId,
+      userName: user?.nombre ?? null,
+      motivo: motivo?.trim() || undefined,
+    };
+
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+    // Cada firma queda estampada con quién y cuándo, para que el impreso muestre las
+    // mismas personas que aprobaron en el sistema y no un nombre escrito a mano.
+    const CAMPO_FIRMA: Record<string, string> = {
+      aprobar_director: "firmaDirector",
+      aprobar_gerente: "firmaGerente",
+      causar: "firmaContabilidad",
+      registrar_pago: "firmaPago",
+    };
+    const campo = CAMPO_FIRMA[accion];
+    if (campo) {
+      data[`${campo}Nombre`] = user?.nombre ?? "";
+      data[`${campo}Fecha`] = ahora.toISOString().slice(0, 10);
+    }
+
+    solicitud.estado = t.to;
+    solicitud.estadoDesde = ahora;
+    await this.asignarNumero(solicitud);
+    solicitud.historial = [...(solicitud.historial ?? []), entrada];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarCajaMenor(guardada, t.to, motivo).catch((e) =>
+      this.logger.warn(`No se pudo notificar el reembolso de caja menor: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  private async notificarCajaMenor(
+    solicitud: GcSolicitud,
+    estado: CajaMenorEstado,
+    motivo?: string,
+  ): Promise<void> {
+    const destino = CAJA_MENOR_NOTIFICAR_AL_LLEGAR[estado];
+    let usuarios: User[] = [];
+
+    if (destino === "creador") {
+      if (solicitud.createdBy) {
+        const creador = await this.userRepo.findOne({
+          where: { userId: solicitud.createdBy },
+        });
+        if (creador) usuarios = [creador];
+      }
+    } else {
+      const activos = await this.userRepo.find({
+        where: { estado: true },
+        relations: ["role"],
+      });
+      const objetivo = destino.map((r) => r.toLowerCase());
+      usuarios = activos.filter((u) =>
+        objetivo.includes(u.role?.nombreRol?.toLowerCase() ?? ""),
+      );
+    }
+
+    const label = CAJA_MENOR_ESTADOS[estado].label;
+    const nro = solicitud.numero
+      ? String(solicitud.numero).padStart(4, "0")
+      : String(solicitud.solicitudId);
+    const proyecto = String(solicitud.data?.proyecto ?? "").trim();
+
+    const enviados = new Set<string>();
+    for (const u of usuarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `Reembolso de caja menor N.º ${nro} · ${label}`,
+        html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937">
+        <p>Hola ${u.nombre ?? ""},</p>
+        <p>El reembolso de caja menor <b>N.º ${nro}</b>${proyecto ? ` del proyecto <b>${proyecto}</b>` : ""}
+           (formato GF-007-F) pasó al estado <b>${label}</b>.</p>
         ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
         <p>Ingresa al sistema para continuar con el trámite.</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
