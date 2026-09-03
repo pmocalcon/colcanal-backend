@@ -99,10 +99,17 @@ const PERMISO_ENVIAR: CampoExigido[] = [
   { campo: "remuneracion", etiqueta: "Remuneración (remunerado / no remunerado)" },
   { campo: "descripcionMotivo", etiqueta: "Descripción del motivo" },
   { campo: "anexaSoporte", etiqueta: "Anexa soporte (Sí / No)" },
-  // El tipo de soporte solo tiene sentido si se anexó alguno.
+  // El tipo de soporte y el enlace solo tienen sentido si se anexó alguno. Exigirlos
+  // cuando la casilla dice NO contradiría al propio formato, que pregunta primero si hay
+  // soporte; quien marque «Sí» sí tiene que decir cuál es y dónde está.
   {
     campo: "tipoSoporte",
     etiqueta: "Tipo de soporte",
+    si: (d) => d.anexaSoporte === "si",
+  },
+  {
+    campo: "soporteLink",
+    etiqueta: "Soporte de permiso (enlace)",
     si: (d) => d.anexaSoporte === "si",
   },
 ];
