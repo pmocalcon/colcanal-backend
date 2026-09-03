@@ -3115,6 +3115,17 @@ export class GestionConocimientoService implements OnModuleInit {
       throw new BadRequestException("Debe indicar el motivo");
     }
 
+    // A dónde va la planilla. Casi siempre es el `to` de la transición, pero al enviarla
+    // hay una excepción: si quien la reportó no tiene un Director de Proyecto que la
+    // revise, ese paso no lo puede atender nadie con criterio sobre esas horas y se salta
+    // derecho a Dirección Técnica. Antes se le ofrecía a los cuatro directores por igual,
+    // lo que era pedirle a alguien que avale el trabajo de una persona que no tiene a
+    // cargo: una firma sin fundamento y un paso más en el camino.
+    const destino: HorasExtrasEstado =
+      accion === "enviar" && !(await this.hayQuienRevisePorProyecto(solicitud))
+        ? "pendiente_direccion_tecnica"
+        : t.to;
+
     const ahora = new Date();
     const hoy = ahora.toISOString().slice(0, 10);
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
@@ -3146,7 +3157,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     // Devolver la planilla borra las firmas: vuelve a recorrer el camino completo y
     // dejarlas diría que alguien avaló unas horas que después cambiaron.
-    if (t.to === "borrador") {
+    if (destino === "borrador") {
       for (const f of Object.values(HORAS_EXTRAS_FIRMA_POR_ACCION)) {
         data[f.nombre] = "";
         data[f.fecha] = "";
@@ -3215,14 +3226,14 @@ export class GestionConocimientoService implements OnModuleInit {
     }
 
     const entrada = {
-      estado: t.to,
+      estado: destino,
       accion,
       fecha: ahora.toISOString(),
       userId,
       userName: user?.nombre ?? null,
       motivo: motivo?.trim() || undefined,
     };
-    solicitud.estado = t.to;
+    solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
     await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
@@ -3230,7 +3241,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     const guardada = await this.solicitudRepo.save(solicitud);
 
-    this.notificarHorasExtras(guardada, t.to, motivo).catch((e) =>
+    this.notificarHorasExtras(guardada, destino, motivo).catch((e) =>
       this.logger.warn(`No se pudo notificar la planilla de horas extras: ${e.message}`),
     );
 
@@ -3514,6 +3525,27 @@ export class GestionConocimientoService implements OnModuleInit {
    * Los Directores de Proyecto que tienen a cargo a quien registró la planilla, según
    * la tabla de autorizaciones. Vacío si no tiene ninguno.
    */
+  /**
+   * ¿Hay un Director de Proyecto con criterio para revisar esta planilla?
+   *
+   * Sí cuando quien la reportó tiene alguno asignado, y también cuando quien la reportó
+   * **es** un Director de Proyecto: en ese caso se revisa a sí mismo y la manda a
+   * Dirección Técnica, que fue lo acordado.
+   *
+   * No cuando la reporta alguien de otra área sin director asignado —Talento Humano,
+   * PQRS, coordinación—. Ahí el paso sobra y la planilla arranca en Dirección Técnica.
+   */
+  private async hayQuienRevisePorProyecto(solicitud: GcSolicitud): Promise<boolean> {
+    const aCargo = await this.directoresDeProyectoDelCreador(solicitud);
+    if (aCargo.length > 0) return true;
+    if (!solicitud.createdBy) return false;
+    const creador = await this.userRepo.findOne({
+      where: { userId: solicitud.createdBy },
+      relations: ["role"],
+    });
+    return ROLES_DIRECTOR_PROYECTO.includes(creador?.role?.nombreRol ?? "");
+  }
+
   private async directoresDeProyectoDelCreador(
     solicitud: GcSolicitud,
   ): Promise<User[]> {
