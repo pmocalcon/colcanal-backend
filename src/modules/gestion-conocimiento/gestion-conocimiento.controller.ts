@@ -131,6 +131,19 @@ export class GestionConocimientoController {
     return this.service.transition(id, dto.accion, userId, dto.motivo, dto.data);
   }
 
+  @Patch(":id/enlace-soporte")
+  @ApiOperation({
+    summary:
+      "Adjuntar el enlace de un soporte (pagaré del préstamo, soporte del permiso) después de enviado",
+  })
+  async saveEnlaceSoporte(
+    @Param("id", ParseIntPipe) id: number,
+    @Body() body: { campo: string; url: string },
+    @CurrentUser("userId") userId: number,
+  ) {
+    return this.service.guardarEnlaceSoporte(id, body.campo, body.url ?? "", userId);
+  }
+
   @Patch(":id/checklist")
   @ApiOperation({ summary: "Guardar la Lista de Chequeo de Documentos (GA-25-F)" })
   async saveChecklist(

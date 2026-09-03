@@ -700,6 +700,82 @@ export class GestionConocimientoService implements OnModuleInit {
   }
 
   /**
+   * Enlaces de soporte que se pueden adjuntar **después** de enviar el formato.
+   *
+   * Son documentos que por su naturaleza no existen todavía cuando se radica: la
+   * política del préstamo dice que el pagaré se firma «antes de la entrega del dinero»,
+   * o sea después de que aprueban, y el soporte de un permiso a veces llega tarde.
+   * Obligar a adjuntarlos en el borrador sería pedir un papel que aún no se ha firmado.
+   */
+  private static readonly ENLACES_DE_SOPORTE: Record<string, readonly string[]> = {
+    "GTH-007-F": ["pagareLink"],
+    "GTH-009-F": ["soporteLink"],
+  };
+
+  /**
+   * Guarda uno de esos enlaces sin abrir el formato entero.
+   *
+   * Es una puerta estrecha a propósito: el resto del documento sigue cerrado fuera del
+   * borrador —lo que se avaló debe ser lo que se paga— y por acá solo entra un enlace de
+   * una lista fija, escrito por quien radicó la solicitud.
+   */
+  async guardarEnlaceSoporte(
+    id: number,
+    campo: string,
+    url: string,
+    userId: number,
+  ): Promise<GcSolicitud> {
+    const solicitud = await this.findOne(id);
+    const permitidos =
+      GestionConocimientoService.ENLACES_DE_SOPORTE[solicitud.formato] ?? [];
+    if (!permitidos.includes(campo)) {
+      throw new BadRequestException(
+        `El formato ${solicitud.formato} no admite el enlace "${campo}".`,
+      );
+    }
+    if (solicitud.estado === "anulado") {
+      throw new BadRequestException("La solicitud está anulada.");
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    if (solicitud.createdBy !== userId && !esRolPmo(user?.role?.nombreRol ?? "")) {
+      throw new ForbiddenException(
+        "Solo quien radicó la solicitud puede adjuntar su soporte",
+      );
+    }
+
+    const limpio = String(url ?? "").trim();
+    // Solo http(s). El enlace se pinta como `<a href>` en la pantalla, y un «javascript:»
+    // guardado acá se convertiría en código ejecutándose en el navegador de quien lo abra.
+    if (limpio && !/^https?:\/\//i.test(limpio)) {
+      throw new BadRequestException(
+        "El enlace debe empezar por http:// o https://",
+      );
+    }
+
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+    data[campo] = limpio;
+    solicitud.data = data;
+    // Queda en la bitácora: adjuntar el pagaré es parte del trámite, no un detalle. Sin
+    // esta línea el documento cambiaría sin que nada dijera quién lo cambió ni cuándo.
+    solicitud.historial = [
+      ...(solicitud.historial ?? []),
+      {
+        estado: solicitud.estado,
+        accion: `adjuntar_${campo}`,
+        fecha: new Date().toISOString(),
+        userId,
+        userName: user?.nombre ?? null,
+        motivo: limpio ? undefined : "Se quitó el enlace",
+      },
+    ];
+    return this.solicitudRepo.save(solicitud);
+  }
+
+  /**
    * Guarda la Lista de Chequeo de Documentos (GA-25-F) de la solicitud. La diligencian
    * Jurídica y Administrativa durante el trámite; se almacena en data.checklist.
    */
