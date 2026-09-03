@@ -63,6 +63,13 @@ const PRESTAMO_ENVIAR: CampoExigido[] = [
   { campo: "salario", etiqueta: "Salario" },
   { campo: "valorSolicitado", etiqueta: "Valor solicitado" },
   { campo: "motivo", etiqueta: "Motivo del préstamo" },
+  /*
+   * El pagaré firmado se exige para poder radicar. Es una decisión del negocio y
+   * tiene una consecuencia que conviene tener presente: la política del propio
+   * formato dice que el pagaré se firma «antes de la entrega del dinero», así que
+   * ahora hay que tenerlo listo antes, no después de la aprobación.
+   */
+  { campo: "pagareLink", etiqueta: "Soporte del pagaré (enlace al documento firmado)" },
 ];
 
 const PRESTAMO_GERENCIA: CampoExigido[] = [
