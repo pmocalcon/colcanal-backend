@@ -27,6 +27,7 @@ import {
   esAccionDeAnulacion,
 } from "./anulacion-workflow";
 import { fechaTextoAIso } from "../../utils/fecha-local.util";
+import { exigirCamposObligatorios } from "./campos-obligatorios";
 import { CreateSolicitudDto, UpdateSolicitudDto } from "./dto";
 import {
   JURIDICA_TRANSICIONES,
@@ -2831,16 +2832,16 @@ export class GestionConocimientoService implements OnModuleInit {
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
 
     // Sin nombre, cédula y valor el formato no dice a quién ni cuánto: no se envía.
+    // El formato se envía completo. La comprobación nombra de una vez todo lo que falta
+    // —no la primera casilla vacía—, y lo mismo en los pasos de Gerencia y Dirección
+    // Administrativa, que llenan sus propios recuadros.
+    exigirCamposObligatorios(solicitud.formato, accion, data);
+
     if (accion === "enviar") {
       const nombre = [data.primerNombre, data.segundoNombre, data.primerApellido, data.segundoApellido]
         .map((s: unknown) => String(s ?? "").trim())
         .filter(Boolean)
         .join(" ");
-      if (!nombre || !String(data.numero ?? "").trim() || !String(data.valorSolicitado ?? "").trim()) {
-        throw new BadRequestException(
-          "Diligencia el nombre, el número de identificación y el valor del préstamo antes de enviar.",
-        );
-      }
       data.nombreCompleto = nombre;
       data.firmaEmpleado = nombre;
       data.fechaFirmaEmpleado = data.fechaFirmaEmpleado || hoy;
@@ -3181,16 +3182,12 @@ export class GestionConocimientoService implements OnModuleInit {
     if (accion === "enviar") {
       // `desde` es del formato v2; `fechaPermiso` es la clave vieja, que se sigue
       // aceptando para no bloquear permisos que nacieron con el formato anterior.
-      const desde = String(data.desde ?? data.fechaPermiso ?? "").trim();
-      const falta =
-        !String(data.nombre ?? "").trim() ||
-        !String(data.identificacion ?? "").trim() ||
-        !desde;
-      if (falta) {
-        throw new BadRequestException(
-          "Diligencia el nombre, la identificación y la fecha de inicio (Desde) del permiso antes de enviarlo a aprobación.",
-        );
+      // Los permisos que nacieron con el formato anterior traen la fecha en
+      // `fechaPermiso`; se acepta como equivalente de «Desde» para no trabarlos.
+      if (!String(data.desde ?? "").trim() && String(data.fechaPermiso ?? "").trim()) {
+        data.desde = data.fechaPermiso;
       }
+      exigirCamposObligatorios(solicitud.formato, accion, data);
       data.nombreSolicitante = String(data.nombreSolicitante ?? "").trim() || data.nombre;
       data.fechaSolicitud = String(data.fechaSolicitud ?? "").trim() || hoy;
     }
@@ -3388,16 +3385,13 @@ export class GestionConocimientoService implements OnModuleInit {
       // El valor hora ya no se teclea: sale del salario de la ficha al aprobar. Lo que no
       // puede faltar es la cédula (con ella se ubica ese salario) y el periodo (con él la
       // nómina ubica el mes de la planilla).
-      if (
-        !String(data.nombre ?? "").trim() ||
-        !String(data.cedula ?? "").trim() ||
-        !String(data.periodo ?? "").trim() ||
-        filas.length === 0
-      ) {
+      if (!String(data.periodo ?? "").trim()) {
         throw new BadRequestException(
-          "Diligencia el nombre y la cédula del trabajador, el mes/año y al menos un renglón antes de enviar.",
+          "Falta el mes y el año de la planilla: con ellos la nómina la ubica en su periodo.",
         );
       }
+      // El resto —encabezado y renglón por renglón— lo revisa la tabla de obligatorios.
+      exigirCamposObligatorios(solicitud.formato, accion, data);
     }
 
     const firma = HORAS_EXTRAS_FIRMA_POR_ACCION[accion];
@@ -3631,12 +3625,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     // Sin nombre y sin documento, el papel no dice de quién son las vacaciones.
     if (accion === "enviar") {
-      const falta = !String(data.nombres ?? "").trim() || !String(data.documento ?? "").trim();
-      if (falta) {
-        throw new BadRequestException(
-          "Diligencia el nombre y el documento de identidad antes de enviar la solicitud.",
-        );
-      }
+      exigirCamposObligatorios(solicitud.formato, accion, data);
       data.enviadoPor = user?.nombre ?? "";
     } else if (accion === "aprobar_jefe") {
       data.voBoJefeNombre = user?.nombre ?? "";
