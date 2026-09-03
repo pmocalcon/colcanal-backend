@@ -121,6 +121,29 @@ export interface FiltroPrestamos {
   buscar?: string;
 }
 
+/** Una línea del cierre del mes: un préstamo y lo que toca descontarle. */
+export interface FilaCierre {
+  prestamoId: number;
+  nombre: string;
+  identificacion: string | null;
+  proyecto: string | null;
+  /** Con qué nombre lo busca la nómina. Vacío = ese préstamo no se está descontando. */
+  nombreNomina: string | null;
+  valorPrestamo: string | null;
+  valorCuota: string | null;
+  cuotaDescontar: string | null;
+  /** Lo último que se le descontó. Es la cuota de los préstamos que vienen sin una. */
+  ultimaCuota: number;
+  saldo: string | null;
+  /** El tope del mes: el saldo más lo que ya se haya registrado de este mismo mes. */
+  disponible: number;
+  /** La cuota que ya está guardada en este mes, si se está reabriendo el cierre. */
+  yaDescontado: number;
+  /** Los abonos extraordinarios del mes. No se editan acá. */
+  abonos: number;
+  sugerido: number;
+}
+
 export interface FiltroAusentismos {
   motivo?: string;
   area?: string;
@@ -725,6 +748,192 @@ export class TalentoHumanoService {
         valorCancelado: String(Number(prestamo.valorCancelado ?? 0) - valor),
         saldo: String(Number(prestamo.saldo ?? 0) + valor),
       });
+    });
+  }
+
+  /**
+   * El cierre del mes: qué hay que descontarle a cada préstamo que todavía debe.
+   *
+   * Es la columna del Excel, pero calculada. Hasta ahora la cartera se actualizaba
+   * préstamo por préstamo —con cincuenta y dos activos, cincuenta y dos aperturas cada
+   * mes—, y por eso se seguía llevando en la hoja.
+   *
+   * Lo que se sugiere descontar sale, en este orden: lo que ya se haya registrado del
+   * mes (para poder volver a entrar y corregir), la `cuota_descontar` que deja
+   * Contabilidad cuando el descuento del mes no es la cuota pactada, y si no, la cuota
+   * del préstamo. Nunca más de lo que se debe: la última cuota es el saldo, no la cuota.
+   *
+   * Los abonos del mes se muestran pero no se tocan acá: se registran uno a uno con su
+   * medio y su observación, que es información que una tabla de un solo número perdería.
+   */
+  async cierreDelMes(anio: number, mes: number): Promise<FilaCierre[]> {
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+      throw new BadRequestException("El año no es válido");
+    }
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+      throw new BadRequestException("El mes no es válido");
+    }
+
+    const prestamos = await this.prestamoRepo.find({ order: { nombre: "ASC" } });
+    const pagos = await this.pagoRepo.find({ where: { anio, mes } });
+
+    /*
+     * La última cuota que se le descontó a cada préstamo.
+     *
+     * Hace falta porque hay préstamos sin cuota pactada —vienen del archivo histórico,
+     * donde esa casilla iba vacía— y sin esto se les sugeriría cero, que es justo el
+     * préstamo que se queda sin descontar porque nadie notó el renglón en blanco. Lo que
+     * se le viene descontando es un dato real, no una invención.
+     */
+    const ultimas: { prestamo_id: number; valor: string }[] = await this.pagoRepo.query(
+      `SELECT DISTINCT ON (prestamo_id) prestamo_id, valor
+         FROM th_prestamo_pagos
+        WHERE tipo = 'CUOTA'
+        ORDER BY prestamo_id, anio DESC, mes DESC, pago_id DESC`,
+    );
+    const ultimaPorPrestamo = new Map(
+      ultimas.map((u) => [Number(u.prestamo_id), Number(u.valor)]),
+    );
+
+    const filas: FilaCierre[] = [];
+    for (const p of prestamos) {
+      const delMes = pagos.filter((g) => g.prestamoId === p.prestamoId);
+      const cuotas = delMes.filter((g) => g.tipo === "CUOTA");
+      const yaDescontado = cuotas.reduce((t, g) => t + Number(g.valor), 0);
+      const abonos = delMes
+        .filter((g) => g.tipo === "ABONO")
+        .reduce((t, g) => t + Number(g.valor), 0);
+
+      const saldo = Number(p.saldo ?? 0);
+      // Lo que cabría descontar este mes. Se le suma lo ya registrado porque eso ya salió
+      // del saldo: sin sumarlo, al reabrir el mes el tope bajaría y no se podría subir la
+      // cifra que uno mismo acaba de guardar.
+      const disponible = saldo + yaDescontado;
+      if (disponible <= 0 && yaDescontado === 0) continue;
+
+      const ultimaCuota = ultimaPorPrestamo.get(p.prestamoId) ?? 0;
+      const pactada = Number(p.cuotaDescontar ?? p.valorCuota ?? 0) || ultimaCuota;
+      const sugerido =
+        yaDescontado > 0 ? yaDescontado : Math.max(0, Math.min(disponible, pactada));
+
+      filas.push({
+        prestamoId: p.prestamoId,
+        nombre: p.nombre,
+        identificacion: p.identificacion,
+        proyecto: p.proyecto,
+        nombreNomina: p.nombreNomina,
+        valorPrestamo: p.valorPrestamo,
+        valorCuota: p.valorCuota,
+        cuotaDescontar: p.cuotaDescontar,
+        ultimaCuota,
+        saldo: p.saldo,
+        disponible,
+        yaDescontado,
+        abonos,
+        sugerido,
+      });
+    }
+    return filas;
+  }
+
+  /**
+   * Guarda el mes entero de una vez.
+   *
+   * Todo en una transacción: un cierre a medias —la mitad de la gente con el descuento
+   * puesto y la otra mitad no— es peor que uno que no se hizo, porque nadie sabría por
+   * dónde iba.
+   *
+   * De cada préstamo se reescribe **solo la cuota del mes**; los abonos quedan como
+   * estén. Un cero borra la cuota y le devuelve la plata al saldo, que es como se
+   * deshace un descuento mal puesto sin tener que inventar un pago en negativo.
+   */
+  async guardarCierreDelMes(
+    anio: number,
+    mes: number,
+    filas: { prestamoId: number; valor: number | string }[],
+  ): Promise<{ anio: number; mes: number; prestamos: number; total: number }> {
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+      throw new BadRequestException("El año no es válido");
+    }
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+      throw new BadRequestException("El mes no es válido");
+    }
+    if (!Array.isArray(filas) || filas.length === 0) {
+      throw new BadRequestException("No hay nada que guardar");
+    }
+
+    return this.pagoRepo.manager.transaction(async (manager) => {
+      let tocados = 0;
+      let total = 0;
+
+      for (const f of filas) {
+        const prestamo = await manager.findOne(ThPrestamo, {
+          where: { prestamoId: Number(f.prestamoId) },
+        });
+        if (!prestamo) {
+          throw new NotFoundException(`El préstamo ${f.prestamoId} no existe`);
+        }
+
+        const nuevo = Math.round(Number(f.valor ?? 0));
+        if (!Number.isFinite(nuevo) || nuevo < 0) {
+          throw new BadRequestException(
+            `El valor de ${prestamo.nombre} no es válido`,
+          );
+        }
+
+        const cuotas = await manager.find(ThPrestamoPago, {
+          where: { prestamoId: prestamo.prestamoId, anio, mes, tipo: "CUOTA" },
+          order: { pagoId: "ASC" },
+        });
+        const actual = cuotas.reduce((t, g) => t + Number(g.valor), 0);
+        total += nuevo;
+
+        if (Math.abs(nuevo - actual) < 1) continue;
+
+        // No se puede descontar más de lo que se debe: dejaría el saldo en negativo y
+        // el error no saltaría hasta que alguien cuadre la cartera meses después.
+        const disponible = Number(prestamo.saldo ?? 0) + actual;
+        if (nuevo > disponible + 0.5) {
+          throw new BadRequestException(
+            `A ${prestamo.nombre} se le está descontando ${nuevo.toLocaleString("es-CO")} ` +
+              `y solo debe ${Math.round(disponible).toLocaleString("es-CO")}.`,
+          );
+        }
+
+        // Se conserva la primera fila y se le cambia el valor, en vez de borrar e
+        // insertar: así no se pierde la observación que traiga («cuota pactada de
+        // agosto», un cruce con vacaciones) ni cambia el id que ya está en pantalla.
+        const [primera, ...sobrantes] = cuotas;
+        for (const s of sobrantes) {
+          await manager.delete(ThPrestamoPago, { pagoId: s.pagoId });
+        }
+        if (nuevo === 0) {
+          if (primera) await manager.delete(ThPrestamoPago, { pagoId: primera.pagoId });
+        } else if (primera) {
+          await manager.update(ThPrestamoPago, { pagoId: primera.pagoId }, {
+            valor: String(nuevo),
+          });
+        } else {
+          await manager.save(
+            manager.create(ThPrestamoPago, {
+              prestamoId: prestamo.prestamoId,
+              anio,
+              mes,
+              valor: String(nuevo),
+              tipo: "CUOTA",
+              medio: "NOMINA",
+            }),
+          );
+        }
+
+        await manager.update(ThPrestamo, prestamo.prestamoId, {
+          valorCancelado: String(Number(prestamo.valorCancelado ?? 0) + (nuevo - actual)),
+          saldo: String(Number(prestamo.saldo ?? 0) - (nuevo - actual)),
+        });
+        tocados++;
+      }
+
+      return { anio, mes, prestamos: tocados, total };
     });
   }
 

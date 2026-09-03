@@ -187,6 +187,32 @@ export class TalentoHumanoController {
     return this.service.resumenPrestamos();
   }
 
+  /*
+   * Va antes de «prestamos/:id» a propósito: Nest resuelve las rutas en el orden en que
+   * están escritas, y más abajo «cierre» entraría como si fuera un id.
+   */
+  @Get("prestamos/cierre")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({
+    summary: "Qué hay que descontarle este mes a cada préstamo que todavía debe",
+  })
+  cierrePrestamos(@Query("anio") anio: string, @Query("mes") mes: string) {
+    return this.service.cierreDelMes(Number(anio), Number(mes));
+  }
+
+  @Post("prestamos/cierre")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Guarda el descuento del mes de todos los préstamos de una vez" })
+  guardarCierrePrestamos(
+    @Body() body: { anio: number; mes: number; filas: { prestamoId: number; valor: number }[] },
+  ) {
+    return this.service.guardarCierreDelMes(
+      Number(body?.anio),
+      Number(body?.mes),
+      body?.filas ?? [],
+    );
+  }
+
   @Get("prestamos/:id")
   @Roles(...ROLES_TALENTO_HUMANO)
   @ApiOperation({ summary: "El préstamo con su historia de descuentos" })
