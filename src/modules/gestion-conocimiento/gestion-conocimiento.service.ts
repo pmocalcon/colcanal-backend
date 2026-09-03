@@ -78,6 +78,7 @@ import {
   PERMISO_ESTADOS,
   FILAS_APROBACION_POR_ROL,
   PermisoEstado,
+  ROL_ADMINISTRATIVA_PERMISO,
 } from "./permiso-workflow";
 import {
   HORAS_EXTRAS_TRANSICIONES,
@@ -3036,6 +3037,78 @@ export class GestionConocimientoService implements OnModuleInit {
    * el «Guardar» del formulario, que es del solicitante. Además se marca sola la fila
    * de la dirección de quien aprueba, cuando su rol tiene fila en el papel.
    */
+  /**
+   * Crea el ausentismo real del permiso concedido.
+   *
+   * Se llama desde los dos caminos que conceden un permiso: la aprobación del jefe
+   * y la revisión de la Dirección Administrativa cuando ella misma es el jefe del
+   * solicitante. Estaba escrito dentro del primero, y dejarlo ahí habría hecho que
+   * por el segundo camino el permiso quedara aprobado sin entrar nunca a nómina.
+   */
+  private async crearAusentismoDePermiso(
+    solicitud: GcSolicitud,
+    data: Record<string, any>,
+  ): Promise<void> {
+    // El jefe acaba de conceder el permiso: nace en el registro real de
+    // ausentismos. Va antes de guardar la solicitud para no dejarla marcada
+    // "aprobado" sin que el ausentismo exista de verdad si esto falla.
+    // Campos del formato v2, con respaldo a las claves viejas para permisos
+    // creados antes del rediseño (fechaPermiso/motivo/horario/tipoPermiso).
+    const desde = data.desde || data.fechaPermiso || null;
+    const hasta = data.hasta || data.desde || data.fechaPermiso || null;
+    const descripcion = data.descripcionMotivo || data.motivo || "";
+    const horario =
+      data.horaDesde || data.horaHasta
+        ? [data.horaDesde, data.horaHasta].filter(Boolean).join(" a ")
+        : data.horario || "";
+    const remuneracionEtiqueta =
+      data.remuneracion === "no-remunerado"
+        ? "Permiso no remunerado"
+        : data.remuneracion === "remunerado"
+          ? "Permiso remunerado"
+          : null;
+
+    // Días y horas del permiso, para que la nómina pueda descontarlos (solo los no
+    // remunerados). Si va de varios días, se guardan días completos; si es dentro de
+    // un día con hora de inicio y fin, las horas —la nómina las pasa a fracción de día
+    // con la jornada de ese día—.
+    let diasPermiso: number | null = null;
+    let horasAusencia: number | null = null;
+    if (desde && hasta && desde !== hasta) {
+      const d0 = new Date(`${desde}T00:00:00Z`).getTime();
+      const d1 = new Date(`${hasta}T00:00:00Z`).getTime();
+      const dias = Math.round((d1 - d0) / 86_400_000) + 1;
+      if (dias > 0) diasPermiso = dias;
+    } else if (data.horaDesde && data.horaHasta) {
+      const aMin = (t: string) => {
+        const [h, m] = String(t).split(":").map(Number);
+        return (h || 0) * 60 + (m || 0);
+      };
+      const mins = aMin(data.horaHasta) - aMin(data.horaDesde);
+      if (mins > 0) horasAusencia = Math.round((mins / 60) * 100) / 100;
+    }
+
+    await this.talentoHumano.createAusentismo({
+      // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
+      solicitudId: solicitud.solicitudId,
+      identificacion: data.identificacion,
+      nombre: data.nombre || "",
+      cargo: data.cargo || null,
+      fechaInicio: desde,
+      fechaFin: hasta,
+      diasPermiso,
+      horasAusencia: horasAusencia != null ? String(horasAusencia) : null,
+      motivo: data.tipoPermiso || remuneracionEtiqueta || "Permiso",
+      observaciones: [
+        descripcion ? `Motivo: ${descripcion}` : null,
+        horario ? `Horario: ${horario}` : null,
+        data.anexaSoporte === "si" && data.tipoSoporte ? `Soporte: ${data.tipoSoporte}` : null,
+        `Generado al aprobar la solicitud GTH-009-F N.º ${solicitud.solicitudId}.`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
   private async transitionPermiso(
     solicitud: GcSolicitud,
     accion: string,
@@ -3081,6 +3154,26 @@ export class GestionConocimientoService implements OnModuleInit {
     const hoy = ahora.toISOString().slice(0, 10);
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
 
+    /*
+     * A dónde va el permiso. Normalmente al `to` de la transición, con una excepción:
+     * cuando quien revisa —la Dirección Administrativa y Financiera— es además el jefe
+     * inmediato del solicitante, los dos pasos son la misma persona y se unen en uno.
+     * Mandárselo a sí misma para que se apruebe sería pedirle dos clics para la misma
+     * decisión.
+     */
+    let destino: PermisoEstado = t.to;
+    let concede = accion === "aprobar_jefe";
+    if (accion === "revisar_administrativa") {
+      data.revisadoPor = user?.nombre ?? "";
+      data.fechaRevision = String(data.fechaRevision ?? "").trim() || hoy;
+      if (await this.esAutorizadorDe(userId, solicitud.createdBy)) {
+        destino = "aprobado";
+        concede = true;
+        data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
+        data.aprobadoPor = user?.nombre ?? "";
+      }
+    }
+
     // Sin nombre, identificación y fecha del permiso, el papel no dice quién falta ni
     // cuándo. La identificación no está en el modelo impreso, pero sin ella el permiso
     // aprobado no se puede registrar en la base real de ausentismos (th_ausentismos),
@@ -3119,85 +3212,38 @@ export class GestionConocimientoService implements OnModuleInit {
         data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
         data.aprobadoPor = user?.nombre ?? "";
 
-        // El jefe acaba de conceder el permiso: nace en el registro real de
-        // ausentismos. Va antes de guardar la solicitud para no dejarla marcada
-        // "aprobado" sin que el ausentismo exista de verdad si esto falla.
-        // Campos del formato v2, con respaldo a las claves viejas para permisos
-        // creados antes del rediseño (fechaPermiso/motivo/horario/tipoPermiso).
-        const desde = data.desde || data.fechaPermiso || null;
-        const hasta = data.hasta || data.desde || data.fechaPermiso || null;
-        const descripcion = data.descripcionMotivo || data.motivo || "";
-        const horario =
-          data.horaDesde || data.horaHasta
-            ? [data.horaDesde, data.horaHasta].filter(Boolean).join(" a ")
-            : data.horario || "";
-        const remuneracionEtiqueta =
-          data.remuneracion === "no-remunerado"
-            ? "Permiso no remunerado"
-            : data.remuneracion === "remunerado"
-              ? "Permiso remunerado"
-              : null;
-
-        // Días y horas del permiso, para que la nómina pueda descontarlos (solo los no
-        // remunerados). Si va de varios días, se guardan días completos; si es dentro de
-        // un día con hora de inicio y fin, las horas —la nómina las pasa a fracción de día
-        // con la jornada de ese día—.
-        let diasPermiso: number | null = null;
-        let horasAusencia: number | null = null;
-        if (desde && hasta && desde !== hasta) {
-          const d0 = new Date(`${desde}T00:00:00Z`).getTime();
-          const d1 = new Date(`${hasta}T00:00:00Z`).getTime();
-          const dias = Math.round((d1 - d0) / 86_400_000) + 1;
-          if (dias > 0) diasPermiso = dias;
-        } else if (data.horaDesde && data.horaHasta) {
-          const aMin = (t: string) => {
-            const [h, m] = String(t).split(":").map(Number);
-            return (h || 0) * 60 + (m || 0);
-          };
-          const mins = aMin(data.horaHasta) - aMin(data.horaDesde);
-          if (mins > 0) horasAusencia = Math.round((mins / 60) * 100) / 100;
-        }
-
-        await this.talentoHumano.createAusentismo({
-          // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
-          solicitudId: solicitud.solicitudId,
-          identificacion: data.identificacion,
-          nombre: data.nombre || "",
-          cargo: data.cargo || null,
-          fechaInicio: desde,
-          fechaFin: hasta,
-          diasPermiso,
-          horasAusencia: horasAusencia != null ? String(horasAusencia) : null,
-          motivo: data.tipoPermiso || remuneracionEtiqueta || "Permiso",
-          observaciones: [
-            descripcion ? `Motivo: ${descripcion}` : null,
-            horario ? `Horario: ${horario}` : null,
-            data.anexaSoporte === "si" && data.tipoSoporte ? `Soporte: ${data.tipoSoporte}` : null,
-            `Generado al aprobar la solicitud GTH-009-F N.º ${solicitud.solicitudId}.`,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        });
+        // Nace en el registro real de ausentismos. Va antes de guardar la solicitud
+        // para no dejarla marcada "aprobado" sin que el ausentismo exista de verdad.
+        await this.crearAusentismoDePermiso(solicitud, data);
       }
+    }
+
+    // El atajo de arriba concede el permiso sin pasar por `aprobar_jefe`, así que el
+    // ausentismo se crea también aquí. Sin esto el permiso quedaría aprobado en el papel
+    // y la nómina no se enteraría nunca.
+    if (concede && accion === "revisar_administrativa") {
+      await this.crearAusentismoDePermiso(solicitud, data);
     }
 
     // Al negarlo vuelve al borrador: se limpia lo que el jefe había marcado para que un
     // reenvío no arrastre la decisión anterior. El motivo queda en la bitácora.
-    if (t.to === "borrador") {
+    if (destino === "borrador") {
       data.aprobaciones = {};
       data.fechaAprobacion = "";
       data.aprobadoPor = "";
+      data.revisadoPor = "";
+      data.fechaRevision = "";
     }
 
     const entrada = {
-      estado: t.to,
+      estado: destino,
       accion,
       fecha: ahora.toISOString(),
       userId,
       userName: user?.nombre ?? null,
       motivo: motivo?.trim() || undefined,
     };
-    solicitud.estado = t.to;
+    solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
     await this.asignarNumero(solicitud);
     solicitud.historial = [...(solicitud.historial ?? []), entrada];
@@ -3205,7 +3251,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     const guardada = await this.solicitudRepo.save(solicitud);
 
-    this.notificarPermiso(guardada, t.to, motivo).catch((e) =>
+    this.notificarPermiso(guardada, destino, motivo).catch((e) =>
       this.logger.warn(`No se pudo notificar el permiso: ${e.message}`),
     );
 
@@ -3228,7 +3274,11 @@ export class GestionConocimientoService implements OnModuleInit {
   ): Promise<void> {
     let usuarios: User[] = [];
 
-    if (estado === "pendiente_jefe") {
+    if (estado === "pendiente_administrativa") {
+      // El paso nuevo va a un rol fijo, no al autorizador del solicitante: lo revisa la
+      // Dirección Administrativa y Financiera sea quien sea el jefe de quien lo pide.
+      usuarios = await this.usuariosPorRol([ROL_ADMINISTRATIVA_PERMISO]);
+    } else if (estado === "pendiente_jefe") {
       usuarios = await this.jefesDelCreador(solicitud);
     } else if (solicitud.createdBy) {
       const creador = await this.userRepo.findOne({
