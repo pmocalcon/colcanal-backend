@@ -54,6 +54,20 @@ export class ThHorasExtra {
   @Column({ type: "text", nullable: true })
   observaciones: string | null;
 
+  /**
+   * La solicitud de Gestión del Conocimiento que originó este registro, cuando vino de
+   * un formato aprobado. Nulo en lo importado del archivo histórico y en lo que se
+   * digita a mano.
+   *
+   * Existe para poder deshacerlo: al anular el formato, este registro se borra. Sin él
+   * habría que salir a buscarlo por el texto de las observaciones.
+   *
+   * Es un `int` suelto y no una relación, a propósito: producción corre con
+   * `synchronize: true` y una llave foránea nueva reescribe restricciones en caliente.
+   */
+  @Column({ name: "solicitud_id", type: "int", nullable: true })
+  solicitudId: number | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt: Date;
 

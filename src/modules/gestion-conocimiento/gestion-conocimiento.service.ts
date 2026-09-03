@@ -18,6 +18,15 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { PurchasesService } from "../purchases/purchases.service";
 import { TalentoHumanoService } from "../talento-humano/talento-humano.service";
 import { ROLES_TALENTO_HUMANO } from "../talento-humano/talento-humano.roles";
+import {
+  ACCIONES_ANULACION,
+  CAMPO_ANULACION,
+  CAMPO_ESTADO_PREVIO,
+  FORMATOS_ANULABLES,
+  ROLES_ANULAN,
+  esAccionDeAnulacion,
+} from "./anulacion-workflow";
+import { fechaTextoAIso } from "../../utils/fecha-local.util";
 import { CreateSolicitudDto, UpdateSolicitudDto } from "./dto";
 import {
   JURIDICA_TRANSICIONES,
@@ -550,7 +559,24 @@ export class GestionConocimientoService implements OnModuleInit {
       }
     }
 
+    const resuelveAnulaciones = esPmo || ROLES_ANULAN.includes(rol);
+
     return solicitudes.map((s) => {
+      // Una anulación esperando respuesta SÍ es trabajo pendiente, y de Talento Humano.
+      // Va antes que todo lo demás porque en ese estado el flujo normal está detenido:
+      // no hay ningún paso del formato que atender hasta que se resuelva.
+      if (s.estado === "pendiente_anulacion") {
+        return Object.assign(s, {
+          accionesPendientes: resuelveAnulaciones
+            ? ["anular", "rechazar_anulacion"]
+            : [],
+        });
+      }
+      // Una anulada no espera nada de nadie.
+      if (s.estado === "anulado") {
+        return Object.assign(s, { accionesPendientes: [] as string[] });
+      }
+
       // Cada formato con flujo propio aporta su tabla; el resto cae en Jurídica.
       // Es una lista y no una escalera de ternarios porque ya son ocho: con cada
       // formato nuevo la escalera se indentaba un nivel más y dejaba de leerse.
@@ -1112,6 +1138,21 @@ export class GestionConocimientoService implements OnModuleInit {
     payload?: Record<string, any>,
   ): Promise<GcSolicitud> {
     const solicitud = await this.findOne(id);
+
+    // La anulación es transversal: se toma desde cualquier estado de cualquiera de los
+    // cuatro formatos de Talento Humano, así que se resuelve antes del reparto por
+    // formato. Si no, cada máquina de estados tendría que repetir las mismas tres
+    // acciones para cada uno de sus estados.
+    if (esAccionDeAnulacion(accion) && FORMATOS_ANULABLES.includes(solicitud.formato)) {
+      return this.transitionAnulacion(solicitud, accion, userId, motivo);
+    }
+
+    // Una solicitud anulada no admite nada más: es el final del camino.
+    if (solicitud.estado === "anulado") {
+      throw new BadRequestException(
+        "La solicitud está anulada y no admite más acciones.",
+      );
+    }
 
     // El anticipo (GF-005-F) usa su propia máquina de estados.
     if (this.esAnticipo(solicitud)) {
@@ -2592,6 +2633,162 @@ export class GestionConocimientoService implements OnModuleInit {
    * nombre y la fecha, no un campo que se pueda escribir a mano— y la aprobación de
    * Gerencia guarda además el valor aprobado del bloque 3, que llega en el payload.
    */
+  /**
+   * Anula uno de los cuatro formatos de Talento Humano, o resuelve la solicitud de
+   * anulación de otro.
+   *
+   * Vive aparte de las cuatro máquinas de estados porque no es un paso de ninguna: se
+   * puede tomar desde cualquier estado, incluido el aprobado.
+   *
+   * @see anulacion-workflow — el reparto de quién anula y quién solicita.
+   */
+  private async transitionAnulacion(
+    solicitud: GcSolicitud,
+    accion: string,
+    userId: number,
+    motivo?: string,
+  ): Promise<GcSolicitud> {
+    if (solicitud.estado === "anulado") {
+      throw new BadRequestException("La solicitud ya está anulada.");
+    }
+    // El motivo no es opcional en ninguna de las tres acciones: una anulación sin razón
+    // escrita deja un documento muerto que nadie sabe explicar seis meses después.
+    if (!motivo || !motivo.trim()) {
+      throw new BadRequestException("Debe indicar el motivo");
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { userId },
+      relations: ["role"],
+    });
+    const rol = user?.role?.nombreRol ?? "";
+    const resuelve = esRolPmo(rol) || ROLES_ANULAN.includes(rol);
+
+    const ahora = new Date();
+    const hoy = ahora.toISOString().slice(0, 10);
+    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+    let destino: string;
+
+    if (accion === "solicitar_anulacion") {
+      if (solicitud.estado === "pendiente_anulacion") {
+        throw new BadRequestException("Ya hay una anulación pendiente de resolver.");
+      }
+      // La pide quien la hizo o su jefe. Talento Humano no necesita pedirla —anula
+      // directo—, pero se le deja el camino por si prefiere dejar constancia del pedido.
+      const esCreador = solicitud.createdBy === userId;
+      const esJefe = await this.esAutorizadorDe(userId, solicitud.createdBy);
+      if (!resuelve && !esCreador && !esJefe) {
+        throw new ForbiddenException(
+          "Solo quien hizo la solicitud, su jefe o Talento Humano pueden pedir la anulación",
+        );
+      }
+      data[CAMPO_ESTADO_PREVIO] = solicitud.estado;
+      data[CAMPO_ANULACION.solicitadaPor] = user?.nombre ?? "";
+      data[CAMPO_ANULACION.solicitadaFecha] = hoy;
+      data[CAMPO_ANULACION.motivo] = motivo.trim();
+      destino = "pendiente_anulacion";
+    } else if (accion === "anular") {
+      if (!resuelve) {
+        throw new ForbiddenException("Solo Talento Humano o el PMO pueden anular");
+      }
+      if (solicitud.estado !== "pendiente_anulacion") {
+        data[CAMPO_ESTADO_PREVIO] = solicitud.estado;
+      }
+      data[CAMPO_ANULACION.anuladaPor] = user?.nombre ?? "";
+      data[CAMPO_ANULACION.anuladaFecha] = hoy;
+      data[CAMPO_ANULACION.motivo] = motivo.trim();
+
+      // Se deshace lo que el formato dejó en nómina ANTES de marcarlo anulado. Si esto
+      // falla, la solicitud sigue viva y su registro también: dos cosas que concuerdan.
+      // Al revés quedaría anulada con la nómina todavía pagándola, que es justo el
+      // error que esta función existe para evitar.
+      const borrados = await this.talentoHumano.borrarDerivadosDeSolicitud(
+        solicitud.solicitudId,
+        solicitud.formato,
+      );
+      if (borrados > 0) data.anulacionRegistrosBorrados = borrados;
+      destino = "anulado";
+    } else {
+      if (!resuelve) {
+        throw new ForbiddenException(
+          "Solo Talento Humano o el PMO pueden resolver la anulación",
+        );
+      }
+      if (solicitud.estado !== "pendiente_anulacion") {
+        throw new BadRequestException("No hay una anulación pendiente que rechazar.");
+      }
+      // Vuelve exactamente a donde estaba, no al borrador: la solicitud no tuvo ningún
+      // problema, solo se pidió anularla y se negó. Mandarla al borrador la obligaría a
+      // recorrer otra vez unos avales que siguen siendo válidos.
+      destino = String(data[CAMPO_ESTADO_PREVIO] ?? "borrador");
+      data[CAMPO_ESTADO_PREVIO] = "";
+      data[CAMPO_ANULACION.solicitadaPor] = "";
+      data[CAMPO_ANULACION.solicitadaFecha] = "";
+    }
+
+    solicitud.estado = destino;
+    solicitud.estadoDesde = ahora;
+    solicitud.historial = [
+      ...(solicitud.historial ?? []),
+      {
+        estado: destino,
+        accion,
+        fecha: ahora.toISOString(),
+        userId,
+        userName: user?.nombre ?? null,
+        motivo: motivo.trim(),
+      },
+    ];
+    solicitud.data = data;
+
+    const guardada = await this.solicitudRepo.save(solicitud);
+
+    this.notificarAnulacion(guardada, accion, motivo.trim()).catch((e) =>
+      this.logger.warn(`No se pudo notificar la anulación: ${e.message}`),
+    );
+
+    return guardada;
+  }
+
+  /**
+   * Avisa de la anulación. Al pedirla se le escribe a Talento Humano, que es quien la
+   * resuelve; al anularla o rechazarla, a quien hizo la solicitud, que es el que se
+   * queda esperando.
+   */
+  private async notificarAnulacion(
+    solicitud: GcSolicitud,
+    accion: string,
+    motivo: string,
+  ): Promise<void> {
+    const destinatarios: User[] =
+      accion === "solicitar_anulacion"
+        ? await this.usuariosPorRol([...ROLES_ANULAN])
+        : solicitud.createdBy
+          ? await this.userRepo.find({ where: { userId: solicitud.createdBy } })
+          : [];
+
+    const titulo =
+      accion === "solicitar_anulacion"
+        ? "Solicitud de anulación"
+        : accion === "anular"
+          ? "Solicitud anulada"
+          : "Anulación rechazada";
+
+    const enviados = new Set<string>();
+    for (const u of destinatarios) {
+      const to = u.emailNotificacion || u.email;
+      if (!to || enviados.has(to.toLowerCase())) continue;
+      enviados.add(to.toLowerCase());
+      await this.notifications.sendEmail({
+        to,
+        subject: `${solicitud.formato} N.º ${solicitud.numero ?? solicitud.solicitudId} · ${titulo}`,
+        html: `<p>${titulo} del formato <b>${solicitud.formato}</b> N.º ${
+          solicitud.numero ?? solicitud.solicitudId
+        }.</p><p><b>Motivo:</b> ${motivo}</p>`,
+      });
+    }
+  }
+
   private async transitionPrestamo(
     solicitud: GcSolicitud,
     accion: string,
@@ -2669,6 +2866,8 @@ export class GestionConocimientoService implements OnModuleInit {
        * préstamo exista de verdad si esto falla.
        */
       await this.talentoHumano.createPrestamo({
+        // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
+        solicitudId: solicitud.solicitudId,
         nombre: data.nombreCompleto || "",
         identificacion: data.numero || null,
         mesInicio: data.fechaDesembolso || null,
@@ -2960,6 +3159,8 @@ export class GestionConocimientoService implements OnModuleInit {
         }
 
         await this.talentoHumano.createAusentismo({
+          // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
+          solicitudId: solicitud.solicitudId,
           identificacion: data.identificacion,
           nombre: data.nombre || "",
           cargo: data.cargo || null,
@@ -3182,7 +3383,11 @@ export class GestionConocimientoService implements OnModuleInit {
           0,
         );
         return {
-          fecha: fl.fecha || null,
+          // La planilla guarda la fecha como se teclea («01/07/2026») y la columna es
+          // `date`: sin convertirla, Postgres rechaza el renglón. El error salía como un
+          // 400 con un mensaje genérico y dejaba la cabecera ya insertada, así que cada
+          // intento de aprobar creaba una planilla huérfana sin renglones.
+          fecha: fechaTextoAIso(fl.fecha),
           proyecto: fl.proyecto || null,
           region: fl.region || null,
           horaEntrada: fl.horaEntrada || null,
@@ -3211,6 +3416,8 @@ export class GestionConocimientoService implements OnModuleInit {
 
       await this.talentoHumano.registrarPlanilla(
         {
+          // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
+          solicitudId: solicitud.solicitudId,
           nombre: data.nombre || "",
           identificacion: data.cedula || null,
           cargo: data.cargo || null,
@@ -3412,6 +3619,8 @@ export class GestionConocimientoService implements OnModuleInit {
       const diasCompensar = data.rhDiasCompensar || data.diasCompensar;
 
       await this.talentoHumano.createVacacion({
+        // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
+        solicitudId: solicitud.solicitudId,
         identificacion: data.documento || "",
         nombre: data.nombres || "",
         cargo: data.cargo || null,

@@ -806,15 +806,20 @@ export class TalentoHumanoService {
     data: Partial<ThHorasExtra>,
     detalle: Partial<ThHorasExtraDetalle>[],
   ): Promise<ThHorasExtra & { detalle: ThHorasExtraDetalle[] }> {
-    const planilla = await this.horasExtraRepo.save(this.horasExtraRepo.create(data));
-    const filas = detalle.length
-      ? await this.horasExtraDetalleRepo.save(
-          detalle.map((d) =>
-            this.horasExtraDetalleRepo.create({ ...d, horasExtraId: planilla.horasExtraId }),
-          ),
-        )
-      : [];
-    return { ...planilla, detalle: filas };
+    // Cabecera y renglones van en una transacción. Sin ella, un renglón que Postgres
+    // rechace deja la cabecera ya escrita: una planilla sin detalle que nadie pidió y
+    // que la nómina igual suma. Así pasó —cada clic en «Aprobar» dejaba una huérfana.
+    return this.horasExtraRepo.manager.transaction(async (em) => {
+      const planilla = await em.save(em.create(ThHorasExtra, data));
+      const filas = detalle.length
+        ? await em.save(
+            detalle.map((d) =>
+              em.create(ThHorasExtraDetalle, { ...d, horasExtraId: planilla.horasExtraId }),
+            ),
+          )
+        : [];
+      return { ...planilla, detalle: filas };
+    });
   }
 
   async updateHorasExtra(id: number, data: Partial<ThHorasExtra>): Promise<ThHorasExtra> {
@@ -878,6 +883,70 @@ export class TalentoHumanoService {
     const v = await this.vacacionRepo.findOne({ where: { vacacionId: id } });
     if (!v) throw new NotFoundException("Vacaciones no encontradas");
     return v;
+  }
+
+  // ── Anulación de formatos ──────────────────────────────────────────
+
+  /**
+   * Borra lo que un formato de Gestión del Conocimiento dejó en las tablas de nómina.
+   *
+   * Los cuatro formatos de Talento Humano crean un registro real al aprobarse —un
+   * préstamo, un ausentismo, una planilla de horas extras, unas vacaciones—, y ese
+   * registro es el que la liquidación lee. Al anular el formato hay que quitarlo: si
+   * no, la nómina sigue pagando o descontando algo que ya nadie autorizó, y no falla
+   * nada que avise.
+   *
+   * Se borra en vez de marcarse: el registro es un derivado y la historia completa
+   * queda en el documento anulado, con su motivo y su bitácora. Marcarlo obligaría a
+   * filtrarlo en cada cálculo de nómina, y basta que un sitio lo olvide para volver a
+   * pagar lo anulado en silencio.
+   *
+   * Los registros creados antes de que existiera `solicitudId` se buscan por la marca
+   * que el propio formato escribió en las observaciones («… solicitud GTH-018-F N.º 7.»).
+   * Sin ese respaldo, anular un formato aprobado hace tiempo no borraría nada.
+   *
+   * @returns cuántas filas se borraron.
+   */
+  async borrarDerivadosDeSolicitud(solicitudId: number, formato: string): Promise<number> {
+    const marca = `solicitud ${formato} N.º ${solicitudId}.`;
+
+    /** Las filas de una tabla que nacieron de esta solicitud, por id o por la marca. */
+    const buscar = async <T extends { solicitudId: number | null; observaciones: string | null }>(
+      repo: Repository<T>,
+    ): Promise<T[]> => {
+      const porId = await repo.find({ where: { solicitudId } as any });
+      if (porId.length > 0) return porId;
+      const candidatas = await repo.find({
+        where: { observaciones: ILike(`%${marca}`) } as any,
+      });
+      return candidatas;
+    };
+
+    let borradas = 0;
+
+    if (formato === "GTH-007-F") {
+      const filas = await buscar(this.prestamoRepo);
+      for (const f of filas) {
+        // Los pagos van primero: apuntan al préstamo sin llave foránea, así que nadie
+        // los borraría solos y quedarían señalando a un préstamo que ya no existe.
+        await this.pagoRepo.delete({ prestamoId: f.prestamoId });
+      }
+      if (filas.length > 0) borradas += (await this.prestamoRepo.remove(filas)).length;
+    } else if (formato === "GTH-009-F") {
+      const filas = await buscar(this.ausentismoRepo);
+      if (filas.length > 0) borradas += (await this.ausentismoRepo.remove(filas)).length;
+    } else if (formato === "GTH-016-F") {
+      const filas = await buscar(this.horasExtraRepo);
+      for (const f of filas) {
+        await this.horasExtraDetalleRepo.delete({ horasExtraId: f.horasExtraId });
+      }
+      if (filas.length > 0) borradas += (await this.horasExtraRepo.remove(filas)).length;
+    } else if (formato === "GTH-018-F") {
+      const filas = await buscar(this.vacacionRepo);
+      if (filas.length > 0) borradas += (await this.vacacionRepo.remove(filas)).length;
+    }
+
+    return borradas;
   }
 
   async createVacacion(data: Partial<ThVacacion>): Promise<ThVacacion> {

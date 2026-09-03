@@ -36,3 +36,36 @@ export const hoyLocal = (): Date => {
   const ahora = new Date();
   return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
 };
+
+/**
+ * Una fecha escrita a mano → «AAAA-MM-DD», que es lo único que acepta una columna `date`.
+ *
+ * Los formatos donde el usuario teclea la fecha libremente —la planilla de horas extras,
+ * por ejemplo— la guardan como se escribió: «01/07/2026». Postgres rechaza ese texto en
+ * una columna `date` y el error sale como un 400 genérico, sin decir cuál campo fue.
+ *
+ * Devuelve null si no reconoce la fecha o si el día no existe («31/02»), en vez de
+ * lanzar: perder la fecha de un renglón es malo, pero tumbar la aprobación de toda una
+ * planilla por un renglón mal escrito es peor.
+ */
+export function fechaTextoAIso(texto: unknown): string | null {
+  const t = String(texto ?? "").trim();
+  if (!t) return null;
+
+  // «2026-07-01» (ya viene bien) o «01/07/2026» y «01-07-2026», que es como se escribe acá.
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+  const latino = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(t);
+  if (!iso && !latino) return null;
+
+  const [anio, mes, dia] = iso
+    ? [Number(iso[1]), Number(iso[2]), Number(iso[3])]
+    : [Number(latino![3]), Number(latino![2]), Number(latino![1])];
+
+  // Se comprueba que el día exista de verdad: `Date` acepta el 31 de febrero y lo corre
+  // al 3 de marzo, así que una fecha imposible entraría como otra distinta sin avisar.
+  const d = new Date(Date.UTC(anio, mes - 1, dia));
+  if (d.getUTCFullYear() !== anio || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) {
+    return null;
+  }
+  return `${anio}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+}
