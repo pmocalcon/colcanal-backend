@@ -30,16 +30,23 @@ export class ThHorasExtraDetalle {
   @Column({ type: "varchar", length: 80, nullable: true })
   region: string | null;
 
-  @Column({ name: "hora_entrada", type: "varchar", length: 5, nullable: true })
+  /*
+   * Las tres van en `text` y no en un `varchar` medido, porque son casillas de texto
+   * libre del impreso: la gente escribe «01:00 PM», «7:30 a.m.» o «1 h y media», no un
+   * formato. Estaban en `varchar(5)` —a la medida de «07:30»— y cualquier hora con AM/PM
+   * hacía que Postgres rechazara el renglón con «value too long». El error salía como un
+   * 400 genérico y tumbaba la aprobación de la planilla entera sin decir qué campo era.
+   */
+  @Column({ name: "hora_entrada", type: "text", nullable: true })
   horaEntrada: string | null;
 
-  @Column({ name: "hora_salida", type: "varchar", length: 5, nullable: true })
+  @Column({ name: "hora_salida", type: "text", nullable: true })
   horaSalida: string | null;
 
-  @Column({ type: "varchar", length: 20, nullable: true })
+  @Column({ type: "text", nullable: true })
   almuerzo: string | null;
 
-  @Column({ name: "codigo_labor", type: "varchar", length: 40, nullable: true })
+  @Column({ name: "codigo_labor", type: "text", nullable: true })
   codigoLabor: string | null;
 
   @Column({ type: "text", nullable: true })
