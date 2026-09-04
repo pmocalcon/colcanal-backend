@@ -117,6 +117,17 @@ import { ROLES_ADMINISTRATIVA, ROLES_JURIDICA } from "./juridica-workflow";
  * al aprobar la planilla: si un factor cambia en el papel, hay que cambiarlo en los dos
  * sitios o la liquidación que se guarda deja de cuadrar con la que se imprime.
  */
+/**
+ * El ámbito «Talento Humano» de la tabla de autorizaciones (`gestiones.gestion_id`).
+ *
+ * La cadena de mando no es una sola: quien aprueba una requisición no tiene por qué ser
+ * quien aprueba un permiso, y en la empresa no lo es —a los Directores de Proyecto los
+ * aprueba Gerencia de Proyectos en Talento Humano y Gerencia en Compras—. La tabla ya
+ * traía la columna para distinguirlo; estos formatos eran los únicos que la ignoraban y
+ * acababan repartiendo con la jerarquía de compras.
+ */
+const GESTION_TALENTO_HUMANO = 13;
+
 const TIPOS_HORA_EXTRA = [
   { key: "diurna", factor: 1.25 },
   { key: "recargoNocturno", factor: 0.35 },
@@ -226,6 +237,62 @@ export class GestionConocimientoService implements OnModuleInit {
     const rol = (user?.role?.nombreRol ?? "").trim();
     const veSalario = GestionConocimientoService.ROLES_VEN_SALARIO.includes(rol);
     return this.talentoHumano.fichaParaFormato(identificacion, veSalario);
+  }
+
+  /**
+   * Las filas de autorización que valen para estos formatos, ya filtradas por ámbito.
+   *
+   * Para cada persona se prefieren sus filas de **Talento Humano**; si no tiene ninguna
+   * se usan las que tenga —hoy, las de Compras—. Ese respaldo es lo que permite ir
+   * cargando la jerarquía de Talento Humano de a pocos: quien todavía no la tenga sigue
+   * funcionando exactamente como antes, sin quedarse sin jefe de un día para otro.
+   */
+  private async autorizacionesVigentes(
+    autorizadoIds: number | number[],
+    relations: string[] = [],
+  ): Promise<Authorization[]> {
+    const ids = Array.isArray(autorizadoIds) ? autorizadoIds : [autorizadoIds];
+    if (ids.length === 0) return [];
+    const rels = await this.authorizationRepo.find({
+      where: { usuarioAutorizadoId: In(ids), esActivo: true },
+      relations,
+    });
+    const porPersona = new Map<number, Authorization[]>();
+    for (const r of rels) {
+      const lista = porPersona.get(r.usuarioAutorizadoId) ?? [];
+      lista.push(r);
+      porPersona.set(r.usuarioAutorizadoId, lista);
+    }
+    const salida: Authorization[] = [];
+    for (const filas of porPersona.values()) {
+      const propias = filas.filter((r) => r.gestionId === GESTION_TALENTO_HUMANO);
+      salida.push(...(propias.length > 0 ? propias : filas));
+    }
+    return salida;
+  }
+
+  /**
+   * Los autorizadores activos de una persona: sus jefes según la tabla de autorizaciones.
+   *
+   * Tener varios es lo normal —hoy dos tercios de la plantilla— y por eso el formato deja
+   * elegir a cuál se envía en vez de que el reparto quede a la suerte de la consulta.
+   */
+  async autorizadoresDe(userId: number) {
+    if (!userId) return [];
+    const rels = await this.autorizacionesVigentes(userId, [
+      "usuarioAutorizador",
+      "usuarioAutorizador.role",
+    ]);
+    return rels
+      .map((r) => r.usuarioAutorizador)
+      .filter((u): u is User => !!u && u.estado)
+      .map((u) => ({
+        userId: u.userId,
+        nombre: u.nombre,
+        cargo: u.cargo,
+        rol: u.role?.nombreRol ?? null,
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }
 
   /** True si la solicitud es una Solicitud de Préstamo (GTH-007-F). */
@@ -509,11 +576,21 @@ export class GestionConocimientoService implements OnModuleInit {
     const rol = user?.role?.nombreRol ?? "";
     const esPmo = esRolPmo(rol);
 
-    // A quiénes autoriza este usuario (es su "jefe"), en una sola consulta.
-    const rels = await this.authorizationRepo.find({
+    // A quiénes autoriza este usuario (es su "jefe"). Se resuelve en dos pasos porque
+    // manda el ámbito: quien autoriza en Compras deja de hacerlo aquí en cuanto la
+    // persona tiene jefe de Talento Humano, y si no se filtrara vería en su bandeja
+    // solicitudes que ya no le toca resolver.
+    const candidatos = await this.authorizationRepo.find({
       where: { usuarioAutorizadorId: userId, esActivo: true },
     });
-    const autorizados = new Set(rels.map((r) => r.usuarioAutorizadoId));
+    const vigentes = await this.autorizacionesVigentes(
+      candidatos.map((r) => r.usuarioAutorizadoId),
+    );
+    const autorizados = new Set(
+      vigentes
+        .filter((r) => r.usuarioAutorizadorId === userId)
+        .map((r) => r.usuarioAutorizadoId),
+    );
 
     // Creadores que son Directores de Área (para la red de seguridad del paso jefe),
     // y los que no tienen ningún autorizador, que si no se quedarían sin quién resuelva.
@@ -545,10 +622,10 @@ export class GestionConocimientoService implements OnModuleInit {
           creadorEsDirectorProyecto.add(c.userId);
         }
       }
-      const conJefe = await this.authorizationRepo.find({
-        where: { usuarioAutorizadoId: In(creadorIds), esActivo: true },
-        relations: ["usuarioAutorizador", "usuarioAutorizador.role"],
-      });
+      const conJefe = await this.autorizacionesVigentes(creadorIds, [
+        "usuarioAutorizador",
+        "usuarioAutorizador.role",
+      ]);
       for (const r of conJefe) {
         sinAutorizador.delete(r.usuarioAutorizadoId);
         const jefe = r.usuarioAutorizador;
@@ -3874,10 +3951,10 @@ export class GestionConocimientoService implements OnModuleInit {
     solicitud: GcSolicitud,
   ): Promise<User[]> {
     if (!solicitud.createdBy) return [];
-    const rels = await this.authorizationRepo.find({
-      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
-      relations: ["usuarioAutorizador", "usuarioAutorizador.role"],
-    });
+    const rels = await this.autorizacionesVigentes(solicitud.createdBy, [
+      "usuarioAutorizador",
+      "usuarioAutorizador.role",
+    ]);
     const vistos = new Set<number>();
     return rels
       .map((r) => r.usuarioAutorizador)
@@ -3929,10 +4006,9 @@ export class GestionConocimientoService implements OnModuleInit {
   /** Los jefes de quien creó la solicitud, con la Gerencia solo como último recurso. */
   private async jefesDelCreador(solicitud: GcSolicitud): Promise<User[]> {
     if (!solicitud.createdBy) return [];
-    const rels = await this.authorizationRepo.find({
-      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
-      relations: ["usuarioAutorizador"],
-    });
+    const rels = await this.autorizacionesVigentes(solicitud.createdBy, [
+      "usuarioAutorizador",
+    ]);
     const jefes = rels
       .map((r) => r.usuarioAutorizador)
       .filter((u): u is User => !!u && u.estado);
@@ -3955,10 +4031,8 @@ export class GestionConocimientoService implements OnModuleInit {
   /** True si el creador no tiene ningún autorizador activo: nadie por encima que resuelva. */
   private async creadorSinAutorizador(solicitud: GcSolicitud): Promise<boolean> {
     if (!solicitud.createdBy) return false;
-    const rel = await this.authorizationRepo.findOne({
-      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
-    });
-    return !rel;
+    const rels = await this.autorizacionesVigentes(solicitud.createdBy);
+    return rels.length === 0;
   }
 
   /**
@@ -4008,11 +4082,30 @@ export class GestionConocimientoService implements OnModuleInit {
    */
   private async destinatariosJefe(solicitud: GcSolicitud): Promise<User[]> {
     if (!solicitud.createdBy) return [];
-    const rel = await this.authorizationRepo.findOne({
-      where: { usuarioAutorizadoId: solicitud.createdBy, esActivo: true },
-      relations: ["usuarioAutorizador"],
-    });
-    if (rel?.usuarioAutorizador) return [rel.usuarioAutorizador];
+    const rels = await this.autorizacionesVigentes(solicitud.createdBy, [
+      "usuarioAutorizador",
+    ]);
+    const jefes = rels
+      .map((r) => r.usuarioAutorizador)
+      .filter((u): u is User => !!u && u.estado);
+
+    /*
+     * Si el formato dice a qué jefe va, manda eso —es lo que se escribió en el papel y
+     * lo que la persona espera—. Se comprueba contra sus autorizadores: elegir a alguien
+     * que no lo es no puede convertirlo en aprobador.
+     */
+    const elegido = Number(
+      (solicitud.data as Record<string, unknown> | null)?.jefeInmediatoId ?? 0,
+    );
+    if (elegido) {
+      const suyo = jefes.find((u) => u.userId === elegido);
+      if (suyo) return [suyo];
+    }
+
+    // Sin elección, se avisa a todos sus autorizadores. Antes se tomaba uno con `findOne`
+    // y sin `order`: con dos o tres jefes —el caso de la mayoría— el aviso caía en uno
+    // cualquiera y los demás no se enteraban.
+    if (jefes.length > 0) return jefes;
 
     if (await this.creadorEsDirectorArea(solicitud)) {
       const activos = await this.userRepo.find({
@@ -4032,14 +4125,10 @@ export class GestionConocimientoService implements OnModuleInit {
     autorizadoId: number | null,
   ): Promise<boolean> {
     if (!autorizadoId) return false;
-    const rel = await this.authorizationRepo.findOne({
-      where: {
-        usuarioAutorizadorId: autorizadorId,
-        usuarioAutorizadoId: autorizadoId,
-        esActivo: true,
-      },
-    });
-    return !!rel;
+    // Por `autorizacionesVigentes` y no directo: si el permiso lo aprueba el jefe de
+    // Talento Humano, el de Compras no puede seguir aprobándolo por su cuenta.
+    const rels = await this.autorizacionesVigentes(autorizadoId);
+    return rels.some((r) => r.usuarioAutorizadorId === autorizadorId);
   }
 
   /** Notifica por correo al actor que sigue en el flujo del anticipo. */

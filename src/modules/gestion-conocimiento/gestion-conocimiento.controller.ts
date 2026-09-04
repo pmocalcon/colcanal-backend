@@ -66,6 +66,18 @@ export class GestionConocimientoController {
     return this.service.fichaParaFormato(identificacion, userId);
   }
 
+  /**
+   * Los jefes entre los que puede repartirse una solicitud propia.
+   *
+   * Va antes de `@Get(":id")` por lo mismo que «ficha»: si no, «mis-jefes» se leería
+   * como un id. Sin `@Roles` porque cualquier empleado diligencia estos formatos.
+   */
+  @Get("mis-jefes")
+  @ApiOperation({ summary: "Autorizadores activos del usuario, para elegir a cuál enviar" })
+  async misJefes(@CurrentUser("userId") userId: number) {
+    return this.service.autorizadoresDe(userId);
+  }
+
   @Get()
   @ApiOperation({ summary: "Listar solicitudes (filtra por gestión y por propias)" })
   @ApiQuery({ name: "gestion", required: false, type: String })
