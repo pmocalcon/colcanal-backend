@@ -422,7 +422,15 @@ export class InvoicesService {
     // Marcar todas las facturas como enviadas a contabilidad. `sentDate` es la fecha que
     // digita quien envía; `ahora` es la del sistema en el instante del envío, que es la
     // que pide la auditoría porque no se puede retrasar ni adelantar.
-    const sentDate = new Date(sendToAccountingDto.sentToAccountingDate);
+    //
+    // El día se arma pieza por pieza y no con `new Date(texto)`: esa lectura toma el
+    // «2026-08-31» como medianoche UTC, y la columna es DATE —se escribe con los
+    // componentes de la hora local del servidor, que va cinco horas atrás—, así que el
+    // día quedaba guardado como el 30. Las 14 facturas que dejaron rastro en la bitácora
+    // están todas corridas un día contra lo que se digitó.
+    const diaDigitado = sendToAccountingDto.sentToAccountingDate.slice(0, 10);
+    const [año, mes, dia] = diaDigitado.split("-").map(Number);
+    const sentDate = new Date(año, mes - 1, dia);
     const ahora = new Date();
 
     for (const invoice of purchaseOrder.invoices) {
@@ -447,12 +455,12 @@ export class InvoicesService {
       "factura_completa",
       "enviada_contabilidad",
       `${purchaseOrder.invoices.length} factura(s) de la orden ${purchaseOrder.purchaseOrderNumber} ` +
-        `enviadas a Contabilidad el ${sentDate.toISOString().split("T")[0]}`,
+        `enviadas a Contabilidad el ${diaDigitado}`,
     );
 
     return {
       message: "Facturas enviadas a contabilidad exitosamente",
-      sentDate: sentDate.toISOString().split("T")[0],
+      sentDate: diaDigitado,
       invoicesCount: purchaseOrder.invoices.length,
     };
   }
