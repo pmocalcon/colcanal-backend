@@ -5,7 +5,25 @@ import { RequisitionLog } from "../../database/entities/requisition-log.entity";
 import { Requisition } from "../../database/entities/requisition.entity";
 import { PurchaseOrder } from "../../database/entities/purchase-order.entity";
 import { areaDeRol } from "./areas.constants";
-import { colombianHolidayDates } from "../../utils/business-days.util";
+import {
+  colombianHolidayDates,
+  calculateSLA,
+  getSLAForStatus,
+} from "../../utils/business-days.util";
+
+/**
+ * Desde cuánto una orden se considera pendiente de facturar, en pesos.
+ *
+ * No es cero porque los importes llevan decimales —una orden de 83.338,08 facturada en
+ * 83.337— y con un margen más estrecho se cuelan filas de «$1» que son redondeo del IVA,
+ * no facturación pendiente.
+ *
+ * Vive acá y no dentro de cada consulta porque son dos las pantallas que responden la
+ * misma pregunta —el cuadro de órdenes pendientes y el desglose de una requisición— y
+ * con el margen escrito en una sola, la misma orden salía a la vez fuera del cuadro de
+ * pendientes y en rojo en el desglose, debiendo cuarenta centavos.
+ */
+export const MARGEN_FACTURACION_PESOS = 1000;
 
 @Injectable()
 export class AuditService {
@@ -134,10 +152,16 @@ export class AuditService {
               po.invoice_status                              AS "invoiceStatus",
               COALESCE(f.facturado, 0)::float                AS "invoicedAmount",
               (po.total_amount - COALESCE(f.facturado, 0))::float AS "pendingAmount",
-              -- Fecha del sistema en que la factura se envió a Contabilidad. Primero el
-              -- instante guardado en la factura (registros nuevos); para los viejos, sin
-              -- ese campo, la fecha de la bitácora del envío de ESTA orden —la misma que
-              -- muestra el recorrido de estados—, no la que se digitó a mano.
+              -- Si ya no se le debe nada. Lo decide el servidor y con el mismo margen
+              -- del cuadro de pendientes: derivarlo en la pantalla es lo que hacía que
+              -- una orden de cuarenta centavos de diferencia saliera facturada en un
+              -- lado y morosa en el otro.
+              (po.total_amount - COALESCE(f.facturado, 0) < $2) AS "saldada",
+              -- Cuándo se envió la factura a Contabilidad, según el sistema: el instante
+              -- guardado en la factura o, si no lo tiene, la bitácora del envío de ESTA
+              -- orden. Va aparte de la fecha declarada y no mezclada con ella: son cosas
+              -- distintas y en las cuatro facturas que tienen las dos no coinciden
+              -- —declarada el 30/08, registrada el 03/09—.
               COALESCE(
                 f.sent_to_accounting_at,
                 (SELECT MIN(rl.created_at)
@@ -146,20 +170,45 @@ export class AuditService {
                     AND rl.action = 'enviar_facturas_contabilidad'
                     AND rl.comments LIKE '%' || po.purchase_order_number || '%')
               )                                              AS "sentToAccountingAt",
+              -- La fecha que digitó quien envió. Es la única que existe en 288 de las 288
+              -- facturas marcadas como enviadas —el instante del sistema solo está en 4—,
+              -- así que sin ella la columna sale vacía casi siempre pese a que el dato se
+              -- conoce. Se devuelve por separado para que la pantalla pueda decir de cuál
+              -- de las dos está hablando: una es declarada y la otra no se puede retocar.
+              --
+              -- Las dos columnas DATE salen como texto «YYYY-MM-DD». Son días, no
+              -- instantes: convertidas a Date se vuelven medianoche de alguna zona y la
+              -- pantalla, que formatea en hora de Colombia, puede terminar mostrando el
+              -- día anterior según dónde corra el servidor.
+              f.sent_to_accounting_date::text                AS "sentToAccountingDeclarada",
+              -- Cuál es la factura, no solo cuánto suma: sin el número, el cuadro dice
+              -- que se envió algo a Contabilidad pero no qué se envió.
+              f.numeros                                      AS "invoiceNumbers",
+              f.emitida::text                                AS "invoiceIssueDate",
+              f.todas_enviadas                               AS "todasEnviadas",
+              f.alguna_enviada                               AS "algunaEnviada",
               -- Cuándo se registró la última factura en el sistema.
               f.invoice_registered_at                        AS "invoiceRegisteredAt"
          FROM purchase_orders po
          LEFT JOIN LATERAL (
                 SELECT SUM(i.amount) AS facturado,
                        MAX(i.sent_to_accounting_at) AS sent_to_accounting_at,
-                       MAX(i.created_at) AS invoice_registered_at
+                       MAX(i.sent_to_accounting_date) AS sent_to_accounting_date,
+                       MAX(i.created_at) AS invoice_registered_at,
+                       -- Hoy toda orden tiene a lo sumo una factura, pero el modelo
+                       -- admite varias: se concatenan en vez de tomar una, para que el
+                       -- día que aparezca la segunda no se oculte en silencio.
+                       string_agg(i.invoice_number, ', ' ORDER BY i.invoice_id) AS numeros,
+                       MIN(i.issue_date) AS emitida,
+                       bool_and(i.sent_to_accounting) AS todas_enviadas,
+                       bool_or(i.sent_to_accounting) AS alguna_enviada
                   FROM invoices i
                  WHERE i.purchase_order_id = po.purchase_order_id
               ) f ON true
         WHERE po.requisition_id = $1
         ORDER BY COALESCE(po.issue_date, po.created_at) ASC,
                  po.purchase_order_number ASC`,
-      [requisitionId],
+      [requisitionId, MARGEN_FACTURACION_PESOS],
     );
 
     const orders = filas.map((r: Record<string, unknown>) => ({
@@ -171,27 +220,129 @@ export class AuditService {
       invoiceStatus: (r.invoiceStatus as string) ?? null,
       invoicedAmount: Number(r.invoicedAmount ?? 0),
       pendingAmount: Number(r.pendingAmount ?? 0),
+      saldada: r.saldada === true,
+      invoiceNumbers: (r.invoiceNumbers as string) ?? null,
+      invoiceIssueDate: (r.invoiceIssueDate as string) ?? null,
+      todasEnviadas: r.todasEnviadas === true,
+      algunaEnviada: r.algunaEnviada === true,
       sentToAccountingAt: (r.sentToAccountingAt as string) ?? null,
+      sentToAccountingDeclarada: (r.sentToAccountingDeclarada as string) ?? null,
       invoiceRegisteredAt: (r.invoiceRegisteredAt as string) ?? null,
     }));
 
     // El recorrido de estados de la requisición —lo que la pestaña Matriz muestra en
-    // una fila—, para tenerlo en el mismo desglose sin saltar de pestaña. Se toma la
-    // primera vez que ocurrió cada acción, en orden.
+    // una fila—, para tenerlo en el mismo desglose sin saltar de pestaña.
+    //
+    // Se lee el log completo y en orden, no una acción por fila: para medir cuánto duró
+    // cada paso hace falta saber cuándo empezó el siguiente, y agrupando por acción se
+    // perdía el orden real cuando una se repite (una requisición devuelta y vuelta a
+    // aprobar pasa dos veces por el mismo sitio, y son dos esperas distintas).
     const estadosRaw = await this.requisitionLogRepository.query(
-      `SELECT action AS "action", MIN(created_at) AS "date"
+      `SELECT action AS "action", created_at AS "date", new_status AS "status"
          FROM requisition_logs
         WHERE requisition_id = $1
-        GROUP BY action
-        ORDER BY MIN(created_at) ASC`,
+        ORDER BY created_at ASC, log_id ASC`,
       [requisitionId],
     );
-    const estados = estadosRaw.map((r: Record<string, unknown>) => ({
-      action: String(r.action ?? ""),
-      date: (r.date as string) ?? null,
-    }));
 
-    return { orders, estados };
+    // La prioridad manda en el plazo: una requisición urgente no tiene día de gracia.
+    const req = await this.requisitionRepository.findOne({
+      where: { requisitionId },
+      select: { requisitionId: true, priority: true },
+    });
+
+    const estados = this.medirRecorrido(
+      estadosRaw as { action: string; date: string; status: string | null }[],
+      req?.priority as "alta" | "normal" | undefined,
+    );
+
+    return { orders, estados, resumen: this.resumirRecorrido(estados) };
+  }
+
+  /**
+   * Mide cuánto duró cada paso del recorrido y lo compara con su plazo.
+   *
+   * Un paso es la espera **en un estado**: la requisición entra en él con un movimiento
+   * y sale con el siguiente, así que lo que tardó es la distancia entre los dos. El
+   * plazo sale de la misma tabla que usa el módulo de compras para exigirlo, no de una
+   * copia: si allá se cambia, esta pantalla lo refleja sin tocarse.
+   *
+   * El último paso no tiene siguiente y por eso se mide contra hoy y queda `abierto`:
+   * medirlo como cerrado diría que un trámite detenido tardó cero.
+   */
+  /**
+   * Estados en los que el trámite se acabó, y por tanto el reloj se detiene.
+   *
+   * Sin esto el último movimiento se toma siempre como «sigue ahí» y se mide contra hoy:
+   * una requisición recibida hace seis meses diría llevar seis meses en el último paso y
+   * su total seguiría creciendo solo. Una rechazada **no** entra acá: está devuelta al
+   * solicitante y el trámite sigue abierto esperándolo, que es justo lo que hay que ver.
+   */
+  private static readonly ESTADOS_FINALES = new Set([
+    "recepcion_completa",
+    "recibida_contabilidad",
+    "anulada",
+  ]);
+
+  private medirRecorrido(
+    filas: { action: string; date: string; status: string | null }[],
+    prioridad?: "alta" | "normal",
+  ) {
+    const ahora = new Date();
+    return filas.map((fila, i) => {
+      const desde = new Date(fila.date);
+      const siguiente = filas[i + 1];
+      const cerrado =
+        !!fila.status && AuditService.ESTADOS_FINALES.has(fila.status);
+      const abierto = !siguiente && !cerrado;
+      const hasta = siguiente ? new Date(siguiente.date) : abierto ? ahora : desde;
+
+      /*
+       * Acá solo se resuelve el plazo, no cuánto tardó: el tiempo transcurrido lo
+       * calcula el navegador con `tiempoHabil`, que es donde ya lo cuentan las otras
+       * vistas de auditoría. Duplicarlo aquí haría que la misma requisición dijera
+       * dos cosas distintas según la pantalla, y además el servidor corre en UTC:
+       * un paso resuelto un viernes por la noche caería en sábado.
+       *
+       * El veredicto sí se queda: es el mismo cálculo con que el módulo de compras
+       * marca «Vencida», y esta pantalla no puede contradecir esa columna.
+       */
+      const sla = fila.status ? getSLAForStatus(fila.status, prioridad) : 0;
+      let vencido: boolean | null = null;
+      let fechaLimite: string | null = null;
+      if (sla > 0) {
+        const r = calculateSLA(desde, sla);
+        fechaLimite = r.deadline.toISOString();
+        vencido = hasta > r.deadline;
+      }
+
+      return {
+        action: fila.action,
+        date: fila.date ?? null,
+        status: fila.status ?? null,
+        slaDiasHabiles: sla > 0 ? sla : null,
+        fechaLimite,
+        vencido,
+        abierto,
+      };
+    });
+  }
+
+  /** El marco del trámite: desde cuándo, hasta cuándo, y cuántos plazos se pasaron. */
+  private resumirRecorrido(
+    pasos: ReturnType<AuditService["medirRecorrido"]>,
+  ) {
+    if (pasos.length === 0) return null;
+    const ultimo = pasos[pasos.length - 1];
+    return {
+      inicio: pasos[0].date as string,
+      // Si el trámite terminó, el reloj para en su último movimiento, no en hoy.
+      fin: ultimo.abierto ? new Date().toISOString() : (ultimo.date as string),
+      enCurso: ultimo.abierto,
+      pasos: pasos.length,
+      pasosConPlazo: pasos.filter((p) => p.slaDiasHabiles != null).length,
+      pasosVencidos: pasos.filter((p) => p.vencido === true).length,
+    };
   }
 
   /**
@@ -714,9 +865,9 @@ export class AuditService {
            LEFT JOIN projects p   ON p.project_id = r.project_id
           WHERE po.requisition_id = ANY($1::int[])
             AND COALESCE(rs.code, '') NOT IN ('anulada', 'pendiente_anulacion')
-            AND COALESCE(f.facturado, 0) < po.total_amount - 1000
+            AND COALESCE(f.facturado, 0) < po.total_amount - $2
           ORDER BY COALESCE(po.issue_date, po.created_at) ASC`,
-        [requisitionIds],
+        [requisitionIds, MARGEN_FACTURACION_PESOS],
       );
       ordersPendingInvoice = pendientes.map((r: Record<string, unknown>) => ({
         purchaseOrderNumber: String(r.purchaseOrderNumber ?? ''),
