@@ -1,8 +1,14 @@
 /**
  * Utilidad para cálculo de días hábiles en Colombia
- * Horario laboral: 7:00 AM - 4:30 PM (9.5 horas por día)
- * Días hábiles: Lunes a Viernes
- * Excluye festivos colombianos
+ *
+ * Jornada de 42 horas semanales: lunes a jueves de 7:00 a. m. a 4:30 p. m. y viernes
+ * de 7:00 a. m. a 4:00 p. m. No se trabaja sábado ni domingo, ni los festivos
+ * colombianos.
+ *
+ * El viernes cierra media hora antes, así que el fin de la jornada depende del día:
+ * un plazo que vence un viernes se acaba a las 4:00, no a las 4:30. Con una sola hora
+ * de cierre para toda la semana, media hora del viernes contaba como hábil sin que
+ * hubiera nadie.
  */
 
 /**
@@ -108,10 +114,25 @@ export function colombianHolidayDates(): string[] {
   return dates.sort();
 }
 
-const BUSINESS_START_HOUR = 7; // 7 AM
-const BUSINESS_END_HOUR = 16; // 4 PM (4:30 PM)
-const BUSINESS_END_MINUTE = 30; // :30 minutos
-const BUSINESS_HOURS_PER_DAY = 9.5; // 9.5 horas (7:00 AM - 4:30 PM)
+const BUSINESS_START_HOUR = 7; // 7:00 a. m., todos los días
+
+/**
+ * A qué hora cierra la jornada, por día de la semana (0 = domingo).
+ *
+ * Solo están los días laborables; para cualquier otro se usa el cierre de lunes a
+ * jueves, que no cambia nada porque sábado, domingo y festivos no son hábiles y
+ * nunca llegan acá con una jornada que medir.
+ */
+const FIN_DE_JORNADA: Record<number, { hora: number; minuto: number }> = {
+  1: { hora: 16, minuto: 30 }, // lunes
+  2: { hora: 16, minuto: 30 }, // martes
+  3: { hora: 16, minuto: 30 }, // miércoles
+  4: { hora: 16, minuto: 30 }, // jueves
+  5: { hora: 16, minuto: 0 }, //  viernes: media hora antes
+};
+
+const finDeJornada = (d: Date) =>
+  FIN_DE_JORNADA[d.getDay()] ?? { hora: 16, minuto: 30 };
 
 /**
  * Verifica si una fecha es un día hábil (no sábado, domingo ni festivo)
@@ -145,13 +166,14 @@ function normalizeToBusinessHours(date: Date): Date {
   }
 
   const hour = normalized.getHours();
+  const fin = finDeJornada(normalized);
 
   // Si es antes de 7am, ajustar a 7am
   if (hour < BUSINESS_START_HOUR) {
     normalized.setHours(BUSINESS_START_HOUR, 0, 0, 0);
   }
-  // Si es después de 4:30pm, mover al siguiente día hábil a las 7am
-  else if (hour > BUSINESS_END_HOUR || (hour === BUSINESS_END_HOUR && normalized.getMinutes() >= BUSINESS_END_MINUTE)) {
+  // Si ya cerró la jornada de ese día, mover al siguiente día hábil a las 7am
+  else if (hour > fin.hora || (hour === fin.hora && normalized.getMinutes() >= fin.minuto)) {
     normalized.setDate(normalized.getDate() + 1);
     normalized.setHours(BUSINESS_START_HOUR, 0, 0, 0);
     // Verificar recursivamente si el nuevo día es hábil
@@ -163,11 +185,11 @@ function normalizeToBusinessHours(date: Date): Date {
 
 /**
  * Agrega días hábiles completos a una fecha
- * Un día hábil completo = 9.5 horas (7am - 4:30pm)
  *
  * @param startDate - Fecha de inicio
  * @param businessDays - Número de días hábiles a agregar
- * @returns Fecha límite (deadline) al final del último día hábil (7pm)
+ * @returns Fecha límite al cierre de la jornada de ese día: 4:30 p. m., o 4:00 p. m.
+ *          si cae viernes
  */
 export function addBusinessDays(startDate: Date, businessDays: number): Date {
   if (businessDays <= 0) {
@@ -188,8 +210,9 @@ export function addBusinessDays(startDate: Date, businessDays: number): Date {
     }
   }
 
-  // Establecer la hora al final del día hábil (4:30pm)
-  current.setHours(BUSINESS_END_HOUR, BUSINESS_END_MINUTE, 0, 0);
+  // La hora de cierre es la del día al que se llegó: el viernes se acaba antes.
+  const fin = finDeJornada(current);
+  current.setHours(fin.hora, fin.minuto, 0, 0);
 
   return current;
 }
