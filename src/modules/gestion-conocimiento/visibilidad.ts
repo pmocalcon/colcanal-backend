@@ -45,24 +45,57 @@ export const veTodasLasSolicitudes = (nombreRol?: string | null): boolean =>
   ROLES_VEN_TODAS.includes((nombreRol ?? "").trim());
 
 /**
- * Gestiones en las que **nadie** ve el listado completo, ni las áreas que tramitan o
+ * Gestiones en las que **casi nadie** ve el listado completo, ni las áreas que tramitan o
  * firman: cada quien ve solo lo que él crea, más lo que espera su acción y lo que ya
- * tramitó.
+ * tramitó. Las excepciones van en `VEN_TODO_PESE_A_SOLO_PROPIAS`.
  *
  * Contable entra acá porque un anticipo o una cuenta entre compañías es plata de quien
- * la pide; que Financiera y Administrativa vieran el borrador de todo el mundo antes de
- * que llegara a su paso no es tramitar, es mirar por encima del hombro. Cuando el
- * trámite sí toca a Finanzas, `filtrarVisibles` se lo muestra igual por «acción
- * pendiente» —no se pierde ningún paso del flujo.
+ * la pide; que media compañía viera el borrador de todo el mundo antes de que llegara a
+ * su paso no es tramitar, es mirar por encima del hombro. Cuando el trámite sí toca a
+ * alguien, `filtrarVisibles` se lo muestra igual por «acción pendiente» —no se pierde
+ * ningún paso del flujo.
  *
- * Es por gestión y no por rol a propósito: el mismo Director Financiero y Administrativo
- * debe seguir viendo todo en Jurídica (allí Administrativa tramita los contratos), así
- * que la restricción cuelga de la gestión, no de la persona.
+ * Es por gestión y no por rol a propósito: el mismo Director Jurídico debe seguir viendo
+ * todo en Jurídica (allí Administrativa tramita los contratos), así que la restricción
+ * cuelga de la gestión, no de la persona.
  */
 export const GESTIONES_SOLO_PROPIAS: readonly string[] = ["contable"];
 
 export const gestionEsSoloPropia = (gestion?: string | null): boolean =>
   GESTIONES_SOLO_PROPIAS.includes((gestion ?? "").trim());
+
+/**
+ * Quién sí ve el listado completo de una gestión restringida, pese a
+ * `GESTIONES_SOLO_PROPIAS`. La llave es la gestión; la lista, los roles exentos.
+ *
+ * En contable va la Dirección Financiera y Administrativa porque es la dueña del rubro:
+ * responde por la caja y por lo que se anticipa, y sin esto solo alcanzaba a ver un
+ * anticipo si le tocaba firmarlo. Como el pago lo registra Tesorería y la aprobación la
+ * da Gerencia, había anticipos que pasaban de principio a fin sin aparecerle nunca —los
+ * tres que hay hoy, sin ir más lejos.
+ *
+ * La lista es corta a propósito: la restricción sigue siendo la regla y esto la excepción
+ * de quien tiene que responder por el dinero, no un permiso de área. Si mañana Tesorería
+ * o Contabilidad necesitan lo mismo, se agregan acá y en ningún otro lado.
+ */
+export const VEN_TODO_PESE_A_SOLO_PROPIAS: Record<string, readonly string[]> = {
+  contable: ["Director Financiero y Administrativo"],
+};
+
+/**
+ * Si esta gestión le esconde a este rol las solicitudes ajenas.
+ *
+ * Es la pregunta que de verdad hace `filtrarVisibles`: no basta con que la gestión sea
+ * «solo propias», hay que mirar también quién pregunta.
+ */
+export const restringidaPara = (
+  nombreRol?: string | null,
+  gestion?: string | null,
+): boolean => {
+  const g = (gestion ?? "").trim();
+  if (!gestionEsSoloPropia(g)) return false;
+  return !(VEN_TODO_PESE_A_SOLO_PROPIAS[g] ?? []).includes((nombreRol ?? "").trim());
+};
 
 /**
  * Roles cuyo alcance no es «todas» ni «solo las mías», sino «las de cierta gente».

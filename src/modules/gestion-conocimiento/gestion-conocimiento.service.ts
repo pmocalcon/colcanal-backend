@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { GcSolicitud } from "../../database/entities/gc-solicitud.entity";
-import { alcanceDe, gestionEsSoloPropia, veTodasLasSolicitudes } from "./visibilidad";
+import { alcanceDe, restringidaPara, veTodasLasSolicitudes } from "./visibilidad";
 import { User } from "../../database/entities/user.entity";
 import { Material } from "../../database/entities/material.entity";
 import { OperationCenter } from "../../database/entities/operation-center.entity";
@@ -542,10 +542,10 @@ export class GestionConocimientoService implements OnModuleInit {
     });
     const rol = user?.role?.nombreRol;
     // Ver todo depende del rol, pero se apaga en las gestiones «solo propias» (contable):
-    // ahí ni siquiera las áreas que tramitan ven el listado ajeno, se evalúa por
-    // solicitud más abajo según su gestión.
+    // ahí ni siquiera las áreas que tramitan ven el listado ajeno, salvo los roles que
+    // `restringidaPara` exceptúa. Se evalúa por solicitud más abajo según su gestión.
     const veTodo = veTodasLasSolicitudes(rol);
-    if (veTodo && !solicitudes.some((s) => gestionEsSoloPropia(s.gestion))) {
+    if (veTodo && !solicitudes.some((s) => restringidaPara(rol, s.gestion))) {
       return solicitudes;
     }
 
@@ -575,7 +575,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     return (solicitudes as ConAcciones[]).filter(
       (s) =>
-        (veTodo && !gestionEsSoloPropia(s.gestion)) ||
+        (veTodo && !restringidaPara(rol, s.gestion)) ||
         s.createdBy === userId ||
         (s.createdBy != null && enAlcance.has(s.createdBy)) ||
         (s.accionesPendientes?.length ?? 0) > 0 ||
