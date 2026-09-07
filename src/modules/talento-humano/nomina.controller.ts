@@ -96,6 +96,15 @@ export class NominaController {
     );
   }
 
+  @Get("liquidacion/prestamos-sin-descontar")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({
+    summary: "Préstamos con saldo de gente activa que la liquidación no va a descontar, y por qué",
+  })
+  prestamosSinDescontar(@Query("periodo") periodo: string) {
+    return this.service.prestamosSinDescontar(periodo);
+  }
+
   @Post("liquidacion/generar")
   @Roles(...ROLES_TALENTO_HUMANO)
   @ApiOperation({ summary: "Genera y guarda la liquidación del periodo (una sola vez)" })

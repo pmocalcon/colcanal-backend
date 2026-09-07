@@ -504,6 +504,82 @@ export class NominaService {
   }
 
   /**
+   * Los préstamos con saldo que la nómina **no** va a descontar, y por qué.
+   *
+   * El cruce de arriba tiene un interruptor de todo o nada: basta con que un préstamo
+   * traiga las columnas nuevas —NOMBRE NOMINA y CUOTA A DESCONTAR— para que todos se
+   * crucen así, y el camino viejo por cédula deje de usarse para el resto. Al que le
+   * falte cualquiera de las dos se lo salta en silencio: no aparece en la liquidación,
+   * no queda registro, y la persona sigue debiendo.
+   *
+   * Así se descubrió: a una auxiliar no se le descontó su última cuota de $100.000
+   * porque el préstamo tenía el nombre bien y la casilla de la cuota vacía. Nadie se
+   * habría enterado hasta cuadrar la cartera.
+   *
+   * Esto no descuenta nada ni corrige la ficha: la lista para que Talento Humano
+   * complete el dato que falta y decida. Va con las mismas condiciones que
+   * `cruceDePrestamos` a propósito —si una cambia y la otra no, el aviso miente—.
+   */
+  async prestamosSinDescontar(periodo: string): Promise<
+    Array<{
+      prestamoId: number;
+      nombre: string;
+      identificacion: string | null;
+      saldo: number;
+      motivo: string;
+    }>
+  > {
+    this.validarPeriodo(periodo);
+
+    const enBase = await this.personaRepo.find({ where: { estado: ILike("ACTIVO%") } });
+    const activos = enBase.filter((p) => !esPrestacionDeServicios(p.tipoContrato));
+    const cedulasActivas = new Set(activos.map((p) => p.identificacion));
+    const nombresActivos = new Set(activos.map((p) => this.claveNombre(p.nombre)));
+
+    const prestamos = await this.prestamoRepo.find();
+    const porColumnasNomina = prestamos.some((p) => p.nombreNomina || p.cuotaDescontar != null);
+
+    const pendientes: Array<{
+      prestamoId: number;
+      nombre: string;
+      identificacion: string | null;
+      saldo: number;
+      motivo: string;
+    }> = [];
+
+    for (const p of prestamos) {
+      if (num(p.saldo) <= 0) continue;
+      // Solo lo de quien está en la nómina de este periodo: lo de alguien que ya no
+      // trabaja acá es cartera por cobrar, no un descuento que se haya perdido.
+      const esDeAlguienActivo =
+        (p.identificacion && cedulasActivas.has(p.identificacion)) ||
+        (p.nombreNomina && nombresActivos.has(this.claveNombre(p.nombreNomina)));
+      if (!esDeAlguienActivo) continue;
+
+      let motivo: string | null = null;
+      if (porColumnasNomina) {
+        if (!p.nombreNomina) motivo = "le falta el NOMBRE NOMINA";
+        else if (!nombresActivos.has(this.claveNombre(p.nombreNomina)))
+          motivo = "el NOMBRE NOMINA no coincide con nadie de la nómina";
+        else if (num(p.cuotaDescontar) <= 0) motivo = "le falta la CUOTA A DESCONTAR";
+      } else if (!p.identificacion) motivo = "no tiene cédula";
+      else if (num(p.valorCuota) <= 0) motivo = "no tiene valor de cuota";
+
+      if (motivo) {
+        pendientes.push({
+          prestamoId: p.prestamoId,
+          nombre: p.nombreNomina || p.nombre || "",
+          identificacion: p.identificacion ?? null,
+          saldo: num(p.saldo),
+          motivo,
+        });
+      }
+    }
+
+    return pendientes.sort((a, b) => b.saldo - a.saldo);
+  }
+
+  /**
    * Le devuelve a la cartera de préstamos las cuotas que la nómina del periodo descontó.
    *
    * Hasta ahora la nómina descontaba y la cartera no se enteraba: el saldo se quedaba
@@ -761,8 +837,17 @@ export class NominaService {
           (s, d) => s + num(d.recargoNocturno) * FACTOR_RECARGO_NOCTURNO * valorHora,
           0,
         );
+        /*
+         * El residuo de la resta se borra. `valor_hora` se guarda redondeado a dos
+         * decimales pero `total_liquidacion` se calculó con el valor sin redondear, así
+         * que en una planilla que es toda recargo nocturno los dos lados no cancelan
+         * exacto: quedaban centavos —a Raúl, −0,002— que la pantalla mostraba como
+         * «$-0» y «$0» en la columna de horas extras. Por debajo de un peso no hay
+         * horas extras que pagar, hay error de redondeo.
+         */
+        const bruto = num(pl.totalLiquidacion) - rn;
         suma(persona, "recargoNocturnoValor", rn, "Horas extras");
-        suma(persona, "horasExtrasValor", num(pl.totalLiquidacion) - rn, "Horas extras");
+        suma(persona, "horasExtrasValor", Math.abs(bruto) < 1 ? 0 : bruto, "Horas extras");
       }
     }
 
@@ -801,12 +886,19 @@ export class NominaService {
    * Un permiso de varios días descuenta días completos. Uno de horas dentro de un día se
    * pasa a fracción de día con la jornada del día en que ocurrió —lunes a jueves 8,5 h,
    * viernes 8 h—: un permiso de 4 horas un martes vale 4 / 8,5 de día.
+   *
+   * La fracción se redondea a dos decimales. Sin redondear, un permiso de 8 horas un
+   * martes daba 0,9411764705882353 y la nómina mostraba «29.058823529411764 días
+   * trabajados»: ilegible, y lo pagado no era lo que decía la pantalla. Con dos
+   * decimales el número que se ve es el mismo con el que se liquida.
    */
   private diasDePermiso(aus: ThAusentismo): number {
     const diasPermiso = aus.diasPermiso ?? 0;
     if (diasPermiso > 0) return diasPermiso;
     const horas = num(aus.horasAusencia);
-    if (horas > 0 && aus.fechaInicio) return horas / this.jornadaDelDia(aus.fechaInicio);
+    if (horas > 0 && aus.fechaInicio) {
+      return Math.round((horas / this.jornadaDelDia(aus.fechaInicio)) * 100) / 100;
+    }
     return 0;
   }
 
@@ -860,7 +952,10 @@ export class NominaService {
      * la sugerencia. Quien de verdad quiera 30 con ausencias de por medio, digita 30 y
      * la sugerencia coincidiría solo si no hubiera descuentos; es el único borde.
      */
-    const diasSugeridos = Math.max(0, 30 - (sugerencias.diasDescontados ?? 0));
+    // Se redondea la resta, no solo cada sumando: 30 − 0,94 en coma flotante vuelve a
+    // dar decimales largos, y los días son lo que se enseña y lo que se paga.
+    const diasSugeridos =
+      Math.round(Math.max(0, 30 - (sugerencias.diasDescontados ?? 0)) * 100) / 100;
     const diasManual = novedad?.diasTrabajados;
     const diasTrabajados = diasManual != null && diasManual !== 30 ? diasManual : diasSugeridos;
     const devengadoBasico = (salarioBasico / 30) * diasTrabajados;
