@@ -349,6 +349,19 @@ export class TalentoHumanoController {
     return this.service.getParametros(anio);
   }
 
+  /**
+   * Sin `@Roles` a propósito: basta con haber iniciado sesión.
+   *
+   * Lo consultan las actas de obra, que las arma Levantamiento de Obras, para expresar
+   * el presupuesto en SMMLV. Devuelve únicamente el salario mínimo —que lo fija un
+   * decreto y es público—, nunca el resto de los parámetros de nómina.
+   */
+  @Get("smmlv/:anio")
+  @ApiOperation({ summary: "Salario mínimo del año, para expresar presupuestos en SMMLV" })
+  getSmmlv(@Param("anio", ParseIntPipe) anio: number) {
+    return this.service.getSmmlv(anio);
+  }
+
   @Post("parametros")
   @Roles(...ROLES_TALENTO_HUMANO)
   @ApiOperation({ summary: "Crea o actualiza el año (upsert por año)" })

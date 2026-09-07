@@ -1212,6 +1212,28 @@ export class TalentoHumanoService {
   }
 
   /**
+   * Solo el salario mínimo de un año, para quien no es de Talento Humano.
+   *
+   * Las actas de obra expresan el presupuesto en SMMLV y hasta ahora ese número iba
+   * escrito a mano en la configuración de cada municipio, así que envejecía dos veces:
+   * cuando cambiaba el valor de la obra y cuando cambiaba el salario mínimo. Quien
+   * arma un acta es de Levantamiento de Obras y no tiene por qué ver la nómina, y el
+   * salario mínimo tampoco es un dato reservado —lo fija un decreto—, así que se
+   * devuelve solo ese campo y no el auxilio de transporte ni la UVT.
+   *
+   * Si el año pedido no está cargado cae al más reciente y lo dice en `anioUsado`:
+   * el acta necesita poder advertir con qué año calculó.
+   */
+  async getSmmlv(
+    anio: number,
+  ): Promise<{ anio: number; anioUsado: number; smmlv: number } | null> {
+    const exacto = await this.parametroRepo.findOne({ where: { anio } });
+    const usado = exacto ?? (await this.parametroRepo.findOne({ order: { anio: "DESC" } }));
+    if (!usado) return null;
+    return { anio, anioUsado: usado.anio, smmlv: Number(usado.smmlv) };
+  }
+
+  /**
    * Crea o actualiza el año. Es upsert por `anio`, que es único: guardar dos veces el
    * mismo año lo corrige, no lo duplica.
    */
