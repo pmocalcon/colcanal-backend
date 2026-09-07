@@ -143,6 +143,31 @@ const TIPOS_HORA_EXTRA = [
  */
 const DIVISOR_HORA_EXTRA = 210;
 
+/**
+ * La hora de almuerzo, que no es tiempo de trabajo y por lo tanto tampoco se ausenta.
+ *
+ * La jornada va de 7:00 a 4:30 p. m. de lunes a jueves y hasta las 4:00 p. m. el
+ * viernes: descontando esta hora es que dan las 42 semanales. Un permiso que cruce la
+ * franja no debe cobrarla —quien sale a las 7:30 y vuelve a las 4:30 faltó ocho horas,
+ * no nueve—, y hasta ahora se cobraba, porque las horas salían de restar las dos horas
+ * del formato sin mirar por dónde pasaban.
+ */
+const ALMUERZO = { desde: 12 * 60, hasta: 13 * 60 };
+
+/**
+ * Minutos de trabajo entre dos horas del mismo día, ya descontado el almuerzo.
+ *
+ * Solo se descuenta lo que de verdad se cruza: un permiso de 7:30 a 10:30 no toca la
+ * franja y se queda en tres horas.
+ */
+function minutosHabiles(desdeMin: number, hastaMin: number): number {
+  const bruto = hastaMin - desdeMin;
+  if (bruto <= 0) return 0;
+  const cruce =
+    Math.min(hastaMin, ALMUERZO.hasta) - Math.max(desdeMin, ALMUERZO.desde);
+  return bruto - Math.max(0, cruce);
+}
+
 /** Texto → número. Acepta la coma decimal, igual que `num()` en `HorasExtrasPage.tsx`. */
 function numHorasExtras(v: unknown): number {
   const limpio = String(v ?? "").replace(/[^\d,.-]/g, "").replace(",", ".");
@@ -3238,7 +3263,7 @@ export class GestionConocimientoService implements OnModuleInit {
         const [h, m] = String(t).split(":").map(Number);
         return (h || 0) * 60 + (m || 0);
       };
-      const mins = aMin(data.horaHasta) - aMin(data.horaDesde);
+      const mins = minutosHabiles(aMin(data.horaDesde), aMin(data.horaHasta));
       if (mins > 0) horasAusencia = Math.round((mins / 60) * 100) / 100;
     }
 
