@@ -70,3 +70,6 @@ talento-humano.json
 # Byproducto de correr los extractores de scripts/
 __pycache__/
 *.pyc
+
+# Grafo de Graphify: lo reconstruye `graphify watch` en cada cambio y pesa varios MB.
+graphify-out/
