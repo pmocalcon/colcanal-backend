@@ -55,11 +55,17 @@ export const veTodasLasSolicitudes = (nombreRol?: string | null): boolean =>
  * alguien, `filtrarVisibles` se lo muestra igual por «acción pendiente» —no se pierde
  * ningún paso del flujo.
  *
+ * Talento humano entra por lo mismo, y con más razón: un permiso dice por qué alguien
+ * faltó —a veces por qué está enfermo—, un préstamo dice que necesitó plata y unas
+ * vacaciones dicen cuándo no va a estar. Eran 22 solicitudes visibles para Jurídica,
+ * Contabilidad, Administrativa y los dos Coordinadores Financieros, ninguna suya. Quien
+ * firma dentro del trámite las sigue viendo cuando le toca, que es lo que necesita.
+ *
  * Es por gestión y no por rol a propósito: el mismo Director Jurídico debe seguir viendo
  * todo en Jurídica (allí Administrativa tramita los contratos), así que la restricción
  * cuelga de la gestión, no de la persona.
  */
-export const GESTIONES_SOLO_PROPIAS: readonly string[] = ["contable"];
+export const GESTIONES_SOLO_PROPIAS: readonly string[] = ["contable", "talento-humano"];
 
 export const gestionEsSoloPropia = (gestion?: string | null): boolean =>
   GESTIONES_SOLO_PROPIAS.includes((gestion ?? "").trim());
@@ -104,20 +110,30 @@ export const restringidaPara = (
  * Humano le abriría también los contratos de Jurídica y las requisiciones de Compras, que
  * no son suyos. Acá el alcance queda amarrado a la gestión que el rol administra.
  *
- * Talento Humano entra porque tramita esos formatos **y** liquida la nómina que sale de
- * ellos. Sin esto el Coordinador no veía las planillas de horas extras que radicaron los
- * directores de proyecto —las mismas que después le tocaba pagar—, ni la solicitud de
- * préstamo que esperaba a Gerencia: siete de veinte, todas ajenas, y ninguna advertencia
- * de que faltaban.
+ * En talento humano son cuatro y no más, por decisión expresa de la compañía:
+ *
+ *  - **Coordinador Talento Humano**, que tramita esos formatos y liquida la nómina que
+ *    sale de ellos. Sin esto no veía las planillas de horas extras que radicaron los
+ *    directores de proyecto —las mismas que después le tocaba pagar—.
+ *  - **Director Financiero y Administrativo**, que responde por lo que se paga.
+ *  - **Analista PMO** y **Director PMO**, el comodín transversal.
+ *
+ * Es también la única forma de dárselo al Director PMO, que a propósito no está en
+ * `ROLES_VEN_TODAS`: esta lista no se apoya en aquella, se lee sola.
  *
  * La llave es la gestión y la lista son los roles, igual que en
  * `VEN_TODO_PESE_A_SOLO_PROPIAS`, para que las dos excepciones se lean del mismo modo.
- * Es un permiso explícito: si mañana una gestión entra en `GESTIONES_SOLO_PROPIAS`, lo
+ * Es un permiso explícito: `talento-humano` ya está en `GESTIONES_SOLO_PROPIAS`, y lo
  * que se escriba acá sigue mandando, porque nombrar el rol y la gestión juntos ya es
  * decir que a ese sí.
  */
 export const VEN_TODO_DE_SU_GESTION: Record<string, readonly string[]> = {
-  "talento-humano": ["Coordinador Talento Humano"],
+  "talento-humano": [
+    "Coordinador Talento Humano",
+    "Director Financiero y Administrativo",
+    "Analista PMO",
+    "Director PMO",
+  ],
 };
 
 /** Si este rol ve el listado completo de esta gestión, aunque no vea el de las otras. */

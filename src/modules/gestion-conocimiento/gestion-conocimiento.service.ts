@@ -528,6 +528,10 @@ export class GestionConocimientoService implements OnModuleInit {
    *     es lo que le toca autorizar. Ver `ALCANCE_POR_ROL`.
    *  3. Los demás ven **las suyas**.
    *
+   * Los dos primeros alcances se apagan en las gestiones «solo propias» —contable y
+   * talento humano—, donde el listado ajeno solo lo ven los roles nombrados uno por uno
+   * en `VEN_TODO_PESE_A_SOLO_PROPIAS` y `VEN_TODO_DE_SU_GESTION`.
+   *
    * Sobre esos tres, todo el mundo ve además aquellas en las que le toca actuar ahora y
    * aquellas en las que ya actuó. No es una excepción a la regla, es lo que la hace
    * viable: sin eso, una solicitud que espera la firma de alguien le llegaría a una
@@ -587,7 +591,13 @@ export class GestionConocimientoService implements OnModuleInit {
         // El dueño de la gestión ve la suya entera aunque no vea las demás.
         veTodoDeLaGestion(rol, s.gestion) ||
         s.createdBy === userId ||
-        (s.createdBy != null && enAlcance.has(s.createdBy)) ||
+        // El alcance acotado se apaga donde se apaga el ancho: en una gestión «solo
+        // propias» no hay listado ajeno, ni siquiera el del equipo que uno autoriza.
+        // Sin esto, Gerencia de Proyectos seguiría viendo los permisos y las planillas
+        // de sus directores en talento humano, que es justo lo que se quiso cerrar.
+        (!restringidaPara(rol, s.gestion) &&
+          s.createdBy != null &&
+          enAlcance.has(s.createdBy)) ||
         (s.accionesPendientes?.length ?? 0) > 0 ||
         (s.historial ?? []).some((h) => h?.userId === userId),
     );
