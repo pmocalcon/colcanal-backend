@@ -1,5 +1,5 @@
 /**
- * Qué campos no pueden ir vacíos en los cuatro formatos de Talento Humano.
+ * Qué campos no pueden ir vacíos en los formatos de Talento Humano y en el anticipo.
  *
  * La regla es «todos», pero «todos» no puede tomarse al pie de la letra sin bloquear
  * solicitudes legítimas, así que hay tres clases de excepción y cada una está anotada
@@ -124,9 +124,14 @@ const PERMISO_ENVIAR: CampoExigido[] = [
 // ── Vacaciones · GTH-018-F ──────────────────────────────────────────────
 
 /**
- * Las vacaciones las registra Talento Humano, que diligencia el formato completo —el
- * bloque «USO EXCLUSIVO ÁREA RECURSOS HUMANOS» incluido— antes de enviarlo. Por eso todo
- * se exige en el mismo paso: el papel solo se puede escribir mientras es borrador.
+ * Lo que diligencia quien pide las vacaciones, que es lo único que puede saber al
+ * radicar: quién es, qué periodo causó y desde cuándo hasta cuándo las pide.
+ *
+ * El bloque «USO EXCLUSIVO ÁREA RECURSOS HUMANOS» NO se exige aquí —y esa es la
+ * única razón por la que existen dos listas—: ese recuadro lo escribe Talento Humano
+ * en su Vo.Bo., que es el paso donde se decide qué se concede. Exigirlo al enviar
+ * obligaba al empleado a escribir las fechas que aún no le habían concedido, es decir,
+ * a responder por el otro.
  */
 const VACACIONES_ENVIAR: CampoExigido[] = [
   { campo: "nombres", etiqueta: "Nombres y apellidos" },
@@ -149,8 +154,19 @@ const VACACIONES_ENVIAR: CampoExigido[] = [
   { campo: "fechaFinal.anio", etiqueta: "Fecha final · año" },
   { campo: "diasDisfrutar", etiqueta: "Días a disfrutar" },
   { campo: "diasCompensar", etiqueta: "Días a compensar" },
+];
 
-  // Uso exclusivo del área de Recursos Humanos.
+/**
+ * Lo que decide Talento Humano en su Vo.Bo.: el recuadro «USO EXCLUSIVO ÁREA RECURSOS
+ * HUMANOS» del papel.
+ *
+ * Se exige aquí y no al enviar porque son datos de una decisión que en ese momento no
+ * se ha tomado: cuándo se recibió la solicitud, qué fechas se conceden —que pueden no
+ * ser las que pidió el empleado— y cuántos días quedan pendientes. Son también los que
+ * lee `transitionVacaciones` al aprobar Gerencia para crear las vacaciones de verdad,
+ * así que si van vacíos el registro nace sin fechas.
+ */
+const VACACIONES_TALENTO_HUMANO: CampoExigido[] = [
   { campo: "rhFechaRecibido.dia", etiqueta: "Fecha recibido solicitud · día" },
   { campo: "rhFechaRecibido.mes", etiqueta: "Fecha recibido solicitud · mes" },
   { campo: "rhFechaRecibido.anio", etiqueta: "Fecha recibido solicitud · año" },
@@ -170,6 +186,27 @@ const VACACIONES_ENVIAR: CampoExigido[] = [
    * inventar cifras o a poner ceros —que es peor que dejarlos en blanco, porque un cero
    * escrito se lee como una decisión y un blanco se lee como lo que es—.
    */
+];
+
+/**
+ * Las casillas del recuadro de RR. HH. que Talento Humano puede escribir al dar su
+ * Vo.Bo., y las únicas: el resto del formato ya está avalado por el jefe y no se toca.
+ *
+ * Es una lista más larga que `VACACIONES_TALENTO_HUMANO` porque incluye lo que se puede
+ * escribir pero no se exige —el número de solicitud, la prima, el anticipo y la fecha de
+ * pago—. Vive aquí, pegada a la otra, para que no se separen sin que se note.
+ */
+export const CAMPOS_RECURSOS_HUMANOS: readonly string[] = [
+  "rhNumeroSolicitud",
+  "rhFechaRecibido",
+  "rhFechaInicio",
+  "rhFechaFinal",
+  "rhDiasDisfrutar",
+  "rhDiasCompensar",
+  "rhDiasPendientes",
+  "valorPrima",
+  "valorAnticipo",
+  "fechaPago",
 ];
 
 // ── Horas extras · GTH-016-F ────────────────────────────────────────────
@@ -229,6 +266,31 @@ function faltantesEnFilas(data: Record<string, any>): string[] {
   return faltan;
 }
 
+// ── Anticipo · GF-005-F ─────────────────────────────────────────────────
+
+/**
+ * Los datos del beneficiario del anticipo, el bloque 2 del formato.
+ *
+ * Se exigen **todos** y sin excepciones porque son los que dicen a quién se le paga y
+ * por dónde. Sin ellos la solicitud recorre las tres firmas —jefe, Gerencia de Proyectos
+ * y Gerencia— y llega a Tesorería sin decir a nombre de quién girar: el anticipo N.º 4,
+ * de $500.000, llegó a «pendiente de pago» con el nombre, la cédula, el banco y la cuenta
+ * en blanco, aprobado por todo el mundo y sin forma de pagarlo.
+ *
+ * Banco y número de cuenta van sin condición aunque el pago sea en efectivo: la forma de
+ * pago es una casilla de texto libre y ramificar sobre ella sería adivinar. El formato ya
+ * tiene la costumbre de escribir «na» en lo que no aplica —así están los anexos— y eso
+ * deja constancia de que alguien lo miró, que es justo lo que una casilla vacía no dice.
+ */
+const ANTICIPO_ENVIAR: CampoExigido[] = [
+  { campo: "tipoBeneficiario", etiqueta: "Tipo beneficiario" },
+  { campo: "terceroCreado", etiqueta: "¿Tercero creado en BD?" },
+  { campo: "ccNit", etiqueta: "C.C. / NIT" },
+  { campo: "benefNombre", etiqueta: "Nombre / Razón social" },
+  { campo: "banco", etiqueta: "Banco" },
+  { campo: "numeroCuenta", etiqueta: "N.º de cuenta" },
+];
+
 // ── Tabla y comprobación ────────────────────────────────────────────────
 
 const POR_FORMATO: Record<string, Record<string, CampoExigido[]>> = {
@@ -238,8 +300,12 @@ const POR_FORMATO: Record<string, Record<string, CampoExigido[]>> = {
     aprobar_administrativa: PRESTAMO_ADMINISTRATIVA,
   },
   "GTH-009-F": { enviar: PERMISO_ENVIAR },
-  "GTH-018-F": { enviar: VACACIONES_ENVIAR },
+  "GTH-018-F": {
+    enviar: VACACIONES_ENVIAR,
+    aprobar_th: VACACIONES_TALENTO_HUMANO,
+  },
   "GTH-016-F": { enviar: HORAS_EXTRAS_ENVIAR },
+  "GF-005-F": { enviar: ANTICIPO_ENVIAR },
 };
 
 /**

@@ -32,7 +32,10 @@ import {
   esAccionDeAnulacion,
 } from "./anulacion-workflow";
 import { fechaTextoAIso } from "../../utils/fecha-local.util";
-import { exigirCamposObligatorios } from "./campos-obligatorios";
+import {
+  CAMPOS_RECURSOS_HUMANOS,
+  exigirCamposObligatorios,
+} from "./campos-obligatorios";
 import { CreateSolicitudDto, UpdateSolicitudDto } from "./dto";
 import {
   JURIDICA_TRANSICIONES,
@@ -1378,7 +1381,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     // La Solicitud de Vacaciones (GTH-018-F) recorre los cuatro recuadros del papel.
     if (this.esVacaciones(solicitud)) {
-      return this.transitionVacaciones(solicitud, accion, userId, motivo);
+      return this.transitionVacaciones(solicitud, accion, userId, motivo, payload);
     }
 
     const t = JURIDICA_TRANSICIONES[accion];
@@ -2214,6 +2217,14 @@ export class GestionConocimientoService implements OnModuleInit {
     const ahora = new Date();
     const hoy = ahora.toISOString().slice(0, 10);
     const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+
+    // Los datos del beneficiario se comprueban al enviar y no más adelante: quien puede
+    // completarlos es el solicitante, y una vez la solicitud arranca ya no vuelve a sus
+    // manos. Va antes de tocar nada para que un envío incompleto no deje firma ni
+    // historial a medias.
+    if (accion === "enviar") {
+      exigirCamposObligatorios(solicitud.formato, accion, data);
+    }
 
     // Regla (igual que en Compras, donde los roles de alto nivel saltan la revisión
     // y van directo a Gerencia): si quien solicita es un Director de Área, el
@@ -3769,6 +3780,7 @@ export class GestionConocimientoService implements OnModuleInit {
     accion: string,
     userId: number,
     motivo?: string,
+    payload?: Record<string, any>,
   ): Promise<GcSolicitud> {
     const t = VACACIONES_TRANSICIONES[accion];
     if (!t) throw new BadRequestException(`Acción "${accion}" no válida`);
@@ -3816,6 +3828,21 @@ export class GestionConocimientoService implements OnModuleInit {
       data.voBoJefeNombre = user?.nombre ?? "";
       data.voBoJefeFecha = data.voBoJefeFecha || hoy;
     } else if (accion === "aprobar_th") {
+      /*
+       * El recuadro «USO EXCLUSIVO ÁREA RECURSOS HUMANOS» viaja con el Vo.Bo.
+       *
+       * Para entonces la solicitud ya no está en borrador y no puede guardarse por la
+       * ruta normal de edición, que es justamente lo que se quiere: el bloque de arriba
+       * —lo que pidió el empleado y avaló su jefe— queda cerrado, y por esta puerta solo
+       * entran las casillas de este recuadro. Es la misma puerta que usa la sección 3
+       * de las Cuentas de Compañías.
+       */
+      for (const k of CAMPOS_RECURSOS_HUMANOS) {
+        if (payload?.[k] !== undefined) data[k] = payload[k];
+      }
+      // Se exige después de copiar: lo que se comprueba es lo que va a quedar escrito,
+      // no lo que había guardado antes.
+      exigirCamposObligatorios(solicitud.formato, accion, data);
       data.voBoTalentoHumanoNombre = user?.nombre ?? "";
       data.voBoTalentoHumanoFecha = data.voBoTalentoHumanoFecha || hoy;
     } else if (accion === "aprobar_gerencia") {
