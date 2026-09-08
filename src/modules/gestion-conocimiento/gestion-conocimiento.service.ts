@@ -3275,6 +3275,11 @@ export class GestionConocimientoService implements OnModuleInit {
       data.horaDesde || data.horaHasta
         ? [data.horaDesde, data.horaHasta].filter(Boolean).join(" a ")
         : data.horario || "";
+    /** La hora tal como la guarda la columna: «HH:MM», o nulo si no hay. */
+    const hhmm = (v: unknown): string | null => {
+      const t = String(v ?? "").trim().slice(0, 5);
+      return /^\d{1,2}:\d{2}$/.test(t) ? t : null;
+    };
     const remuneracionEtiqueta =
       data.remuneracion === "no-remunerado"
         ? "Permiso no remunerado"
@@ -3310,6 +3315,17 @@ export class GestionConocimientoService implements OnModuleInit {
       cargo: data.cargo || null,
       fechaInicio: desde,
       fechaFin: hasta,
+      /*
+       * La hora en que sale y la hora en que vuelve, en sus propias columnas.
+       *
+       * Antes solo quedaban dentro del texto de `observaciones` («Horario: 08:00 a
+       * 17:00»), así que el listado de Ausentismos —que lee estas dos columnas— mostraba
+       * un guion en Salida y Entrada aunque el dato existiera y aunque de él salieran las
+       * horas descontadas. Un permiso de varios días no las trae, y ahí van en nulo, que
+       * es lo correcto: no hay una hora de salida cuando se falta el día entero.
+       */
+      horaSalida: hhmm(data.horaDesde),
+      horaEntrada: hhmm(data.horaHasta),
       diasPermiso,
       horasAusencia: horasAusencia != null ? String(horasAusencia) : null,
       motivo: data.tipoPermiso || remuneracionEtiqueta || "Permiso",
