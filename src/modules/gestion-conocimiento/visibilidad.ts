@@ -98,6 +98,36 @@ export const restringidaPara = (
 };
 
 /**
+ * Roles que ven el listado completo **de una gestión**, sin verlo en las demás.
+ *
+ * `ROLES_VEN_TODAS` no sirve para esto: es global. Meter ahí al Coordinador de Talento
+ * Humano le abriría también los contratos de Jurídica y las requisiciones de Compras, que
+ * no son suyos. Acá el alcance queda amarrado a la gestión que el rol administra.
+ *
+ * Talento Humano entra porque tramita esos formatos **y** liquida la nómina que sale de
+ * ellos. Sin esto el Coordinador no veía las planillas de horas extras que radicaron los
+ * directores de proyecto —las mismas que después le tocaba pagar—, ni la solicitud de
+ * préstamo que esperaba a Gerencia: siete de veinte, todas ajenas, y ninguna advertencia
+ * de que faltaban.
+ *
+ * La llave es la gestión y la lista son los roles, igual que en
+ * `VEN_TODO_PESE_A_SOLO_PROPIAS`, para que las dos excepciones se lean del mismo modo.
+ * Es un permiso explícito: si mañana una gestión entra en `GESTIONES_SOLO_PROPIAS`, lo
+ * que se escriba acá sigue mandando, porque nombrar el rol y la gestión juntos ya es
+ * decir que a ese sí.
+ */
+export const VEN_TODO_DE_SU_GESTION: Record<string, readonly string[]> = {
+  "talento-humano": ["Coordinador Talento Humano"],
+};
+
+/** Si este rol ve el listado completo de esta gestión, aunque no vea el de las otras. */
+export const veTodoDeLaGestion = (
+  nombreRol?: string | null,
+  gestion?: string | null,
+): boolean =>
+  (VEN_TODO_DE_SU_GESTION[(gestion ?? "").trim()] ?? []).includes((nombreRol ?? "").trim());
+
+/**
  * Roles cuyo alcance no es «todas» ni «solo las mías», sino «las de cierta gente».
  *
  * Gerencia de Proyectos autoriza la contratación que piden los proyectos, y esa es toda

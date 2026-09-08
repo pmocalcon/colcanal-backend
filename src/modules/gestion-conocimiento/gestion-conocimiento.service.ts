@@ -9,7 +9,12 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { GcSolicitud } from "../../database/entities/gc-solicitud.entity";
-import { alcanceDe, restringidaPara, veTodasLasSolicitudes } from "./visibilidad";
+import {
+  alcanceDe,
+  restringidaPara,
+  veTodasLasSolicitudes,
+  veTodoDeLaGestion,
+} from "./visibilidad";
 import { User } from "../../database/entities/user.entity";
 import { Material } from "../../database/entities/material.entity";
 import { OperationCenter } from "../../database/entities/operation-center.entity";
@@ -576,6 +581,8 @@ export class GestionConocimientoService implements OnModuleInit {
     return (solicitudes as ConAcciones[]).filter(
       (s) =>
         (veTodo && !restringidaPara(rol, s.gestion)) ||
+        // El dueño de la gestión ve la suya entera aunque no vea las demás.
+        veTodoDeLaGestion(rol, s.gestion) ||
         s.createdBy === userId ||
         (s.createdBy != null && enAlcance.has(s.createdBy)) ||
         (s.accionesPendientes?.length ?? 0) > 0 ||
