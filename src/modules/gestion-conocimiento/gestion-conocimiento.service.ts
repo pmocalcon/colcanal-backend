@@ -704,6 +704,12 @@ export class GestionConocimientoService implements OnModuleInit {
       // Cada formato con flujo propio aporta su tabla; el resto cae en Jurídica.
       // Es una lista y no una escalera de ternarios porque ya son ocho: con cada
       // formato nuevo la escalera se indentaba un nivel más y dejaba de leerse.
+      //
+      // Si un formato con flujo propio falta acá, cae en `JURIDICA_TRANSICIONES`, cuyos
+      // estados no son los suyos, y ninguna transición calza: la solicitud queda sin
+      // acciones pendientes y desaparece de la bandeja de quien tiene que resolverla.
+      // Falla en silencio, así que la lista debe tener una línea por cada `esX` con
+      // tabla propia.
       const porFormato: Array<[boolean, Record<string, any>]> = [
         [this.esAnticipo(s), ANTICIPO_TRANSICIONES],
         [this.esLegalizacion(s), LEGALIZACION_TRANSICIONES],
@@ -712,6 +718,7 @@ export class GestionConocimientoService implements OnModuleInit {
         [this.esPrestamo(s), PRESTAMO_TRANSICIONES],
         [this.esPermiso(s), PERMISO_TRANSICIONES],
         [this.esHorasExtras(s), HORAS_EXTRAS_TRANSICIONES],
+        [this.esVacaciones(s), VACACIONES_TRANSICIONES],
       ];
       const transiciones =
         porFormato.find(([aplica]) => aplica)?.[1] ?? JURIDICA_TRANSICIONES;
