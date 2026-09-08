@@ -8,7 +8,7 @@ import {
   type DetalleRetencion,
   type FichaRetencion,
 } from "./retencion-fuente";
-import { Between, ILike, In, Repository } from "typeorm";
+import { Between, ILike, In, LessThanOrEqual, Repository } from "typeorm";
 import { ThPersona } from "../../database/entities/th-persona.entity";
 import { ThPrestamo } from "../../database/entities/th-prestamo.entity";
 import { ThPrestamoPago } from "../../database/entities/th-prestamo-pago.entity";
@@ -856,15 +856,29 @@ export class NominaService {
     }
 
     const [incapacidades, planillas, vacaciones, ausentismos] = await Promise.all([
-      // La incapacidad se carga al mes en que empieza, entera. Partirla entre dos meses
-      // exigiría prorratear un valor que ya viene calculado y cuadrado con la EPS.
+      /*
+       * Toda incapacidad que **pueda** tocar el periodo, no solo la que empieza en él:
+       * una que arranca el 20 de agosto y termina el 3 de septiembre es de los dos meses.
+       * Cargarla entera al mes de inicio le colgaba a agosto tres días de septiembre, y
+       * dejaba septiembre sin ninguno aunque la persona siguiera incapacitada.
+       *
+       * El filtro solo descarta las que empiezan después del periodo —esas no pueden
+       * tocarlo—; el corte fino lo hace `diasIncapacidadEnPeriodo`, que además tolera
+       * una `fecha_fin` nula sin que la fila se pierda, cosa que un `Between` no hace.
+       */
       this.incapacidadRepo.find({
-        where: { identificacion: In(identificaciones), fechaInicio: Between(inicio, fin) },
+        where: { identificacion: In(identificaciones), fechaInicio: LessThanOrEqual(fin) },
       }),
       // El periodo de la planilla es texto libre: toca traerlas y filtrarlas en memoria.
       this.horasExtraRepo.find({ where: { identificacion: In(identificaciones) } }),
+      /*
+       * Igual que las incapacidades: se traen todas las que puedan tocar el periodo, no
+       * solo las que empiezan en él. Unas vacaciones **se pagan por anticipado**, antes
+       * de salir, así que su plata y sus días caen casi siempre en meses distintos y el
+       * corte lo hace el bloque de abajo, no la consulta.
+       */
       this.vacacionRepo.find({
-        where: { identificacion: In(identificaciones), fechaInicio: Between(inicio, fin) },
+        where: { identificacion: In(identificaciones), fechaInicio: LessThanOrEqual(fin) },
       }),
       // Los permisos (ausentismos) del periodo: solo los NO remunerados bajan los días.
       this.ausentismoRepo.find({
@@ -883,19 +897,51 @@ export class NominaService {
       const candidatos = porIdentificacion.get(inc.identificacion);
       if (!candidatos?.length) continue;
       const persona = this.contratoQueRecibe(candidatos, inc.proyecto);
+      const dias = this.diasIncapacidadEnPeriodo(inc, inicio, fin);
+      if (dias.total === 0) continue;
 
-      suma(persona, "incapacidadEmpresa", num(inc.valorAsumidoEmpresa), "Incapacidades");
-      // De la incapacidad solo bajan los días que asume la empresa, no los de la EPS.
-      suma(persona, "diasDescontados", inc.diasEmpresa ?? 0, "Incapacidades");
+      /*
+       * Lo que la empresa asume, repartido a los días de empresa que caen en este
+       * periodo. En la inmensa mayoría caen todos en el mismo mes y la proporción es 1.
+       *
+       * Si la ficha trae el valor manda ese: es el que quedó cuadrado con la entidad. Si
+       * **no** lo trae se calcula al salario completo, que es lo que la empresa paga de
+       * verdad por esos días —$105.500 diarios en el volante de una analista de
+       * $3.165.000, o sea su salario ÷ 30—.
+       *
+       * Antes, sin ese dato la nómina proponía cero y tocaba digitarlo a mano cada mes.
+       * Un cero se ve igual que «no aplica», así que al que se distrajera se le pagaba de
+       * menos al empleado y nada lo advertía: a Camila fueron $211.000 de incapacidad y
+       * $8.440 más de salud que alguien tuvo que notar a tiempo.
+       */
+      if (dias.empresaTotal > 0) {
+        const asumido =
+          num(inc.valorAsumidoEmpresa) ||
+          (num(persona.salario) / 30) * dias.empresaTotal;
+        suma(
+          persona,
+          "incapacidadEmpresa",
+          asumido * (dias.empresa / dias.empresaTotal),
+          "Incapacidades",
+        );
+      }
+
+      /*
+       * Los días de la EPS también bajan los días de sueldo, no solo los que asume la
+       * empresa. Quien está incapacitado no trabaja: gana la incapacidad, no el salario.
+       * Restar únicamente los dos primeros días le pagaba el mes casi completo *además*
+       * de la incapacidad —a una auxiliar incapacitada agosto entero le salían 28 días de
+       * sueldo, $1.897.467 que nadie le debía—.
+       */
+      suma(persona, "diasDescontados", dias.total, "Incapacidades");
 
       // Los días que asume la EPS los adelanta la empresa al empleado a dos tercios del
       // salario, sin bajar del mínimo. Es la fórmula de la hoja NÓMINA, pero con los
       // días reales de la incapacidad en vez de una constante igual para todos.
-      const dias = inc.diasEntidad ?? 0;
-      if (dias > 0 && smmlv) {
+      if (dias.entidad > 0 && smmlv) {
         const salario = num(persona.salario);
         const tarifa = Math.max(salario * TASA_INCAPACIDAD_EMPLEADO, smmlv);
-        suma(persona, "incapacidadEmpleado", (tarifa / 30) * dias, "Incapacidades");
+        suma(persona, "incapacidadEmpleado", (tarifa / 30) * dias.entidad, "Incapacidades");
       }
     }
 
@@ -934,18 +980,36 @@ export class NominaService {
       }
     }
 
+    /*
+     * Las vacaciones se parten en dos y cada mitad va a un mes distinto:
+     *
+     *  - **Los días** bajan en el mes en que se disfrutan, repartidos si el descanso
+     *    cruza el cambio de mes.
+     *  - **La plata** va entera en el mes en que se paga, que es el anterior: la ley
+     *    obliga a pagarlas antes de salir.
+     *
+     * Antes las dos cosas iban juntas al mes de inicio, y eso daba el peor de los dos
+     * mundos: a quien salía a fin de mes se le pagaba todo el descanso en ese mes y al
+     * siguiente se le pagaba además el sueldo de unos días que estuvo de vacaciones.
+     */
     for (const vac of vacaciones) {
       const candidatos = porIdentificacion.get(vac.identificacion);
       if (!candidatos?.length) continue;
       const persona = this.contratoQueRecibe(candidatos);
+
+      // De los días solo bajan los disfrutados: los compensados se pagan pero la persona
+      // sí trabaja esos días.
+      suma(persona, "diasDescontados", this.diasVacacionesEnPeriodo(vac, inicio, fin), "Vacaciones");
+
+      // Sin fecha de pago se supone que se pagan en el mes en que empiezan, que es lo que
+      // hacía antes: es una suposición, pero no perder la plata es preferible a esconderla.
+      const mesDePago = (vac.fechaPago ?? vac.fechaInicio ?? "").slice(0, 7);
+      if (mesDePago !== periodo) continue;
       // El formato lleva días, no pesos: se valoran al salario del contrato que las recibe.
       const dias = (vac.diasDisfrutar ?? 0) + (vac.diasCompensar ?? 0);
       if (dias > 0) {
         suma(persona, "vacacionesHabiles", (num(persona.salario) / 30) * dias, "Vacaciones");
       }
-      // De los días solo bajan los disfrutados: los compensados se pagan pero la persona
-      // sí trabaja esos días.
-      suma(persona, "diasDescontados", vac.diasDisfrutar ?? 0, "Vacaciones");
     }
 
     for (const aus of ausentismos) {
@@ -961,6 +1025,106 @@ export class NominaService {
     }
 
     return porPersona;
+  }
+
+  /**
+   * Los días de una incapacidad que caen dentro del periodo, separados en los que asume
+   * la empresa y los que asume la entidad.
+   *
+   * Los de la empresa son los **primeros** de la incapacidad —la ley le carga a la
+   * empresa los dos primeros días de una enfermedad general—, no una fracción repartida.
+   * En una que cruza el mes eso importa: los dos días caen enteros en el mes en que
+   * empezó, y al mes siguiente le corresponden solo días de entidad. Prorratear daría un
+   * día de empresa en cada mes, que no es lo que se paga ni lo que se le recobra a la EPS.
+   *
+   * **Mandan `dias_empresa` y `dias_entidad`, no las fechas.** Son lo que quedó cuadrado
+   * con la entidad, y las fechas se equivocan: la incapacidad #262 dice «2 días» en todas
+   * sus casillas —2 de empresa, 0 de entidad, recobro cero, la asume la compañía— y trae
+   * una `fecha_fin` un mes después de la de inicio. Contando por fechas se le descontaban
+   * 20 días de sueldo a alguien que faltó 2, por una tecla.
+   *
+   * De ahí que un día solo baje el sueldo si alguien lo está pagando. Si la ficha no dice
+   * quién asume un día, la nómina no lo descuenta: dejar de descontar un día que sí
+   * correspondía se ve y se corrige, mientras que descontar 20 que no correspondían sale
+   * del banco antes de que nadie lo note.
+   *
+   * `empresaTotal` sale afuera para repartir el valor asumido por la empresa sin volver a
+   * calcularlo.
+   */
+  private diasIncapacidadEnPeriodo(
+    inc: ThIncapacidad,
+    inicio: string,
+    fin: string,
+  ): { empresa: number; entidad: number; total: number; empresaTotal: number } {
+    const vacio = { empresa: 0, entidad: 0, total: 0, empresaTotal: 0 };
+    const desde = (inc.fechaInicio ?? "").slice(0, 10);
+    // Sin fecha de fin se toma un solo día, que es lo que dice el dato que hay.
+    const hasta = (inc.fechaFin ?? inc.fechaInicio ?? "").slice(0, 10);
+    if (!desde || !hasta) return vacio;
+
+    const DIA = 86_400_000;
+    const t0 = Date.parse(`${desde}T00:00:00Z`);
+    const t1 = Date.parse(`${hasta}T00:00:00Z`);
+    const p0 = Date.parse(`${inicio}T00:00:00Z`);
+    const p1 = Date.parse(`${fin}T00:00:00Z`);
+    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 < t0) return vacio;
+
+    const empresaTotal = Math.max(0, inc.diasEmpresa ?? 0);
+    const entidadTotal = Math.max(0, inc.diasEntidad ?? 0);
+    /*
+     * Los días corren desde la fecha de inicio, que es la fiable: es la del certificado y
+     * la que decide en qué mes cae cada día. La de fin solo se usa si la ficha no dice
+     * cuántos días asume cada quien, y en ese caso no se descuenta nada de todos modos.
+     */
+    const largo = empresaTotal + entidadTotal || Math.round((t1 - t0) / DIA) + 1;
+
+    let empresa = 0;
+    let entidad = 0;
+    for (let i = 0; i < largo; i++) {
+      const t = t0 + i * DIA;
+      if (t < p0 || t > p1) continue;
+      // Los primeros días son los de la empresa; los siguientes, los de la entidad.
+      if (i < empresaTotal) empresa++;
+      else if (i < empresaTotal + entidadTotal) entidad++;
+    }
+    return { empresa, entidad, total: empresa + entidad, empresaTotal };
+  }
+
+  /**
+   * Cuántos días de vacaciones disfrutadas caen dentro del periodo.
+   *
+   * Cuando el descanso entero cabe en el mes, son todos los días disfrutados y no hay
+   * nada que repartir. Cuando cruza el cambio de mes se prorratea por los días de
+   * calendario que caen de cada lado: el formato dice cuántos días se disfrutan pero no
+   * cuáles, así que repartirlos proporcionalmente es lo más fiel que se puede ser con el
+   * dato que hay —y es mucho mejor que cargárselos todos a uno de los dos meses—.
+   */
+  private diasVacacionesEnPeriodo(vac: ThVacacion, inicio: string, fin: string): number {
+    const desde = (vac.fechaInicio ?? "").slice(0, 10);
+    const disfrutados = vac.diasDisfrutar ?? 0;
+    if (!desde || disfrutados <= 0) return 0;
+
+    const DIA = 86_400_000;
+    const t0 = Date.parse(`${desde}T00:00:00Z`);
+    const p0 = Date.parse(`${inicio}T00:00:00Z`);
+    const p1 = Date.parse(`${fin}T00:00:00Z`);
+    if (!Number.isFinite(t0)) return 0;
+
+    // Sin fecha final se cuentan los días disfrutados corridos desde el inicio: es lo
+    // que dice el dato que hay.
+    const hastaTxt = (vac.fechaFinal ?? "").slice(0, 10);
+    const t1 = hastaTxt ? Date.parse(`${hastaTxt}T00:00:00Z`) : t0 + (disfrutados - 1) * DIA;
+    if (!Number.isFinite(t1) || t1 < t0) return 0;
+
+    const largo = Math.round((t1 - t0) / DIA) + 1;
+    let dentro = 0;
+    for (let i = 0; i < largo; i++) {
+      const t = t0 + i * DIA;
+      if (t >= p0 && t <= p1) dentro++;
+    }
+    if (dentro === 0) return 0;
+    if (dentro === largo) return disfrutados;
+    return Math.round(((disfrutados * dentro) / largo) * 100) / 100;
   }
 
   /**

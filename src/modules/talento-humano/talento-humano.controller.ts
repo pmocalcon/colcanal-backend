@@ -322,6 +322,22 @@ export class TalentoHumanoController {
     return this.service.getVacacion(id);
   }
 
+  /**
+   * Registrar unas vacaciones a mano.
+   *
+   * Lo normal es que las cree el GTH-018-F al aprobarse, y ese camino ya existía. Faltaba
+   * este: sin él no había forma de meter las vacaciones que no nacieron del formato —las
+   * del sistema anterior, o las que se disfrutaron antes de que el formato existiera—, y
+   * la nómina no puede descontar unos días que no están en ninguna parte. Incapacidades y
+   * ausentismos siempre tuvieron su POST; vacaciones se quedó sin él.
+   */
+  @Post("vacaciones")
+  @Roles(...ROLES_TALENTO_HUMANO)
+  @ApiOperation({ summary: "Registra vacaciones que no vienen de un GTH-018-F aprobado" })
+  createVacacion(@Body() body: Record<string, any>) {
+    return this.service.createVacacion(body);
+  }
+
   @Patch("vacaciones/:id")
   @Roles(...ROLES_TALENTO_HUMANO)
   updateVacacion(@Param("id", ParseIntPipe) id: number, @Body() body: Record<string, any>) {
