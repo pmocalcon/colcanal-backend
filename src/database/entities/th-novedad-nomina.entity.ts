@@ -93,6 +93,20 @@ export class ThNovedadNomina {
   @Column({ name: "servicios_gruporecordar", type: "numeric", precision: 14, scale: 2, nullable: true })
   serviciosGruporecordar: string | null;
 
+  /**
+   * La cuota de préstamo de **este mes**, cuando no es la de la cartera.
+   *
+   * En blanco vale la CUOTA A DESCONTAR de la ficha del préstamo, que es el caso normal.
+   * Se digita para bajarla, subirla o dejarla en cero un mes puntual —alguien de
+   * incapacidad al que no se le alcanza a descontar, un acuerdo de saltarse una cuota—.
+   *
+   * Antes la única forma de no descontarle a alguien era vaciarle la CUOTA A DESCONTAR
+   * en la cartera, y eso no es «este mes no» sino «hasta que alguien se acuerde de
+   * volverla a poner»: el préstamo se quedaba quieto sin que nada lo dijera.
+   */
+  @Column({ type: "numeric", precision: 14, scale: 2, nullable: true })
+  prestamo: string | null;
+
   @Column({ type: "text", nullable: true })
   observaciones: string | null;
 

@@ -51,6 +51,8 @@ export interface CamposNovedad {
   vacacionesNoHabiles?: string | number | null;
   retencionFuente?: string | number | null;
   serviciosGruporecordar?: string | number | null;
+  /** La cuota de préstamo del mes. En blanco manda la CUOTA A DESCONTAR de la cartera. */
+  prestamo?: string | number | null;
   observaciones?: string | null;
 }
 
@@ -183,6 +185,26 @@ const num = (v: unknown): number => {
 const cop = (v: number) => "$" + Math.round(v).toLocaleString("es-CO");
 
 const FACTOR_RECARGO_NOCTURNO = 0.35;
+
+/**
+ * Un préstamo sobre el que hay que decir algo antes de cerrar la nómina del mes.
+ *
+ * `sin_descontar` es plata que se va a dejar de cobrar; `descuadre` es que la cartera y
+ * la liquidación no cuentan la misma historia sobre este mes. Los dos se muestran
+ * juntos porque la pregunta de quien revisa es la misma: ¿qué préstamo no está bien?
+ */
+export interface PrestamoEnAlerta {
+  prestamoId: number;
+  nombre: string;
+  identificacion: string | null;
+  saldo: number;
+  tipo: "sin_descontar" | "descuadre";
+  motivo: string;
+  /** Lo que la cartera tiene anotado como descuento por nómina en el periodo. */
+  enCartera: number;
+  /** Lo que la liquidación produciría hoy para este préstamo. */
+  enNomina: number;
+}
 
 /** Lo que el empleado recibe por los días de incapacidad que asume la EPS: dos tercios. */
 const TASA_INCAPACIDAD_EMPLEADO = 2 / 3;
@@ -402,6 +424,7 @@ export class NominaService {
       recargoNocturnoValor: cifra(campos.recargoNocturnoValor, novedad.recargoNocturnoValor),
       bonificaciones: cifra(campos.bonificaciones, novedad.bonificaciones),
       embargo: cifra(campos.embargo, novedad.embargo),
+      prestamo: cifra(campos.prestamo, novedad.prestamo),
       incapacidadEmpresa: cifra(campos.incapacidadEmpresa, novedad.incapacidadEmpresa),
       incapacidadEmpleado: cifra(campos.incapacidadEmpleado, novedad.incapacidadEmpleado),
       incapacidadOtros: cifra(campos.incapacidadOtros, novedad.incapacidadOtros),
@@ -504,31 +527,31 @@ export class NominaService {
   }
 
   /**
-   * Los préstamos con saldo que la nómina **no** va a descontar, y por qué.
+   * Los préstamos que la nómina del periodo **no** va a descontar bien, y por qué.
    *
    * El cruce de arriba tiene un interruptor de todo o nada: basta con que un préstamo
    * traiga las columnas nuevas —NOMBRE NOMINA y CUOTA A DESCONTAR— para que todos se
    * crucen así, y el camino viejo por cédula deje de usarse para el resto. Al que le
-   * falte cualquiera de las dos se lo salta en silencio: no aparece en la liquidación,
-   * no queda registro, y la persona sigue debiendo.
+   * falte cualquiera de las dos se lo salta en silencio.
    *
-   * Así se descubrió: a una auxiliar no se le descontó su última cuota de $100.000
-   * porque el préstamo tenía el nombre bien y la casilla de la cuota vacía. Nadie se
-   * habría enterado hasta cuadrar la cartera.
+   * Avisa por dos motivos distintos, y hacen falta los dos:
    *
-   * Esto no descuenta nada ni corrige la ficha: la lista para que Talento Humano
-   * complete el dato que falta y decida. Va con las mismas condiciones que
-   * `cruceDePrestamos` a propósito —si una cambia y la otra no, el aviso miente—.
+   *  - `sin_descontar`: tiene saldo y la liquidación no lo va a tocar. Así se descubrió
+   *    que a una auxiliar no se le descontó su última cuota de $100.000, porque el
+   *    préstamo tenía el nombre bien y la casilla de la cuota vacía.
+   *
+   *  - `descuadre`: en este periodo la cartera tiene anotado un descuento por nómina
+   *    distinto del que la liquidación produce. Es el que faltaba. La primera versión
+   *    solo miraba préstamos con saldo, y **la última cuota de un préstamo es justo la
+   *    que lo deja en cero**: a CALPA le anotaron $600.000 de agosto a mano, el préstamo
+   *    quedó saldado, y el aviso no dijo nada porque ya no tenía saldo. La nómina de ese
+   *    mes le quedó $600.000 por encima de lo real y nadie se enteró.
+   *
+   * Esto no descuenta nada ni corrige la ficha: lo pone a la vista para que Talento
+   * Humano decida. Va con las mismas condiciones que `cruceDePrestamos` a propósito —si
+   * una cambia y la otra no, el aviso miente—.
    */
-  async prestamosSinDescontar(periodo: string): Promise<
-    Array<{
-      prestamoId: number;
-      nombre: string;
-      identificacion: string | null;
-      saldo: number;
-      motivo: string;
-    }>
-  > {
+  async prestamosSinDescontar(periodo: string): Promise<PrestamoEnAlerta[]> {
     this.validarPeriodo(periodo);
 
     const enBase = await this.personaRepo.find({ where: { estado: ILike("ACTIVO%") } });
@@ -539,44 +562,91 @@ export class NominaService {
     const prestamos = await this.prestamoRepo.find();
     const porColumnasNomina = prestamos.some((p) => p.nombreNomina || p.cuotaDescontar != null);
 
-    const pendientes: Array<{
-      prestamoId: number;
-      nombre: string;
-      identificacion: string | null;
-      saldo: number;
-      motivo: string;
-    }> = [];
+    // Lo que la cartera dice que se descontó por nómina en este periodo. Solo el medio
+    // NOMINA: un abono directo —consignación, cruce con vacaciones— no pasa por la
+    // liquidación y no tiene por qué coincidir con ella.
+    const [anio, mes] = periodo.split("-").map(Number);
+    const pagos = await this.prestamoPagoRepo.find({ where: { anio, mes, medio: "NOMINA" } });
+    const enCarteraPorPrestamo = new Map<number, number>();
+    // Los abonos extraordinarios del mes van aparte: la liquidación los suma a la cuota
+    // —es lo que antes se resolvía escribiendo el total a mano—, así que compararla
+    // contra la cuota sola acusaría de descuadre a quien abonó de más. A SANCHEZ, con
+    // $600.000 de cuota y $1.800.000 de abono, le saltaba el aviso sin tener nada malo.
+    const abonoPorPrestamo = new Map<number, number>();
+    for (const g of pagos) {
+      enCarteraPorPrestamo.set(
+        g.prestamoId,
+        (enCarteraPorPrestamo.get(g.prestamoId) ?? 0) + num(g.valor),
+      );
+      if ((g.tipo ?? "").toUpperCase() === "ABONO") {
+        abonoPorPrestamo.set(g.prestamoId, (abonoPorPrestamo.get(g.prestamoId) ?? 0) + num(g.valor));
+      }
+    }
+
+    const alertas: PrestamoEnAlerta[] = [];
 
     for (const p of prestamos) {
-      if (num(p.saldo) <= 0) continue;
       // Solo lo de quien está en la nómina de este periodo: lo de alguien que ya no
       // trabaja acá es cartera por cobrar, no un descuento que se haya perdido.
       const esDeAlguienActivo =
         (p.identificacion && cedulasActivas.has(p.identificacion)) ||
         (p.nombreNomina && nombresActivos.has(this.claveNombre(p.nombreNomina)));
-      if (!esDeAlguienActivo) continue;
+      const enCartera = enCarteraPorPrestamo.get(p.prestamoId) ?? 0;
+      if (!esDeAlguienActivo && enCartera <= 0) continue;
+
+      // Lo que la liquidación produciría hoy para este préstamo, con las mismas reglas
+      // del cruce. Se calcula acá y no se reutiliza `cruceDePrestamos` porque aquel
+      // trabaja sobre la nómina armada y esto corre antes, sobre la cartera cruda.
+      const cruzaPorNombre =
+        !!p.nombreNomina && nombresActivos.has(this.claveNombre(p.nombreNomina));
+      const abono = abonoPorPrestamo.get(p.prestamoId) ?? 0;
+      const enNomina = porColumnasNomina
+        ? (cruzaPorNombre && num(p.cuotaDescontar) + abono > 0
+            ? num(p.cuotaDescontar) + abono
+            : 0)
+        : (p.identificacion && cedulasActivas.has(p.identificacion) && num(p.saldo) > 0
+            ? num(p.valorCuota) + abono
+            : 0);
 
       let motivo: string | null = null;
       if (porColumnasNomina) {
         if (!p.nombreNomina) motivo = "le falta el NOMBRE NOMINA";
-        else if (!nombresActivos.has(this.claveNombre(p.nombreNomina)))
-          motivo = "el NOMBRE NOMINA no coincide con nadie de la nómina";
+        else if (!cruzaPorNombre) motivo = "el NOMBRE NOMINA no coincide con nadie de la nómina";
         else if (num(p.cuotaDescontar) <= 0) motivo = "le falta la CUOTA A DESCONTAR";
       } else if (!p.identificacion) motivo = "no tiene cédula";
       else if (num(p.valorCuota) <= 0) motivo = "no tiene valor de cuota";
 
-      if (motivo) {
-        pendientes.push({
-          prestamoId: p.prestamoId,
-          nombre: p.nombreNomina || p.nombre || "",
-          identificacion: p.identificacion ?? null,
-          saldo: num(p.saldo),
-          motivo,
+      const base = {
+        prestamoId: p.prestamoId,
+        nombre: p.nombreNomina || p.nombre || "",
+        identificacion: p.identificacion ?? null,
+        saldo: num(p.saldo),
+      };
+
+      // Con saldo y sin poder descontarlo: la cuota de este mes se va a perder.
+      if (num(p.saldo) > 0 && motivo && esDeAlguienActivo) {
+        alertas.push({ ...base, tipo: "sin_descontar", motivo, enCartera, enNomina });
+        continue;
+      }
+
+      // Sin saldo pendiente, lo único que puede estar mal es que el mes ya anotado no
+      // cuadre con lo que la liquidación produce. Un peso de diferencia es redondeo.
+      if (Math.abs(enCartera - enNomina) >= 1) {
+        alertas.push({
+          ...base,
+          tipo: "descuadre",
+          motivo:
+            motivo ??
+            (enCartera > enNomina
+              ? "la cartera tiene más de lo que la nómina descuenta"
+              : "la nómina descuenta más de lo que la cartera registra"),
+          enCartera,
+          enNomina,
         });
       }
     }
 
-    return pendientes.sort((a, b) => b.saldo - a.saldo);
+    return alertas.sort((a, b) => Math.max(b.saldo, b.enCartera) - Math.max(a.saldo, a.enCartera));
   }
 
   /**
@@ -618,6 +688,15 @@ export class NominaService {
     const cruce = await this.cruceDePrestamos(liquidadas, periodo);
     const avisos: string[] = [];
 
+    // Quién llevaba la cuota digitada a mano ese mes. La liquidación le hizo caso a esa
+    // cifra y no a la cartera, así que la diferencia no es una ficha que cambió sino una
+    // decisión de Talento Humano; decirlo al revés mandaría a buscar un error que no hay.
+    const digitaron = new Set(
+      (await this.novedadRepo.find({ where: { periodo } }))
+        .filter((n) => n.prestamo !== null && String(n.prestamo).trim() !== "")
+        .map((n) => n.personaId),
+    );
+
     /*
      * Antes de tocar la cartera se comprueba que el cruce dé lo mismo que la liquidación
      * guardada.
@@ -640,8 +719,12 @@ export class NominaService {
       if (Math.round(calculado) === Math.round(num(l.prestamo))) continue;
       enDesacuerdo.add(l.personaId);
       avisos.push(
-        `${l.nombre}: la nómina le descontó ${cop(num(l.prestamo))} de préstamos y la ` +
-          `cartera hoy daría ${cop(calculado)}. No se le anotó nada; revísalo a mano.`,
+        digitaron.has(l.personaId)
+          ? `${l.nombre}: se le digitó la cuota del mes en ${cop(num(l.prestamo))} y la ` +
+              `cartera daría ${cop(calculado)}. No se anotó sola —con varios préstamos no ` +
+              `se sabe a cuál va—: regístrala en «Descuento del mes».`
+          : `${l.nombre}: la nómina le descontó ${cop(num(l.prestamo))} de préstamos y la ` +
+              `cartera hoy daría ${cop(calculado)}. No se le anotó nada; revísalo a mano.`,
       );
     }
 
@@ -972,8 +1055,17 @@ export class NominaService {
     const vacacionesHabiles = valor(novedad?.vacacionesHabiles, sugerencias.vacacionesHabiles);
     const vacacionesNoHabiles = num(novedad?.vacacionesNoHabiles);
 
+    /*
+     * La ley ya excluye a quien gana dos salarios mínimos o más. La casilla de la ficha
+     * cubre el caso contrario: quien gana menos y aun así no lo recibe. Solo puede
+     * **quitar**, nunca dar —marcarla no le paga auxilio a quien la ley no se lo
+     * reconoce—, porque si no sería una forma de pagar por fuera de la regla sin que
+     * quedara dicho en ninguna parte.
+     */
     const auxilioTransporteValor =
-      salarioBasico + recargoNocturno < smmlv * 2 ? Math.round((auxTransporte * diasTrabajados) / 30) : 0;
+      persona.auxilioTransporteAplica !== false && salarioBasico + recargoNocturno < smmlv * 2
+        ? Math.round((auxTransporte * diasTrabajados) / 30)
+        : 0;
 
     const totalDevengado =
       devengadoBasico +
@@ -1048,7 +1140,13 @@ export class NominaService {
     );
     const retencionFuente = valor(novedad?.retencionFuente, detalleRetencion.retencion);
     const bonificacionDeduccion = bonificacion;
-    const prestamo = prestamoCuota;
+    /*
+     * La cuota de préstamo: lo digitado manda sobre la cartera, igual que en horas
+     * extras e incapacidades. En blanco vale la CUOTA A DESCONTAR, que es el caso
+     * normal; un cero digitado es una decisión —«este mes no se le descuenta»— y por eso
+     * `valor` distingue vacío de cero.
+     */
+    const prestamo = valor(novedad?.prestamo, prestamoCuota);
     const embargos = num(novedad?.embargo);
     const serviciosGruporecordar = valor(
       novedad?.serviciosGruporecordar,

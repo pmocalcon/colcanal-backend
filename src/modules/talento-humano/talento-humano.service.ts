@@ -888,7 +888,15 @@ export class TalentoHumanoService {
         const actual = cuotas.reduce((t, g) => t + Number(g.valor), 0);
         total += nuevo;
 
-        if (Math.abs(nuevo - actual) < 1) continue;
+        /*
+         * Menos de un peso de diferencia es redondeo y no se toca... salvo que se esté
+         * poniendo en cero. Borrar el descuento del mes siempre es una decisión, no
+         * ruido: sin esta salvedad una cuota de centavos quedaba imposible de quitar
+         * —a MÉNDEZ le entró una de $0,50 y la pantalla decía «nada que guardar» por
+         * más que se escribiera cero—.
+         */
+        const seEstaBorrando = nuevo === 0 && Math.abs(actual) > 0;
+        if (Math.abs(nuevo - actual) < 1 && !seEstaBorrando) continue;
 
         // No se puede descontar más de lo que se debe: dejaría el saldo en negativo y
         // el error no saltaría hasta que alguien cuadre la cartera meses después.

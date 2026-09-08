@@ -145,6 +145,23 @@ export class ThPersona {
   @Column({ name: "auxilio_transporte", type: "numeric", precision: 14, scale: 2, nullable: true })
   auxilioTransporte: string | null;
 
+  /**
+   * Si a esta persona le corresponde el auxilio de transporte.
+   *
+   * Va en `true` porque es lo normal, y porque la nómina ya trae la regla de ley: solo lo
+   * paga a quien gana menos de dos salarios mínimos. Esta casilla es para lo que la regla
+   * no alcanza —el aprendiz del SENA gana menos de eso y aun así no lo recibe, porque su
+   * apoyo de sostenimiento no es salario—, y que antes salía pagado sin que hubiera forma
+   * de evitarlo desde la ficha.
+   *
+   * Deliberadamente **no** se usó la columna `auxilio_transporte` de arriba como
+   * interruptor: ahí un cero significa «nadie diligenció esto» tanto como «no lleva», y
+   * hay fichas de gente que sí lo recibe con el cero puesto. Apagar el auxilio leyendo ese
+   * dato le habría quitado la plata a quien sí le corresponde.
+   */
+  @Column({ name: "auxilio_transporte_aplica", type: "boolean", default: true })
+  auxilioTransporteAplica: boolean;
+
   @Column({ name: "auxilio_rodamiento", type: "numeric", precision: 14, scale: 2, nullable: true })
   auxilioRodamiento: string | null;
 
