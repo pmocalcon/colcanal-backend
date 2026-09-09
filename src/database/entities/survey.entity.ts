@@ -90,6 +90,21 @@ export class Survey {
   @Column({ name: 'rejection_comments', type: 'text', nullable: true })
   rejectionComments?: string;
 
+  /**
+   * El revisor devolvió el levantamiento **entero**, sin señalar un bloque.
+   *
+   * Existe porque `status` se deriva de los cuatro bloques, y un rechazo que no marca
+   * ninguno no tendría dónde quedar registrado: el cálculo vería cuatro bloques
+   * pendientes y devolvería «en revisión», borrando la decisión. Es el caso de un
+   * reparo que no es de una sección sino de todo el documento —el IPP, por ejemplo—,
+   * y para ese no tiene sentido devolver las cuatro secciones marcadas.
+   *
+   * Se apaga en cuanto la revisión avanza por otro lado: al aprobar, al revisar un
+   * bloque y al reabrir para edición.
+   */
+  @Column({ name: 'rechazo_general', type: 'boolean', default: false })
+  rechazoGeneral: boolean;
+
   // Block-level review status
   @Column({
     name: 'budget_status',

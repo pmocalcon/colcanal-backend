@@ -805,14 +805,25 @@ export class SurveysService {
       survey.previousMonthIpp = reviewDto.previousMonthIpp;
       this.setAllBlocks(survey, BlockStatus.APPROVED);
       survey.rejectionComments = undefined;
+      survey.rechazoGeneral = false;
     } else {
       if (!reviewDto.rejectionComments) {
         throw new BadRequestException('Rejection comments are required');
       }
+      /*
+       * Devuelve el levantamiento entero **sin tocar los bloques**.
+       *
+       * Es un reparo que no es de una sección sino de todo el documento —el IPP, que
+       * vive en el encabezado y del que salen los cuatro totales—. Marcar las cuatro
+       * secciones con el mismo motivo repetido no le dice nada a quien lo va a
+       * corregir, y además le obliga a que se las vuelvan a aprobar una por una.
+       *
+       * El motivo se ve en el aviso «Levantamiento rechazado» de la pantalla, que es
+       * donde corresponde cuando el reparo es del documento y no de una sección. Para
+       * señalar una sección está el rechazo de su propio encabezado.
+       */
       survey.rejectionComments = reviewDto.rejectionComments;
-      // El motivo se copia a cada bloque: es la única forma de que quien lo hizo vea
-      // marcado qué se le devolvió, igual que en un rechazo por bloque.
-      this.setAllBlocks(survey, BlockStatus.REJECTED, reviewDto.rejectionComments);
+      survey.rechazoGeneral = true;
     }
 
     // El estado global se deriva de los bloques, nunca se escribe a mano: así esta
@@ -1056,6 +1067,10 @@ export class SurveysService {
         break;
     }
 
+    // Quien empieza a decidir bloque por bloque ya no está devolviendo el documento
+    // entero: el rechazo general se apaga y el estado vuelve a salir de los bloques.
+    survey.rechazoGeneral = false;
+
     // Update reviewer info
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
@@ -1105,6 +1120,7 @@ export class SurveysService {
 
     this.setAllBlocks(survey, BlockStatus.APPROVED);
     survey.rejectionComments = undefined;
+    survey.rechazoGeneral = false;
 
     this.updateGlobalStatus(survey);
     survey.reviewedBy = userId;
@@ -1163,7 +1179,8 @@ export class SurveysService {
 
     // Store reopen reason in rejection comments (for audit trail)
     if (reason) {
-      survey.rejectionComments = `Reabierto para edición: ${reason}`;
+      survey.rechazoGeneral = false;
+    survey.rejectionComments = `Reabierto para edición: ${reason}`;
     }
 
     // Update reviewer info (who reopened it)
@@ -1228,9 +1245,11 @@ export class SurveysService {
       survey.materialsStatus === BlockStatus.REJECTED ||
       survey.travelExpensesStatus === BlockStatus.REJECTED;
 
+    // «Aprobado» va primero a propósito: si los cuatro bloques quedaron aprobados, un
+    // rechazo general viejo que nadie apagó no puede dejar el levantamiento rechazado.
     if (allApproved) {
       survey.status = SurveyStatus.APPROVED;
-    } else if (anyRejected) {
+    } else if (anyRejected || survey.rechazoGeneral) {
       survey.status = SurveyStatus.REJECTED;
     } else {
       survey.status = SurveyStatus.IN_REVIEW;
