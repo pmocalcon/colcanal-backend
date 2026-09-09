@@ -964,7 +964,6 @@ export class SurveysService {
     {
       workId: number;
       surveyId: number;
-      surveyNumber: string | null;
       status: string;
       previousMonthIpp: number | null;
     }[]
@@ -974,7 +973,7 @@ export class SurveysService {
 
     const rows: any[] = await this.surveyRepository.query(
       `SELECT DISTINCT ON (s.work_id)
-              s.work_id, s.survey_id, s.survey_number, s.status, s.previous_month_ipp
+              s.work_id, s.survey_id, s.status, s.previous_month_ipp
        FROM surveys s
        WHERE s.work_id = ANY($1::int[])
        ORDER BY s.work_id, s.survey_id DESC`,
@@ -984,7 +983,6 @@ export class SurveysService {
     return rows.map((r) => ({
       workId: Number(r.work_id),
       surveyId: Number(r.survey_id),
-      surveyNumber: r.survey_number ?? null,
       status: String(r.status),
       previousMonthIpp:
         r.previous_month_ipp != null ? Number(r.previous_month_ipp) : null,
