@@ -28,7 +28,9 @@ import {
   CAMPO_ANULACION,
   CAMPO_ESTADO_PREVIO,
   FORMATOS_ANULABLES,
-  ROLES_ANULAN,
+  ANULACION_SIN_SOLICITUD,
+  rolesQueAnulan,
+  quienAnula,
   esAccionDeAnulacion,
 } from "./anulacion-workflow";
 import { fechaTextoAIso } from "../../utils/fecha-local.util";
@@ -683,7 +685,10 @@ export class GestionConocimientoService implements OnModuleInit {
       }
     }
 
-    const resuelveAnulaciones = esPmo || ROLES_ANULAN.includes(rol);
+    // Depende del formato: el de contratación lo anula la Dirección Administrativa y
+    // Financiera y los de Talento Humano los anula Talento Humano.
+    const resuelveAnulacionesDe = (formato: string) =>
+      esPmo || rolesQueAnulan(formato).includes(rol);
 
     return solicitudes.map((s) => {
       // Una anulación esperando respuesta SÍ es trabajo pendiente, y de Talento Humano.
@@ -691,7 +696,7 @@ export class GestionConocimientoService implements OnModuleInit {
       // no hay ningún paso del formato que atender hasta que se resuelva.
       if (s.estado === "pendiente_anulacion") {
         return Object.assign(s, {
-          accionesPendientes: resuelveAnulaciones
+          accionesPendientes: resuelveAnulacionesDe(s.formato)
             ? ["anular", "rechazar_anulacion"]
             : [],
         });
@@ -2877,7 +2882,8 @@ export class GestionConocimientoService implements OnModuleInit {
       relations: ["role"],
     });
     const rol = user?.role?.nombreRol ?? "";
-    const resuelve = esRolPmo(rol) || ROLES_ANULAN.includes(rol);
+    const resuelve = esRolPmo(rol) || rolesQueAnulan(solicitud.formato).includes(rol);
+    const quien = quienAnula(solicitud.formato);
 
     const ahora = new Date();
     const hoy = ahora.toISOString().slice(0, 10);
@@ -2885,6 +2891,13 @@ export class GestionConocimientoService implements OnModuleInit {
     let destino: string;
 
     if (accion === "solicitar_anulacion") {
+      if (ANULACION_SIN_SOLICITUD.includes(solicitud.formato)) {
+        // Sin bandeja donde resolverlo, un `pendiente_anulacion` acá sería un estado sin
+        // salida: la solicitud quedaría congelada y sin nadie a quien reclamarle.
+        throw new BadRequestException(
+          `Este formato no se pide anular: lo anula ${quien} directamente.`,
+        );
+      }
       if (solicitud.estado === "pendiente_anulacion") {
         throw new BadRequestException("Ya hay una anulación pendiente de resolver.");
       }
@@ -2894,7 +2907,7 @@ export class GestionConocimientoService implements OnModuleInit {
       const esJefe = await this.esAutorizadorDe(userId, solicitud.createdBy);
       if (!resuelve && !esCreador && !esJefe) {
         throw new ForbiddenException(
-          "Solo quien hizo la solicitud, su jefe o Talento Humano pueden pedir la anulación",
+          `Solo quien hizo la solicitud, su jefe o ${quien} pueden pedir la anulación`,
         );
       }
       data[CAMPO_ESTADO_PREVIO] = solicitud.estado;
@@ -2904,7 +2917,7 @@ export class GestionConocimientoService implements OnModuleInit {
       destino = "pendiente_anulacion";
     } else if (accion === "anular") {
       if (!resuelve) {
-        throw new ForbiddenException("Solo Talento Humano o el PMO pueden anular");
+        throw new ForbiddenException(`Solo ${quien} o el PMO pueden anular`);
       }
       if (solicitud.estado !== "pendiente_anulacion") {
         data[CAMPO_ESTADO_PREVIO] = solicitud.estado;
@@ -2926,7 +2939,7 @@ export class GestionConocimientoService implements OnModuleInit {
     } else {
       if (!resuelve) {
         throw new ForbiddenException(
-          "Solo Talento Humano o el PMO pueden resolver la anulación",
+          `Solo ${quien} o el PMO pueden resolver la anulación`,
         );
       }
       if (solicitud.estado !== "pendiente_anulacion") {
@@ -2977,7 +2990,8 @@ export class GestionConocimientoService implements OnModuleInit {
   ): Promise<void> {
     const destinatarios: User[] =
       accion === "solicitar_anulacion"
-        ? await this.usuariosPorRol([...ROLES_ANULAN])
+        // Quien resuelve la anulación de ESE formato, que no siempre es Talento Humano.
+        ? await this.usuariosPorRol([...rolesQueAnulan(solicitud.formato)])
         : solicitud.createdBy
           ? await this.userRepo.find({ where: { userId: solicitud.createdBy } })
           : [];
