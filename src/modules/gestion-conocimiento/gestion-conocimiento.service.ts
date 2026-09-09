@@ -1351,10 +1351,10 @@ export class GestionConocimientoService implements OnModuleInit {
   ): Promise<GcSolicitud> {
     const solicitud = await this.findOne(id);
 
-    // La anulación es transversal: se toma desde cualquier estado de cualquiera de los
-    // cuatro formatos de Talento Humano, así que se resuelve antes del reparto por
-    // formato. Si no, cada máquina de estados tendría que repetir las mismas tres
-    // acciones para cada uno de sus estados.
+    // La anulación es transversal: se toma desde cualquier estado —el borrador
+    // incluido— de cualquiera de los formatos anulables, así que se resuelve antes del
+    // reparto por formato. Si no, cada máquina de estados tendría que repetir las
+    // mismas tres acciones para cada uno de sus estados.
     if (esAccionDeAnulacion(accion) && FORMATOS_ANULABLES.includes(solicitud.formato)) {
       return this.transitionAnulacion(solicitud, accion, userId, motivo);
     }
