@@ -947,6 +947,51 @@ export class SurveysService {
   }
 
   /**
+   * En qué punto de la revisión está el levantamiento de cada obra.
+   *
+   * Existe para la pantalla de actas, que necesita saber —antes de revisar el acta—
+   * cuáles de sus obras siguen sin aprobar y poder nombrarlas. Preguntarlo obra por
+   * obra eran dieciocho peticiones para pintar un cuadro de diálogo.
+   *
+   * Devuelve el levantamiento **más reciente** de cada obra, que es el que cuenta:
+   * `DISTINCT ON` con el orden descendente por id hace esa elección explícita, en vez
+   * de dejarla al azar de un `GROUP BY`. Una obra sin levantamiento no sale en el
+   * resultado, y esa ausencia es información: no hay nada que aprobar todavía.
+   */
+  async getWorksReviewState(
+    workIds: number[],
+  ): Promise<
+    {
+      workId: number;
+      surveyId: number;
+      surveyNumber: string | null;
+      status: string;
+      previousMonthIpp: number | null;
+    }[]
+  > {
+    const ids = (workIds || []).filter((n) => Number.isInteger(n));
+    if (ids.length === 0) return [];
+
+    const rows: any[] = await this.surveyRepository.query(
+      `SELECT DISTINCT ON (s.work_id)
+              s.work_id, s.survey_id, s.survey_number, s.status, s.previous_month_ipp
+       FROM surveys s
+       WHERE s.work_id = ANY($1::int[])
+       ORDER BY s.work_id, s.survey_id DESC`,
+      [ids],
+    );
+
+    return rows.map((r) => ({
+      workId: Number(r.work_id),
+      surveyId: Number(r.survey_id),
+      surveyNumber: r.survey_number ?? null,
+      status: String(r.status),
+      previousMonthIpp:
+        r.previous_month_ipp != null ? Number(r.previous_month_ipp) : null,
+    }));
+  }
+
+  /**
    * Valor Total (con IPP) por obra, igual que el "Resumen de Acta":
    * valor = (Σ cantidad×vr.unitario de ítems del presupuesto + mano de obra) × factor IPP.
    * vr.unitario = rounded_value del UCAP (o unit_value del ítem si no hay UCAP).

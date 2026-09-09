@@ -103,6 +103,16 @@ export class SurveysController {
     return this.surveysService.getWorksValue(body?.workIds || []);
   }
 
+  @Post('works/review-state')
+  @Permissions('levantamientos:ver')
+  @ApiOperation({
+    summary: 'Estado de revisión del levantamiento más reciente de cada obra',
+  })
+  @ApiResponse({ status: 200, description: 'Estado por obra' })
+  async getWorksReviewState(@Body() body: { workIds: number[] }) {
+    return this.surveysService.getWorksReviewState(body?.workIds || []);
+  }
+
   @Get('works/:id')
   @Permissions('levantamientos:ver')
   @ApiOperation({ summary: 'Get a work by ID' })
