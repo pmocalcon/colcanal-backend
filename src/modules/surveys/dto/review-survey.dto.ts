@@ -8,6 +8,8 @@ export enum ReviewAction {
 }
 
 export enum SurveyBlock {
+  /** La información de la obra, donde va el IPP del que dependen los demás bloques. */
+  WORK_INFO = 'workInfo',
   BUDGET = 'budget',
   INVESTMENT = 'investment',
   MATERIALS = 'materials',
@@ -73,4 +75,18 @@ export class ReviewBlockDto {
   @IsOptional()
   @IsString()
   comments?: string;
+
+  /**
+   * El IPP del mes anterior, que solo tiene sentido al aprobar el bloque de la obra:
+   * es el dato de ese bloque, y de él salen los totales ajustados de los demás. Va
+   * aquí, y no en una llamada aparte, para que confirmarlo y aprobar sean lo mismo.
+   */
+  @ApiProperty({
+    description: 'Previous month IPP (only when approving the work info block)',
+    example: 189.2,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  previousMonthIpp?: number;
 }

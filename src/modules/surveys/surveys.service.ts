@@ -775,7 +775,7 @@ export class SurveysService {
   /**
    * Revisión general: una sola decisión sobre todo el levantamiento.
    *
-   * **Arrastra los cuatro bloques**, y ese es el punto. Antes solo movía `status` y los
+   * **Arrastra los cinco bloques**, y ese es el punto. Antes solo movía `status` y los
    * dejaba como estuvieran, así que aprobar por aquí duraba hasta la siguiente revisión
    * de un bloque: `updateGlobalStatus` recalculaba, veía bloques `pendiente` y devolvía
    * el levantamiento a «en revisión» sin que nadie lo hubiera desaprobado. Y rechazar no
@@ -805,25 +805,14 @@ export class SurveysService {
       survey.previousMonthIpp = reviewDto.previousMonthIpp;
       this.setAllBlocks(survey, BlockStatus.APPROVED);
       survey.rejectionComments = undefined;
-      survey.rechazoGeneral = false;
     } else {
       if (!reviewDto.rejectionComments) {
         throw new BadRequestException('Rejection comments are required');
       }
-      /*
-       * Devuelve el levantamiento entero **sin tocar los bloques**.
-       *
-       * Es un reparo que no es de una sección sino de todo el documento —el IPP, que
-       * vive en el encabezado y del que salen los cuatro totales—. Marcar las cuatro
-       * secciones con el mismo motivo repetido no le dice nada a quien lo va a
-       * corregir, y además le obliga a que se las vuelvan a aprobar una por una.
-       *
-       * El motivo se ve en el aviso «Levantamiento rechazado» de la pantalla, que es
-       * donde corresponde cuando el reparo es del documento y no de una sección. Para
-       * señalar una sección está el rechazo de su propio encabezado.
-       */
       survey.rejectionComments = reviewDto.rejectionComments;
-      survey.rechazoGeneral = true;
+      // El motivo se copia a cada bloque: es la única forma de que quien lo hizo vea
+      // marcado qué se le devolvió, igual que en un rechazo por bloque.
+      this.setAllBlocks(survey, BlockStatus.REJECTED, reviewDto.rejectionComments);
     }
 
     // El estado global se deriva de los bloques, nunca se escribe a mano: así esta
@@ -1048,7 +1037,29 @@ export class SurveysService {
         ? BlockStatus.APPROVED
         : BlockStatus.REJECTED;
 
+    /*
+     * Aprobar la información de la obra es el momento de confirmar el IPP: es el dato
+     * de ese bloque y de él salen los totales ajustados de los demás. No se deja
+     * aprobar sin ninguno, porque el levantamiento quedaría con el factor en blanco.
+     */
+    if (reviewBlockDto.block === SurveyBlock.WORK_INFO) {
+      if (reviewBlockDto.previousMonthIpp) {
+        survey.previousMonthIpp = reviewBlockDto.previousMonthIpp;
+      } else if (
+        reviewBlockDto.status === BlockReviewStatus.APPROVED &&
+        !survey.previousMonthIpp
+      ) {
+        throw new BadRequestException(
+          'Debe registrarse el IPP del mes anterior para aprobar la información de la obra',
+        );
+      }
+    }
+
     switch (reviewBlockDto.block) {
+      case SurveyBlock.WORK_INFO:
+        survey.workInfoStatus = newStatus;
+        survey.workInfoComments = reviewBlockDto.comments;
+        break;
       case SurveyBlock.BUDGET:
         survey.budgetStatus = newStatus;
         survey.budgetComments = reviewBlockDto.comments;
@@ -1066,10 +1077,6 @@ export class SurveysService {
         survey.travelExpensesComments = reviewBlockDto.comments;
         break;
     }
-
-    // Quien empieza a decidir bloque por bloque ya no está devolviendo el documento
-    // entero: el rechazo general se apaga y el estado vuelve a salir de los bloques.
-    survey.rechazoGeneral = false;
 
     // Update reviewer info
     survey.reviewedBy = userId;
@@ -1120,7 +1127,6 @@ export class SurveysService {
 
     this.setAllBlocks(survey, BlockStatus.APPROVED);
     survey.rejectionComments = undefined;
-    survey.rechazoGeneral = false;
 
     this.updateGlobalStatus(survey);
     survey.reviewedBy = userId;
@@ -1163,12 +1169,14 @@ export class SurveysService {
     }
 
     // Reset all block statuses to pending
+    survey.workInfoStatus = BlockStatus.PENDING;
     survey.budgetStatus = BlockStatus.PENDING;
     survey.investmentStatus = BlockStatus.PENDING;
     survey.materialsStatus = BlockStatus.PENDING;
     survey.travelExpensesStatus = BlockStatus.PENDING;
 
     // Clear all block comments
+    survey.workInfoComments = undefined;
     survey.budgetComments = undefined;
     survey.investmentComments = undefined;
     survey.materialsComments = undefined;
@@ -1179,8 +1187,7 @@ export class SurveysService {
 
     // Store reopen reason in rejection comments (for audit trail)
     if (reason) {
-      survey.rechazoGeneral = false;
-    survey.rejectionComments = `Reabierto para edición: ${reason}`;
+      survey.rejectionComments = `Reabierto para edición: ${reason}`;
     }
 
     // Update reviewer info (who reopened it)
@@ -1219,13 +1226,15 @@ export class SurveysService {
     }
   }
 
-  /** Deja los cuatro bloques en el mismo estado, con el mismo comentario. */
+  /** Deja los cinco bloques en el mismo estado, con el mismo comentario. */
   private setAllBlocks(survey: Survey, status: BlockStatus, comments?: string): void {
+    survey.workInfoStatus = status;
     survey.budgetStatus = status;
     survey.investmentStatus = status;
     survey.materialsStatus = status;
     survey.travelExpensesStatus = status;
 
+    survey.workInfoComments = comments;
     survey.budgetComments = comments;
     survey.investmentComments = comments;
     survey.materialsComments = comments;
@@ -1234,22 +1243,22 @@ export class SurveysService {
 
   private updateGlobalStatus(survey: Survey): void {
     const allApproved =
+      survey.workInfoStatus === BlockStatus.APPROVED &&
       survey.budgetStatus === BlockStatus.APPROVED &&
       survey.investmentStatus === BlockStatus.APPROVED &&
       survey.materialsStatus === BlockStatus.APPROVED &&
       survey.travelExpensesStatus === BlockStatus.APPROVED;
 
     const anyRejected =
+      survey.workInfoStatus === BlockStatus.REJECTED ||
       survey.budgetStatus === BlockStatus.REJECTED ||
       survey.investmentStatus === BlockStatus.REJECTED ||
       survey.materialsStatus === BlockStatus.REJECTED ||
       survey.travelExpensesStatus === BlockStatus.REJECTED;
 
-    // «Aprobado» va primero a propósito: si los cuatro bloques quedaron aprobados, un
-    // rechazo general viejo que nadie apagó no puede dejar el levantamiento rechazado.
     if (allApproved) {
       survey.status = SurveyStatus.APPROVED;
-    } else if (anyRejected || survey.rechazoGeneral) {
+    } else if (anyRejected) {
       survey.status = SurveyStatus.REJECTED;
     } else {
       survey.status = SurveyStatus.IN_REVIEW;
