@@ -1078,6 +1078,14 @@ export class SurveysService {
         break;
     }
 
+    /*
+     * El motivo del levantamiento entero se borra: quien decide bloque por bloque ya
+     * está señalando qué falla y dónde, y el motivo global de una decisión anterior
+     * sobrevivía a la nueva. En pantalla salía el aviso «Levantamiento rechazado»
+     * encima del aviso del bloque, con el mismo texto repetido.
+     */
+    survey.rejectionComments = undefined;
+
     // Update reviewer info
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
