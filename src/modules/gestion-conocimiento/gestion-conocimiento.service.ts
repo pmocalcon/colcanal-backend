@@ -87,6 +87,7 @@ import {
 import {
   PERMISO_TRANSICIONES,
   PERMISO_ESTADOS,
+  PERMISO_NOTIFICAR_AL_LLEGAR,
   FILAS_APROBACION_POR_ROL,
   PermisoEstado,
   ROL_ADMINISTRATIVA_PERMISO,
@@ -1391,7 +1392,8 @@ export class GestionConocimientoService implements OnModuleInit {
       return this.transitionPrestamo(solicitud, accion, userId, motivo, payload);
     }
 
-    // La Solicitud de Permiso (GTH-009-F) la resuelve el jefe de área del solicitante.
+    // La Solicitud de Permiso (GTH-009-F) la aprueba el jefe de área del solicitante y
+    // la cierra la Dirección Administrativa y Financiera.
     if (this.esPermiso(solicitud)) {
       return this.transitionPermiso(solicitud, accion, userId, motivo, payload);
     }
@@ -3400,22 +3402,27 @@ export class GestionConocimientoService implements OnModuleInit {
 
     /*
      * A dónde va el permiso. Normalmente al `to` de la transición, con una excepción:
-     * cuando quien revisa —la Dirección Administrativa y Financiera— es además el jefe
-     * inmediato del solicitante, los dos pasos son la misma persona y se unen en uno.
-     * Mandárselo a sí misma para que se apruebe sería pedirle dos clics para la misma
-     * decisión.
+     * cuando el jefe inmediato que acaba de aprobarlo es la propia Dirección
+     * Administrativa y Financiera, los dos pasos son la misma persona y se unen en uno.
+     * Mandárselo a sí misma para que lo revise sería pedirle dos clics por lo mismo.
+     *
+     * Se mira el rol de quien decide y no la tabla de autorizaciones: lo que vuelve
+     * innecesario el segundo paso es que quien lo tendría que dar acaba de firmar. Si
+     * aprueba el PMO en nombre del jefe, el permiso sí pasa por la Dirección, que es lo
+     * prudente: el PMO puede destrabar el trámite, no revisarlo en lugar de ella.
      */
     let destino: PermisoEstado = t.to;
-    let concede = accion === "aprobar_jefe";
-    if (accion === "revisar_administrativa") {
+    if (accion === "aprobar_jefe" && rol === ROL_ADMINISTRATIVA_PERMISO) {
+      destino = "aprobado";
+    }
+    /** El permiso queda concedido en este paso: es cuando nace el ausentismo. */
+    const concede = destino === "aprobado";
+
+    // La casilla «Revisado por» del pie la firma quien cierra el trámite, sea la
+    // Dirección en su propio paso o ella misma cuando además era el jefe.
+    if (concede) {
       data.revisadoPor = user?.nombre ?? "";
       data.fechaRevision = String(data.fechaRevision ?? "").trim() || hoy;
-      if (await this.esAutorizadorDe(userId, solicitud.createdBy)) {
-        destino = "aprobado";
-        concede = true;
-        data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
-        data.aprobadoPor = user?.nombre ?? "";
-      }
     }
 
     // Sin nombre, identificación y fecha del permiso, el papel no dice quién falta ni
@@ -3451,17 +3458,18 @@ export class GestionConocimientoService implements OnModuleInit {
       if (accion === "aprobar_jefe") {
         data.fechaAprobacion = String(data.fechaAprobacion ?? "").trim() || hoy;
         data.aprobadoPor = user?.nombre ?? "";
-
-        // Nace en el registro real de ausentismos. Va antes de guardar la solicitud
-        // para no dejarla marcada "aprobado" sin que el ausentismo exista de verdad.
-        await this.crearAusentismoDePermiso(solicitud, data);
       }
     }
 
-    // El atajo de arriba concede el permiso sin pasar por `aprobar_jefe`, así que el
-    // ausentismo se crea también aquí. Sin esto el permiso quedaría aprobado en el papel
-    // y la nómina no se enteraría nunca.
-    if (concede && accion === "revisar_administrativa") {
+    /*
+     * El permiso nace en el registro real de ausentismos, y solo cuando queda concedido
+     * de verdad: no al aprobarlo el jefe, porque la Dirección todavía puede devolverlo y
+     * quedaría una ausencia descontada de una nómina por un permiso que no se dio.
+     *
+     * Va antes de guardar la solicitud para no dejarla marcada "aprobado" sin que el
+     * ausentismo exista.
+     */
+    if (concede) {
       await this.crearAusentismoDePermiso(solicitud, data);
     }
 
@@ -3499,8 +3507,13 @@ export class GestionConocimientoService implements OnModuleInit {
   }
 
   /**
-   * Notifica el permiso a quien sigue: al jefe cuando entra a su bandeja, al
-   * solicitante cuando se resuelve.
+   * Notifica el permiso a quien sigue: al jefe cuando entra a su bandeja, a la Dirección
+   * cuando el jefe ya decidió, y al solicitante cuando se resuelve.
+   *
+   * A quién le toca en cada estado lo dice `PERMISO_NOTIFICAR_AL_LLEGAR` y no este
+   * método. Es a propósito: el mapa está junto a la máquina de estados, así que quien
+   * cambie el orden de los pasos ve en el mismo archivo a quién hay que avisarle. Con la
+   * lista aquí adentro, cambiar el flujo dejaba los correos yéndose al paso anterior.
    *
    * Al jefe se le avisa a **todos** sus autorizadores menos la Gerencia, que autoriza a
    * toda la empresa y recibiría el permiso de cada persona. Si el solicitante no tiene
@@ -3512,25 +3525,41 @@ export class GestionConocimientoService implements OnModuleInit {
     estado: PermisoEstado,
     motivo?: string,
   ): Promise<void> {
-    let usuarios: User[] = [];
+    const aviso = PERMISO_NOTIFICAR_AL_LLEGAR[estado];
+    const usuarios: User[] = [];
 
-    if (estado === "pendiente_administrativa") {
-      // El paso nuevo va a un rol fijo, no al autorizador del solicitante: lo revisa la
-      // Dirección Administrativa y Financiera sea quien sea el jefe de quien lo pide.
-      usuarios = await this.usuariosPorRol([ROL_ADMINISTRATIVA_PERMISO]);
-    } else if (estado === "pendiente_jefe") {
-      usuarios = await this.jefesDelCreador(solicitud);
-    } else if (solicitud.createdBy) {
+    if (aviso.jefe) {
+      usuarios.push(...(await this.jefesDelCreador(solicitud)));
+    }
+    // Los roles fijos no dependen de quién pida el permiso: la Dirección lo revisa y
+    // Talento Humano se entera sea quien sea el jefe del solicitante.
+    if (aviso.roles?.length) {
+      usuarios.push(...(await this.usuariosPorRol([...aviso.roles])));
+    }
+    if (aviso.creador && solicitud.createdBy) {
       const creador = await this.userRepo.findOne({
         where: { userId: solicitud.createdBy },
       });
-      if (creador) usuarios = [creador];
+      if (creador) usuarios.push(creador);
     }
 
     const label = PERMISO_ESTADOS[estado].label;
     const nro = String(solicitud.solicitudId);
     const quien = String(solicitud.data?.nombre ?? "").trim();
     const cuando = String(solicitud.data?.fechaPermiso ?? "").trim();
+
+    /*
+     * Qué se le pide a quien lo recibe. No es lo mismo un correo que dice «te toca» que
+     * uno que dice «entérate»: el de Talento Humano al aprobarse no espera ninguna
+     * acción, y mandarlo a «continuar con el trámite» lo hace entrar a una pantalla
+     * donde no hay ningún botón que le corresponda.
+     */
+    const cierre =
+      estado === "aprobado"
+        ? "El permiso queda registrado en Ausentismos, de donde lo toma la nómina. No hay que hacer nada más en el sistema."
+        : estado === "borrador"
+          ? "Ingresa al sistema para corregirla y volverla a enviar."
+          : "Ingresa al sistema para continuar con el trámite.";
 
     const enviados = new Set<string>();
     for (const u of usuarios) {
@@ -3547,7 +3576,7 @@ export class GestionConocimientoService implements OnModuleInit {
           quien ? ` de <b>${quien}</b>` : ""
         }${cuando ? ` para el <b>${cuando}</b>` : ""} pasó al estado <b>${label}</b>.</p>
         ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
-        <p>Ingresa al sistema para continuar con el trámite.</p>
+        <p>${cierre}</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`,
       });
