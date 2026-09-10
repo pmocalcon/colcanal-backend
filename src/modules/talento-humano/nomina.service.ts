@@ -11,6 +11,7 @@ import {
 import { Between, ILike, In, LessThanOrEqual, Repository } from "typeorm";
 import { ThPersona } from "../../database/entities/th-persona.entity";
 import { ThPrestamo } from "../../database/entities/th-prestamo.entity";
+import { esPagoDirecto } from "./prestamo-forma-pago";
 import { ThPrestamoPago } from "../../database/entities/th-prestamo-pago.entity";
 import { ThIncapacidad } from "../../database/entities/th-incapacidad.entity";
 import { ThHorasExtra } from "../../database/entities/th-horas-extra.entity";
@@ -481,7 +482,12 @@ export class NominaService {
   ): Promise<Array<{ prestamoId: number; personaId: number; cuota: number; abono: number }>> {
     if (gente.length === 0) return [];
 
-    const prestamos = await this.prestamoRepo.find();
+    /*
+     * Los de pago directo quedan fuera de una vez. No es un filtro más: es lo que
+     * significa la forma de pago. Si entraran, la liquidación les descontaría una cuota
+     * que la persona ya está pagando por otro lado, y se le cobraría dos veces.
+     */
+    const prestamos = (await this.prestamoRepo.find()).filter((p) => !esPagoDirecto(p));
     const cruce: Array<{ prestamoId: number; personaId: number; cuota: number; abono: number }> = [];
 
     // Abonos extraordinarios que se pagan por nómina en este periodo. Van sumados a la
@@ -559,7 +565,12 @@ export class NominaService {
     const cedulasActivas = new Set(activos.map((p) => p.identificacion));
     const nombresActivos = new Set(activos.map((p) => this.claveNombre(p.nombre)));
 
-    const prestamos = await this.prestamoRepo.find();
+    /*
+     * Los de pago directo no se revisan: no les falta nada, están fuera de la nómina a
+     * propósito. Se sacan antes incluso de decidir el modo de cruce, porque un préstamo
+     * que no va a la liquidación no puede ser el que decida cómo cruzan los demás.
+     */
+    const prestamos = (await this.prestamoRepo.find()).filter((p) => !esPagoDirecto(p));
     const porColumnasNomina = prestamos.some((p) => p.nombreNomina || p.cuotaDescontar != null);
 
     // Lo que la cartera dice que se descontó por nómina en este periodo. Solo el medio

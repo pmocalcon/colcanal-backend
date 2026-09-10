@@ -95,6 +95,22 @@ export class ThPrestamo {
   @Column({ name: "cuota_descontar", type: "numeric", precision: 14, scale: 2, nullable: true })
   cuotaDescontar: string | null;
 
+  /**
+   * Cómo se cobra este préstamo: descontándolo de la nómina o por fuera de ella.
+   *
+   * Un préstamo en pago directo lo paga la persona por su cuenta —consignación, efectivo,
+   * cruce con otra cosa— y la liquidación no debe tocarlo. Sin esta distinción, el único
+   * modo de sacarlo de la nómina era dejarle la cuota en blanco, y entonces aparecía en
+   * la lista de préstamos con problemas como si le faltara un dato: un aviso permanente
+   * sobre algo que está bien.
+   *
+   * `null` es nómina, que es como se cobraron todos hasta ahora. Se deja así, y no con un
+   * valor por defecto en la tabla, para que los préstamos que ya existen sigan
+   * comportándose igual sin tocarles una fila.
+   */
+  @Column({ name: "forma_pago", type: "varchar", length: 20, nullable: true })
+  formaPago: string | null;
+
   @Column({ type: "text", nullable: true })
   observaciones: string | null;
 
