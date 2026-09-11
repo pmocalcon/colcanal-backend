@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { RecursoEconomico } from "../../database/entities/recurso-economico.entity";
@@ -25,6 +25,87 @@ export interface RetencionProyecto {
   rteIca?: number | null;
   timbre?: number | null;
   estampillas?: number | null;
+}
+
+/**
+ * Un renglón del contraste: lo que decía el sistema y lo que decía el documento.
+ *
+ * `null` no es cero: en el sistema significa «no aplica en este municipio» y en el
+ * documento, «el documento no trae esa cifra». Colapsarlos haría que una retención que
+ * la factura no declara se viera como una retención en cero, que es un hecho distinto.
+ */
+export interface FilaContraste {
+  key: string;
+  label: string;
+  sistema: number | null;
+  documento: number | null;
+}
+
+/** El contraste de un documento, tal como llega del navegador. */
+export interface BloqueContrasteEntrada {
+  archivo?: unknown;
+  fuente?: unknown;
+  referencia?: unknown;
+  fecha?: unknown;
+  filas?: unknown;
+  cuadra?: unknown;
+  avisos?: unknown;
+}
+
+export interface BloqueContraste {
+  /** El nombre del archivo que se cargó. El archivo en sí no se guarda. */
+  archivo: string;
+  /** De dónde salieron las cifras: 'xml', 'pdf', 'texto' u 'ocr'. */
+  fuente: string;
+  /** El consecutivo de la factura, o el oficio de la orden. */
+  referencia: string | null;
+  /** La fecha de emisión, o el mes del servicio que paga la orden. */
+  fecha: string | null;
+  filas: FilaContraste[];
+  cuadra: boolean;
+  avisos: string[];
+}
+
+const LIMITE_FILAS = 40;
+const LIMITE_AVISOS = 20;
+
+const texto = (v: unknown, max: number): string =>
+  typeof v === "string" ? v.trim().slice(0, max) : "";
+
+const cifra = (v: unknown): number | null =>
+  v === null || v === "" || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
+
+/**
+ * Deja el bloque en la forma en que se guarda, quedándose solo con lo conocido.
+ *
+ * Se normaliza en vez de guardar lo que llegue porque esto va a un jsonb que se lee
+ * entero en cada carga del módulo: sin un tope, una factura de doscientos renglones o el
+ * texto completo de un OCR lo engordarían para siempre. Lo que se recorta —el detalle
+ * renglón por renglón, el texto leído— se puede volver a ver cargando el archivo otra
+ * vez, que es justo lo que no se puede hacer con el veredicto.
+ */
+export function normalizarBloque(b: BloqueContrasteEntrada | undefined): BloqueContraste | null {
+  if (!b || typeof b !== "object") return null;
+  const archivo = texto(b.archivo, 200);
+  if (!archivo) return null;
+
+  const filas = Array.isArray(b.filas) ? b.filas.slice(0, LIMITE_FILAS) : [];
+  const avisos = Array.isArray(b.avisos) ? b.avisos.slice(0, LIMITE_AVISOS) : [];
+
+  return {
+    archivo,
+    fuente: texto(b.fuente, 20) || "desconocida",
+    referencia: texto(b.referencia, 60) || null,
+    fecha: texto(b.fecha, 20) || null,
+    filas: filas.map((f: Record<string, unknown>) => ({
+      key: texto(f?.key, 40),
+      label: texto(f?.label, 80),
+      sistema: cifra(f?.sistema),
+      documento: cifra(f?.documento),
+    })),
+    cuadra: b.cuadra === true,
+    avisos: avisos.map((a: unknown) => texto(a, 400)).filter(Boolean),
+  };
 }
 
 /**
@@ -185,6 +266,102 @@ export class RecursoEconomicoService {
         },
       },
     };
+    const guardada = await this.repo.save(fila);
+    return { data: guardada.data };
+  }
+
+  /**
+   * Guarda el resultado de contrastar un mes: la factura, la orden de pago, o las dos.
+   *
+   * **No guarda los archivos**, que se leen en el navegador y no llegan acá. Guarda lo
+   * que el contraste concluyó: qué decía cada documento, qué decía el sistema en ese
+   * momento, si cuadraron, y quién lo revisó. Eso es lo que alguien necesita tres meses
+   * después, cuando la pregunta es «¿esta factura ya se revisó y contra qué?».
+   *
+   * Guardar **lo que el sistema tenía entonces** es lo que hace útil el registro y no
+   * solo un sello: si después alguien corrige el AOM del mes, la pantalla puede decir que
+   * el contraste se hizo contra otras cifras. Un visto bueno que no sabe contra qué se
+   * dio es un visto bueno que no prueba nada.
+   *
+   * Va por su propio endpoint y no por `save` porque el módulo guarda un jsonb único:
+   * mandarlo entero desde esta pantalla dejaría que un director, con la pantalla
+   * desactualizada, pisara la interventoría y las retenciones sin querer.
+   */
+  async guardarContraste(
+    periodo: string,
+    companyId: number,
+    cuerpo: { factura?: BloqueContrasteEntrada; orden?: BloqueContrasteEntrada },
+    quien: { nombre: string; rol?: string },
+  ): Promise<{ data: Record<string, any> }> {
+    const factura = normalizarBloque(cuerpo?.factura);
+    const orden = normalizarBloque(cuerpo?.orden);
+    if (!factura && !orden) {
+      throw new BadRequestException(
+        "No hay nada que guardar: manda al menos el contraste de la factura o el de la orden.",
+      );
+    }
+
+    const fila = await this.fila();
+    const data = fila.data ?? {};
+    const contrastes = (data.contrastes ?? {}) as Record<string, Record<string, any>>;
+    const delMes = contrastes[periodo] ?? {};
+    const previo = delMes[String(companyId)] ?? {};
+
+    /*
+     * Los dos bloques se guardan por separado y no se pisan entre sí: la factura y la
+     * orden llegan en momentos distintos —la orden puede tardar semanas— y quien
+     * contrasta la segunda no tiene por qué volver a cargar la primera.
+     */
+    fila.data = {
+      ...data,
+      contrastes: {
+        ...contrastes,
+        [periodo]: {
+          ...delMes,
+          [String(companyId)]: {
+            factura: factura ?? previo.factura,
+            orden: orden ?? previo.orden,
+            quien: {
+              nombre: quien.nombre,
+              rol: quien.rol,
+              fecha: new Date().toISOString(),
+            },
+          },
+        },
+      },
+    };
+    const guardada = await this.repo.save(fila);
+    return { data: guardada.data };
+  }
+
+  /**
+   * Borra el contraste guardado de un mes, entero o solo uno de sus dos bloques.
+   *
+   * Existe porque un contraste se puede guardar con el archivo equivocado, y dejarlo ahí
+   * es peor que no tenerlo: dice que el mes está revisado cuando no lo está.
+   */
+  async borrarContraste(
+    periodo: string,
+    companyId: number,
+    bloque?: "factura" | "orden",
+  ): Promise<{ data: Record<string, any> }> {
+    const fila = await this.fila();
+    const data = fila.data ?? {};
+    const contrastes = (data.contrastes ?? {}) as Record<string, Record<string, any>>;
+    const delMes = contrastes[periodo] ?? {};
+    const previo = delMes[String(companyId)];
+    if (!previo) return { data };
+
+    const quedan = bloque
+      ? { ...previo, [bloque]: undefined }
+      : {};
+    const vacio = !quedan.factura && !quedan.orden;
+
+    const nuevoMes = { ...delMes };
+    if (vacio) delete nuevoMes[String(companyId)];
+    else nuevoMes[String(companyId)] = quedan;
+
+    fila.data = { ...data, contrastes: { ...contrastes, [periodo]: nuevoMes } };
     const guardada = await this.repo.save(fila);
     return { data: guardada.data };
   }

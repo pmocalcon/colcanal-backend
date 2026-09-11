@@ -9,6 +9,7 @@ import { Permissions } from "../../common/decorators/permissions.decorator";
 import { ROLES_PMO, ROLES_FACTURA } from "../../common/constants/roles.constants";
 import { SaveRecursoEconomicoDto } from "./dto/save-recurso-economico.dto";
 import { ValidarFacturaDto } from "./dto/validar-factura.dto";
+import { GuardarContrasteDto } from "./dto/guardar-contraste.dto";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
 /**
@@ -74,6 +75,40 @@ export class RecursoEconomicoController {
     @Query("companyId") companyId: string,
   ) {
     return this.service.quitarVistoFactura(periodo, Number(companyId));
+  }
+
+  /**
+   * El resultado de contrastar un mes: la factura, la orden de pago, o las dos.
+   *
+   * Lo pueden guardar los mismos que pueden contrastar —el PMO y los directores de
+   * proyecto—, porque guardar es la última parte de revisar y partirlo en dos manos haría
+   * que el que revisa dependa de otro para dejar constancia.
+   *
+   * El nombre de quien revisó lo pone el servidor con quien está firmado: una constancia
+   * que la puede escribir el cliente no prueba nada.
+   */
+  @Put("contraste")
+  @Roles(...ROLES_FACTURA)
+  @ApiOperation({ summary: "Guardar el contraste de un mes, sin tocar nada más" })
+  guardarContraste(@Body() dto: GuardarContrasteDto, @CurrentUser() user: any) {
+    return this.service.guardarContraste(
+      dto.periodo,
+      dto.companyId,
+      { factura: dto.factura, orden: dto.orden },
+      { nombre: user?.nombre || user?.email || "—", rol: user?.role?.nombreRol },
+    );
+  }
+
+  /** Borra el contraste guardado, entero o solo uno de sus dos bloques. */
+  @Delete("contraste")
+  @Roles(...ROLES_FACTURA)
+  @ApiOperation({ summary: "Borrar el contraste guardado de un mes" })
+  borrarContraste(
+    @Query("periodo") periodo: string,
+    @Query("companyId") companyId: string,
+    @Query("bloque") bloque?: "factura" | "orden",
+  ) {
+    return this.service.borrarContraste(periodo, Number(companyId), bloque);
   }
 
   /**
