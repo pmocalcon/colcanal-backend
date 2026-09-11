@@ -45,6 +45,7 @@ export { Invoice } from './invoice.entity';
 export { Ucap } from './ucap.entity';
 export { Work } from './work.entity';
 export { WorkActa } from './work-acta.entity';
+export { WorkLog } from './work-log.entity';
 export { ActaSummaryDraft } from './acta-summary-draft.entity';
 export { AnnualPlanReview } from './annual-plan-review.entity';
 export { Survey } from './survey.entity';

@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SurveysController } from './surveys.controller';
 import { SurveysService } from './surveys.service';
+import { BitacoraObrasService } from './bitacora-obras.service';
 
 // Survey entities
 import { Work } from '../../database/entities/work.entity';
 import { WorkActa } from '../../database/entities/work-acta.entity';
+import { WorkLog } from '../../database/entities/work-log.entity';
 import { ActaSummaryDraft } from '../../database/entities/acta-summary-draft.entity';
 import { AnnualPlanReview } from '../../database/entities/annual-plan-review.entity';
 import { Survey } from '../../database/entities/survey.entity';
@@ -33,6 +35,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       // Survey entities
       Work,
       WorkActa,
+      WorkLog,
       ActaSummaryDraft,
       AnnualPlanReview,
       Survey,
@@ -54,7 +57,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ]),
   ],
   controllers: [SurveysController],
-  providers: [SurveysService],
+  providers: [SurveysService, BitacoraObrasService],
   exports: [SurveysService],
 })
 export class SurveysModule {}

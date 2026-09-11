@@ -45,6 +45,7 @@ import {
 import { BlockStatus } from '../../database/entities/survey.entity';
 import { NotificationsService, WorksNotificationData } from '../notifications/notifications.service';
 import { fechaLocal } from "../../utils/fecha-local.util";
+import { BitacoraObrasService } from './bitacora-obras.service';
 
 @Injectable()
 export class SurveysService {
@@ -85,6 +86,9 @@ export class SurveysService {
     @InjectRepository(Requisition)
     private requisitionRepository: Repository<Requisition>,
     private notificationsService: NotificationsService,
+    // Deja constancia de cada movimiento para la auditoria de obras. Anotar nunca
+    // falla hacia afuera: ver BitacoraObrasService.
+    private bitacora: BitacoraObrasService,
   ) {}
 
   // ============================================
@@ -405,7 +409,16 @@ export class SurveysService {
       createdBy: userId,
     });
 
-    return this.workRepository.save(work);
+    const guardada = await this.workRepository.save(work);
+    await this.bitacora.anotar({
+      ambito: 'obra',
+      workId: guardada.workId,
+      action: 'crear',
+      newStatus: 'creada',
+      comments: guardada.recordNumber ? `Acta ${guardada.recordNumber}` : null,
+      userId,
+    });
+    return guardada;
   }
 
   async updateWork(workId: number, updateWorkDto: UpdateWorkDto, userId: number): Promise<Work> {
@@ -426,8 +439,24 @@ export class SurveysService {
       );
     }
 
+    // Se anota el cambio de acta y no el resto de campos: mover una obra de un acta a
+    // otra cambia quien la aprueba y contra que codigo se compra, que es lo que el
+    // auditor persigue. Registrar cada correccion de direccion ahogaria eso en ruido.
+    const actaAnterior = work.recordNumber;
     Object.assign(work, updateWorkDto);
-    return this.workRepository.save(work);
+    const guardada = await this.workRepository.save(work);
+    if (updateWorkDto.recordNumber && updateWorkDto.recordNumber !== actaAnterior) {
+      await this.bitacora.anotar({
+        ambito: 'obra',
+        workId: guardada.workId,
+        eje: 'acta',
+        action: 'cambiar_acta',
+        previousStatus: actaAnterior ?? null,
+        newStatus: guardada.recordNumber ?? null,
+        userId,
+      });
+    }
+    return guardada;
   }
 
   async getWork(workId: number): Promise<Work> {
@@ -545,6 +574,16 @@ export class SurveysService {
     if (createSurveyDto.travelExpenses?.length) {
       await this.saveTravelExpenses(savedSurvey.surveyId, createSurveyDto.travelExpenses);
     }
+
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: savedSurvey.workId,
+      surveyId: savedSurvey.surveyId,
+      action: 'crear',
+      newStatus: SurveyStatus.PENDING,
+      comments: `Codigo ${savedSurvey.projectCode}`,
+      userId,
+    });
 
     return this.getSurvey(savedSurvey.surveyId);
   }
@@ -822,7 +861,18 @@ export class SurveysService {
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
 
+    const estadoAnterior = survey.status;
     await this.surveyRepository.save(survey);
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: survey.workId,
+      surveyId: survey.surveyId,
+      action: reviewDto.action === ReviewAction.APPROVE ? 'aprobar' : 'rechazar',
+      previousStatus: estadoAnterior,
+      newStatus: survey.status,
+      comments: reviewDto.rejectionComments ?? null,
+      userId,
+    });
 
     const fullSurvey = await this.getSurvey(surveyId);
     const actor = await this.userRepository.findOne({ where: { userId } });
@@ -848,8 +898,18 @@ export class SurveysService {
       throw new BadRequestException('Only pending or rejected surveys can be submitted for review');
     }
 
+    const estadoAnterior = survey.status;
     survey.status = SurveyStatus.IN_REVIEW;
     await this.surveyRepository.save(survey);
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: survey.workId,
+      surveyId: survey.surveyId,
+      action: 'enviar_revision',
+      previousStatus: estadoAnterior,
+      newStatus: SurveyStatus.IN_REVIEW,
+      userId,
+    });
 
     const fullSurvey = await this.getSurvey(surveyId);
     const actor = await this.userRepository.findOne({ where: { userId } });
@@ -1134,9 +1194,21 @@ export class SurveysService {
     survey.reviewDate = new Date();
 
     // Check if all blocks are approved to update global status
+    const estadoAnterior = survey.status;
     this.updateGlobalStatus(survey);
 
     await this.surveyRepository.save(survey);
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: survey.workId,
+      surveyId: survey.surveyId,
+      eje: reviewBlockDto.block,
+      action: newStatus === BlockStatus.APPROVED ? 'aprobar_bloque' : 'rechazar_bloque',
+      previousStatus: estadoAnterior,
+      newStatus: survey.status,
+      comments: reviewBlockDto.comments ?? null,
+      userId,
+    });
 
     const fullSurvey = await this.getSurvey(surveyId);
     const actor = await this.userRepository.findOne({ where: { userId } });
@@ -1179,11 +1251,22 @@ export class SurveysService {
     this.setAllBlocks(survey, BlockStatus.APPROVED);
     survey.rejectionComments = undefined;
 
+    const estadoAnterior = survey.status;
     this.updateGlobalStatus(survey);
     survey.reviewedBy = userId;
     survey.reviewDate = new Date();
 
     await this.surveyRepository.save(survey);
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: survey.workId,
+      surveyId: survey.surveyId,
+      action: 'aprobar_todo',
+      previousStatus: estadoAnterior,
+      newStatus: survey.status,
+      comments: `IPP ${survey.previousMonthIpp}`,
+      userId,
+    });
 
     const fullSurvey = await this.getSurvey(surveyId);
     const actor = await this.userRepository.findOne({ where: { userId } });
@@ -1234,6 +1317,7 @@ export class SurveysService {
     survey.travelExpensesComments = undefined;
 
     // Reset global status to pending
+    const estadoAnterior = survey.status;
     survey.status = SurveyStatus.PENDING;
 
     // Store reopen reason in rejection comments (for audit trail)
@@ -1246,6 +1330,19 @@ export class SurveysService {
     survey.reviewDate = new Date();
 
     await this.surveyRepository.save(survey);
+    // Reabrir borra los cinco bloques y sus reparos. Sin esta anotacion, un
+    // levantamiento aprobado y reabierto se lee despues como si nunca se hubiera
+    // aprobado.
+    await this.bitacora.anotar({
+      ambito: 'levantamiento',
+      workId: survey.workId,
+      surveyId: survey.surveyId,
+      action: 'reabrir',
+      previousStatus: estadoAnterior,
+      newStatus: SurveyStatus.PENDING,
+      comments: reason ?? null,
+      userId,
+    });
 
     const fullSurvey = await this.getSurvey(surveyId);
     const actor = await this.userRepository.findOne({ where: { userId } });
@@ -2167,6 +2264,15 @@ export class SurveysService {
     acta.createdBy = userId;
     acta.rejectionComment = null;
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'acta',
+      action: 'enviar_revision',
+      previousStatus: ActaStatus.BORRADOR,
+      newStatus: ActaStatus.EN_REVISION,
+      userId,
+    });
     this.sendActaNotification('submitted_for_review', savedActa, { actor: user }).catch(() => {});
 
     return savedActa;
@@ -2205,6 +2311,18 @@ export class SurveysService {
     }
 
     const savedActa = await this.workActaRepository.save(acta);
+    // El rechazo es el movimiento que mas se perdia: devolver el acta la deja otra vez
+    // en 'borrador' y en la fila no queda ni quien la devolvio ni con que reparo.
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'acta',
+      action: approved ? 'revisar' : 'devolver',
+      previousStatus: ActaStatus.EN_REVISION,
+      newStatus: savedActa.status,
+      comments: approved ? null : savedActa.rejectionComment,
+      userId,
+    });
     this.sendActaNotification('reviewed', savedActa, {
       actor: user,
       approved,
@@ -2246,6 +2364,16 @@ export class SurveysService {
     // Deja de ser provisional: ya tiene número tramitado y código de contabilidad.
     acta.esProvisional = false;
     await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: acta.actaId,
+      eje: 'acta',
+      action: 'aprobar',
+      previousStatus: ActaStatus.EN_APROBACION,
+      newStatus: ActaStatus.APROBADA,
+      comments: `Codigo de contabilidad: ${projectCode}`,
+      userId,
+    });
 
     // Aquí nace el código de contabilidad, y es el único lugar donde nace. Las
     // requisiciones que se compraron por anticipado contra esta acta lo estaban
@@ -2393,6 +2521,17 @@ export class SurveysService {
     }
 
     await this.workRepository.save(obras);
+    for (const obra of obras) {
+      await this.bitacora.anotar({
+        ambito: 'obra',
+        workId: obra.workId,
+        actaId: acta.actaId,
+        eje: 'acta',
+        action: 'agrupar_acta_provisional',
+        newStatus: numero,
+        userId,
+      });
+    }
     return acta;
   }
 
@@ -2410,6 +2549,9 @@ export class SurveysService {
       where: workIds.map((workId) => ({ workId })),
     });
 
+    // El numero se guarda antes de borrarlo: despues del save la obra ya no sabe de
+    // que acta salio, que es justo el dato que hay que dejar anotado.
+    const quitadasDe = new Map<number, string>();
     for (const obra of obras) {
       const numero = (obra.recordNumber || '').trim();
       if (!numero) continue;
@@ -2422,9 +2564,20 @@ export class SurveysService {
         );
       }
       obra.recordNumber = null as unknown as string;
+      quitadasDe.set(obra.workId, numero);
     }
 
     await this.workRepository.save(obras);
+    for (const [workId, numero] of quitadasDe) {
+      await this.bitacora.anotar({
+        ambito: 'obra',
+        workId,
+        eje: 'acta',
+        action: 'quitar_acta_provisional',
+        previousStatus: numero,
+        userId,
+      });
+    }
     return { quitadas: obras.length };
   }
 
@@ -2494,6 +2647,7 @@ export class SurveysService {
       );
     }
 
+    const anticipadaAnterior = acta.rqAnticipadaStatus;
     acta.rqAnticipadaStatus = ActaRqAnticipadaStatus.PENDIENTE;
     acta.rqAnticipadaJustificacion = motivo;
     acta.rqAnticipadaMotivo = null;
@@ -2502,6 +2656,16 @@ export class SurveysService {
     acta.rqAnticipadaResueltaPor = null;
     acta.rqAnticipadaResueltaAt = null;
     await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: acta.actaId,
+      eje: 'rq_anticipada',
+      action: 'solicitar_compra_anticipada',
+      previousStatus: anticipadaAnterior,
+      newStatus: ActaRqAnticipadaStatus.PENDIENTE,
+      comments: motivo,
+      userId,
+    });
 
     this.notificarRqAnticipada('solicitada', acta, user).catch(() => {});
     return acta;
@@ -2547,6 +2711,16 @@ export class SurveysService {
     acta.rqAnticipadaResueltaPor = userId;
     acta.rqAnticipadaResueltaAt = new Date();
     await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: acta.actaId,
+      eje: 'rq_anticipada',
+      action: aprobar ? 'autorizar_compra_anticipada' : 'negar_compra_anticipada',
+      previousStatus: ActaRqAnticipadaStatus.PENDIENTE,
+      newStatus: acta.rqAnticipadaStatus,
+      comments: aprobar ? null : acta.rqAnticipadaMotivo,
+      userId,
+    });
 
     this.notificarRqAnticipada(aprobar ? 'aprobada' : 'rechazada', acta, user).catch(() => {});
     return acta;
@@ -2779,9 +2953,19 @@ export class SurveysService {
       throw new BadRequestException('El acta ya fue enviada a presupuesto y está en revisión');
     }
 
+    const presupuestoAnterior = acta.presupuestoStatus;
     acta.presupuestoStatus = ActaBudgetStatus.EN_REVISION;
     acta.presupuestoRechazoMotivo = null;
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'presupuesto',
+      action: 'enviar_presupuesto',
+      previousStatus: presupuestoAnterior,
+      newStatus: ActaBudgetStatus.EN_REVISION,
+      userId,
+    });
 
     this.sendActaNotification('sent_to_budget', savedActa, { actor: user }).catch(() => {});
 
@@ -2829,6 +3013,18 @@ export class SurveysService {
     }
 
     const savedActa = await this.workActaRepository.save(acta);
+    // `presupuesto_status` no tiene columnas de revisor ni de fecha: sin esta anotacion
+    // el acta dice 'aprobado' sin poder decir quien lo aprobo.
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'presupuesto',
+      action: decision === 'aprobado' ? 'aprobar_presupuesto' : 'rechazar_presupuesto',
+      previousStatus: ActaBudgetStatus.EN_REVISION,
+      newStatus: savedActa.presupuestoStatus,
+      comments: decision === 'rechazado' ? motivo?.trim() : null,
+      userId,
+    });
 
     this.sendActaNotification(
       decision === 'aprobado' ? 'budget_approved' : 'budget_rejected',
@@ -2866,6 +3062,16 @@ export class SurveysService {
     acta.presupuestoStatus = ActaBudgetStatus.APROBADO;
     acta.presupuestoRechazoMotivo = null;
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'presupuesto',
+      action: 'cerrar_presupuesto',
+      previousStatus: ActaBudgetStatus.EN_REVISION,
+      newStatus: ActaBudgetStatus.APROBADO,
+      comments: 'Cerrado al autorizarse el Presupuesto del Director',
+      userId,
+    });
 
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     this.sendActaNotification('budget_approved', savedActa, { actor: user }).catch(() => {});
@@ -2898,6 +3104,16 @@ export class SurveysService {
     acta.presupuestoStatus = ActaBudgetStatus.EN_REVISION;
     acta.presupuestoRechazoMotivo = null;
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'presupuesto',
+      action: 'reabrir_presupuesto',
+      previousStatus: ActaBudgetStatus.APROBADO,
+      newStatus: ActaBudgetStatus.EN_REVISION,
+      comments: 'Reabierto al devolverse el Presupuesto del Director',
+      userId,
+    });
 
     const user = await this.userRepository.findOne({ where: { userId }, relations: ['role'] });
     this.sendActaNotification('sent_to_budget', savedActa, { actor: user }).catch(() => {});
@@ -3078,10 +3294,20 @@ export class SurveysService {
       throw new BadRequestException('El cronograma ya fue enviado a revisión');
     }
 
+    const cronogramaAnterior = acta.cronogramaStatus;
     acta.cronogramaStatus = ActaCronogramaStatus.EN_REVISION;
     acta.cronogramaRechazoMotivo = null;
     acta.createdBy = userId;
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'cronograma',
+      action: 'enviar_cronograma',
+      previousStatus: cronogramaAnterior,
+      newStatus: ActaCronogramaStatus.EN_REVISION,
+      userId,
+    });
 
     this.sendActaNotification('cronograma_submitted', savedActa, { actor: user }).catch(() => {});
     return savedActa;
@@ -3124,6 +3350,16 @@ export class SurveysService {
     acta.cronogramaReviewedAt = new Date();
 
     const savedActa = await this.workActaRepository.save(acta);
+    await this.bitacora.anotar({
+      ambito: 'acta',
+      actaId: savedActa.actaId,
+      eje: 'cronograma',
+      action: decision === 'aprobado' ? 'aprobar_cronograma' : 'rechazar_cronograma',
+      previousStatus: ActaCronogramaStatus.EN_REVISION,
+      newStatus: savedActa.cronogramaStatus,
+      comments: decision === 'rechazado' ? motivo?.trim() : null,
+      userId,
+    });
 
     this.sendActaNotification(
       decision === 'aprobado' ? 'cronograma_approved' : 'cronograma_rejected',
