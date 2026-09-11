@@ -120,3 +120,54 @@ export const PRESTAMO_ENTERAR_AL_LLEGAR: Record<PrestamoEstado, string[]> = {
   pendiente_administrativa: [],
   aprobado: [],
 };
+
+/**
+ * Llena los recuadros que aporta cada paso del préstamo, antes de comprobar si falta algo.
+ *
+ * Existe aparte porque el orden importa y es fácil de romper sin que se note. Los
+ * recuadros de Gerencia y de Dirección Administrativa **no están guardados** cuando se
+ * decide —el formato se cierra al salir de borrador— y llegan con la acción. Si se
+ * comprueban los obligatorios antes de llenarlos, se comprueba siempre una casilla vacía
+ * y el trámite se traba entero, que es justo lo que pasaba.
+ *
+ * Devuelve una copia: quien llama decide si la guarda, y una comprobación que falle no
+ * deja a medias la solicitud que recibió.
+ */
+export function llenarDatosPrestamo(
+  accion: string,
+  datos: Record<string, any>,
+  payload: Record<string, any> | undefined,
+  quien: string,
+  hoy: string,
+): Record<string, any> {
+  const data = { ...datos };
+
+  if (accion === "enviar") {
+    const nombre = [data.primerNombre, data.segundoNombre, data.primerApellido, data.segundoApellido]
+      .map((s: unknown) => String(s ?? "").trim())
+      .filter(Boolean)
+      .join(" ");
+    data.nombreCompleto = nombre;
+    data.firmaEmpleado = nombre;
+    data.fechaFirmaEmpleado = data.fechaFirmaEmpleado || hoy;
+  } else if (accion === "aprobar_administrativa") {
+    // Las condiciones del préstamo las fija Dirección Administrativa al firmar: son
+    // suyas, no del empleado, y por eso llegan con la acción y no con el «Guardar» del
+    // formulario, que fuera del borrador ya está cerrado.
+    for (const k of ["fechaDesembolso", "numeroCuotas", "valorCuota"]) {
+      if (payload?.[k] !== undefined) data[k] = payload[k];
+    }
+    data.firmaAdministrativa = quien;
+    data.fechaFirmaAdministrativa = data.fechaFirmaAdministrativa || hoy;
+  } else if (accion === "aprobar_gerencia") {
+    // El valor aprobado es de Gerencia: puede ser menor que el solicitado. Si no lo
+    // manda, se toma el solicitado, que es lo que dice el papel cuando se aprueba tal
+    // cual y lo que hace la bandeja de Aprobaciones, donde no hay dónde teclearlo.
+    data.valorAprobado =
+      (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
+    data.firmaGerencia = quien;
+    data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
+  }
+
+  return data;
+}

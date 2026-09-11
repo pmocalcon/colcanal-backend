@@ -82,6 +82,7 @@ import {
   PRESTAMO_ESTADOS,
   PRESTAMO_NOTIFICAR_AL_LLEGAR,
   PRESTAMO_ENTERAR_AL_LLEGAR,
+  llenarDatosPrestamo,
   PrestamoEstado,
 } from "./prestamo-workflow";
 import {
@@ -3058,44 +3059,44 @@ export class GestionConocimientoService implements OnModuleInit {
 
     const ahora = new Date();
     const hoy = ahora.toISOString().slice(0, 10);
-    const data: Record<string, any> = { ...(solicitud.data ?? {}) };
+    const data: Record<string, any> = llenarDatosPrestamo(
+      accion,
+      solicitud.data ?? {},
+      payload,
+      user?.nombre ?? "",
+      hoy,
+    );
 
-    // Sin nombre, cédula y valor el formato no dice a quién ni cuánto: no se envía.
-    // El formato se envía completo. La comprobación nombra de una vez todo lo que falta
-    // —no la primera casilla vacía—, y lo mismo en los pasos de Gerencia y Dirección
-    // Administrativa, que llenan sus propios recuadros.
+    /*
+     * La comprobación va **después** de llenar `data`, no antes.
+     *
+     * Estaba antes, y eso trababa el trámite completo: los recuadros de Gerencia y de
+     * Dirección Administrativa no están guardados cuando se decide —el formato queda
+     * cerrado al salir de borrador— y llegan con la acción, en el payload. Comprobando
+     * primero se leía siempre lo que había guardado antes, que en esos dos pasos es una
+     * casilla vacía, y toda autorización de Gerencia moría en «Falta el Valor aprobado»
+     * aunque acabaran de escribirlo. Desde la bandeja de Aprobaciones, donde el valor ni
+     * se teclea porque se aprueba por lo solicitado, no había forma de aprobar ninguno.
+     *
+     * Se comprueba lo que va a quedar escrito, que es la misma regla que ya sigue el
+     * Vo.Bo. de Recursos Humanos en vacaciones.
+     */
     exigirCamposObligatorios(solicitud.formato, accion, data);
 
-    if (accion === "enviar") {
-      const nombre = [data.primerNombre, data.segundoNombre, data.primerApellido, data.segundoApellido]
-        .map((s: unknown) => String(s ?? "").trim())
-        .filter(Boolean)
-        .join(" ");
-      data.nombreCompleto = nombre;
-      data.firmaEmpleado = nombre;
-      data.fechaFirmaEmpleado = data.fechaFirmaEmpleado || hoy;
-    } else if (accion === "aprobar_administrativa") {
-      // Las condiciones del préstamo las fija Dirección Administrativa al firmar: son
-      // suyas, no del empleado, y por eso llegan con la acción y no con el «Guardar»
-      // del formulario, que fuera del borrador ya está cerrado.
-      for (const k of ["fechaDesembolso", "numeroCuotas", "valorCuota"]) {
-        if (payload?.[k] !== undefined) data[k] = payload[k];
-      }
-      data.firmaAdministrativa = user?.nombre ?? "";
-      data.fechaFirmaAdministrativa = data.fechaFirmaAdministrativa || hoy;
-
-      /*
-       * Con esta firma se cierra el recorrido, y es aquí donde el préstamo nace en la
-       * cartera real.
-       *
-       * No al autorizar Gerencia, aunque sea quien decide el valor: en ese momento no
-       * existen todavía la fecha de desembolso, el número de cuotas ni la cuota, que
-       * son de este paso. Creado antes, el préstamo entraba a la cartera en blanco y
-       * la cuota había que digitarla otra vez a mano.
-       *
-       * Va antes de guardar la solicitud para no dejarla marcada «aprobado» sin que el
-       * préstamo exista de verdad si esto falla.
-       */
+    /*
+     * Con la firma de Dirección Administrativa se cierra el recorrido, y es aquí donde el
+     * préstamo nace en la cartera real.
+     *
+     * No al autorizar Gerencia, aunque sea quien decide el valor: en ese momento no
+     * existen todavía la fecha de desembolso, el número de cuotas ni la cuota, que son de
+     * este paso. Creado antes, el préstamo entraba a la cartera en blanco y la cuota había
+     * que digitarla otra vez a mano.
+     *
+     * Va después de la comprobación y antes de guardar la solicitud: no puede nacer un
+     * préstamo con las condiciones incompletas, ni quedar la solicitud marcada «aprobado»
+     * sin que el préstamo exista de verdad.
+     */
+    if (accion === "aprobar_administrativa") {
       await this.talentoHumano.createPrestamo({
         // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
         solicitudId: solicitud.solicitudId,
@@ -3109,13 +3110,6 @@ export class GestionConocimientoService implements OnModuleInit {
         saldo: data.valorAprobado || null,
         observaciones: `Generado al aprobar la solicitud GTH-007-F N.º ${solicitud.solicitudId}.`,
       });
-    } else if (accion === "aprobar_gerencia") {
-      // El valor aprobado es de Gerencia: puede ser menor que el solicitado. Si no lo
-      // manda, se toma el solicitado, que es lo que dice el papel cuando se aprueba tal cual.
-      data.valorAprobado =
-        (payload?.valorAprobado as string) || data.valorAprobado || data.valorSolicitado || "";
-      data.firmaGerencia = user?.nombre ?? "";
-      data.fechaFirmaGerencia = data.fechaFirmaGerencia || hoy;
     }
 
     // Al devolver al borrador se borran las firmas y las condiciones pactadas: el
