@@ -1106,7 +1106,21 @@ export class GestionConocimientoService implements OnModuleInit {
     // colección —{ lista: [...] }—: un mismo contrato puede prorrogarse o adicionarse
     // varias veces, y cada otrosí numera y cita a los anteriores.
     "otrosies",
+    // Constancia de verificación de antecedentes (GJ-005-F). La pantalla la guardaba con
+    // esta clave desde que se creó, pero faltaba aquí: todo guardado respondía
+    // «Documento no válido» y la constancia nunca quedaba registrada.
+    "antecedentes",
   ];
+
+  /**
+   * Estados en que la constancia de antecedentes todavía no se diligencia: la solicitud
+   * no ha salido de la mesa de quien la creó. Son los mismos que usa la pantalla.
+   */
+  private static readonly ANTECEDENTES_NO_HABILITADO = new Set([
+    "borrador",
+    "pendiente_autorizacion_gp",
+    "pendiente_firma_gerencia",
+  ]);
 
   /**
    * Documentos que **no** son de Jurídica.
@@ -1192,6 +1206,15 @@ export class GestionConocimientoService implements OnModuleInit {
     ) {
       throw new BadRequestException(
         "La lista de chequeo debe estar revisada por la Dirección Administrativa y por la Dirección Jurídica antes de generar el contrato.",
+      );
+    }
+
+    if (
+      key === "antecedentes" &&
+      GestionConocimientoService.ANTECEDENTES_NO_HABILITADO.has(solicitud.estado)
+    ) {
+      throw new BadRequestException(
+        "La constancia de antecedentes se diligencia cuando la solicitud ya fue autorizada y firmada por Gerencia.",
       );
     }
 
