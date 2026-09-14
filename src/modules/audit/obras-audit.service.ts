@@ -53,15 +53,20 @@ const LIMITE_PAGINA = 200;
  * auditoría sumara de otra forma, diría que un acta vale una cosa mientras la pantalla
  * del acta dice otra, y el auditor no tendría cómo saber a cuál hacerle caso.
  *
+ * Cada obra se redondea al peso **antes** de sumarla al acta. Redondear después cambia el
+ * último peso: el acta 03-2026 de Guacarí daba 22.110.206 sumando sin redondear y
+ * 22.110.207 obra por obra, que es lo que muestra la pantalla. Se pasa a `numeric` antes de
+ * `ROUND` porque en `float` Postgres puede redondear los empates al par.
+ *
  * Va como fragmento y no como vista porque se engancha con `LATERAL` a la obra en curso
  * (`w.work_id`), que es lo que lo hace barato en un listado.
  */
 const SQL_VALOR_OBRA = `
-    SELECT COALESCE(SUM(
+    SELECT ROUND(COALESCE(SUM(
              sub.total_base *
              CASE WHEN bi.base_ipp > 0 AND s.previous_month_ipp > 0
                   THEN s.previous_month_ipp / bi.base_ipp ELSE 1 END
-           ), 0)::float AS valor
+           ), 0)::numeric)::float AS valor
       FROM surveys s
       JOIN LATERAL (
         SELECT COALESCE(SUM(sbi.quantity * sbi.unit_value), 0)::float AS total_base
