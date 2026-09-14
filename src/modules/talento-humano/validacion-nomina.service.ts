@@ -8,7 +8,7 @@ import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.e
 import { User } from "../../database/entities/user.entity";
 import { NotificationsService } from "../notifications/notifications.service";
 import { NominaService, type CuotasEnCartera, type FilaNominaPreview } from "./nomina.service";
-import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
+import { DESTINO_LIQUIDACION, elegirDestinatariosLiquidacion } from "./validacion-nomina.destino";
 import { PagosService } from "./pagos.service";
 
 /**
@@ -448,13 +448,10 @@ export class ValidacionNominaService {
    * deje de salir sin que nadie se entere.
    */
   private async destinatarios(): Promise<User[]> {
+    // Quien la recibe y quien, sin ser del área, también hace el giro. La regla completa
+    // está en `elegirDestinatariosLiquidacion`.
     const activos = await this.userRepo.find({ where: { estado: true }, relations: ["role"] });
-    const delRol = activos.filter(
-      (u) => (u.role?.nombreRol ?? "").toLowerCase() === DESTINO_LIQUIDACION.rol.toLowerCase(),
-    );
-    const clave = DESTINO_LIQUIDACION.nombreContiene.toLowerCase();
-    const afinado = delRol.filter((u) => (u.nombre ?? "").toLowerCase().includes(clave));
-    return afinado.length > 0 ? afinado : delRol;
+    return elegirDestinatariosLiquidacion(activos);
   }
 
   async enviar(periodo: string, userId?: number): Promise<EstadoPeriodo> {

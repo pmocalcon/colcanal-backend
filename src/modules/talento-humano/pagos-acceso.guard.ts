@@ -8,7 +8,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { User } from "../../database/entities/user.entity";
 import { esRolPmo } from "../../common/constants/roles.constants";
-import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
+import { ACCESO_SOLO_PAGOS, DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
 
 /**
  * Quién entra a Solicitudes de pago.
@@ -27,7 +27,7 @@ import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
  *   puede abrir—.
  * - **El PMO**, el comodín transversal del sistema, que es quien arma el documento y quien
  *   tiene que poder revisar que esto funcione.
- * - **Las personas de `ACCESO_SOLO_PAGOS`**, que entran a esta pantalla y a ninguna otra
+ * - **Las personas de `ACCESO_SOLO_PAGOS`** (validacion-nomina.destino.ts), que entran a esta pantalla y a ninguna otra
  *   de Talento Humano. No se les da el rol ni la gestión del área: eso les abriría la
  *   base de personal, la nómina y los préstamos de todo el mundo, que no es lo que se
  *   pidió.
@@ -39,25 +39,6 @@ import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
  * la empresa, esto se queda sin nadie hasta que se corrija `DESTINO_LIQUIDACION`, que es
  * el archivo hecho para eso.
  */
-/**
- * Quienes entran a Solicitudes de pago **sin** ser del área de Talento Humano.
- *
- * Van por rol **y** nombre, igual que `DESTINO_LIQUIDACION`: el rol solo no alcanza,
- * porque darle la entrada a un rol entero se la da a quien lo tenga mañana. Hoy:
- *
- * - Aurora Rivera, única usuaria con el rol «Compras».
- *
- * Yamileth Osorio no está acá porque ya entra como quien recibe la liquidación. Tenía el
- * permiso y no tenía por dónde llegar: el módulo no le aparecía en el menú.
- *
- * Espejo de `PAGOS_ADICIONALES` en el frontend (talentoHumano.service.ts). Si se agrega
- * alguien aquí y no allá, entra por la URL pero no ve la tarjeta; al revés, ve la tarjeta
- * y le sale un 403.
- */
-export const ACCESO_SOLO_PAGOS: readonly { rol: string; nombreContiene: string }[] = [
-  { rol: "Compras", nombreContiene: "rivera" },
-];
-
 /** ¿Esta persona entra a Solicitudes de pago? La usan el guard y quien la necesite. */
 export function puedeEntrarAPagos(rol: string | null | undefined, nombre: string | null | undefined): boolean {
   if (esRolPmo(rol ?? undefined)) return true;

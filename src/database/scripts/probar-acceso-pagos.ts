@@ -12,6 +12,7 @@
 import { DataSource } from "typeorm";
 import { dataSourceOptions } from "../data-source";
 import { puedeEntrarAPagos } from "../../modules/talento-humano/pagos-acceso.guard";
+import { elegirDestinatariosLiquidacion } from "../../modules/talento-humano/validacion-nomina.destino";
 
 let malo = false;
 const revisar = (que: string, ok: boolean, detalle: string) => {
@@ -29,8 +30,9 @@ async function main() {
   await ds.initialize();
 
   try {
-    const usuarios: { nombre: string; rol: string | null }[] = await ds.query(
-      `SELECT u.nombre, r.nombre_rol AS rol
+    const usuarios: { userId: number; nombre: string; rol: string | null; email: string | null }[] = await ds.query(
+      `SELECT u.user_id AS "userId", u.nombre, r.nombre_rol AS rol,
+              COALESCE(NULLIF(u.email_notificacion, ''), u.email) AS email
          FROM users u LEFT JOIN roles r ON r.rol_id = u.rol_id
         WHERE COALESCE(u.estado, true) = true
         ORDER BY u.nombre`,
@@ -74,6 +76,31 @@ async function main() {
         `${coordTh.nombre}: ser del área no abre las cuentas bancarias`,
       );
     }
+    // ── El correo «Liquidación de nómina · lista para pago» ──
+    const destinos = elegirDestinatariosLiquidacion(
+      usuarios.map((u) => ({ ...u, role: { nombreRol: u.rol } })),
+    );
+    console.log(`\n== Reciben el aviso de la liquidación: ${destinos.length} ==`);
+    for (const u of destinos) console.log(`        ${u.nombre.padEnd(30)} ${u.email ?? "SIN CORREO"}`);
+    console.log("");
+    const nombresDestino = destinos.map((u) => u.nombre).sort();
+    revisar(
+      "el aviso de la liquidación les llega a Yamileth y a Aurora, y a nadie más",
+      nombresDestino.length === 2 &&
+        nombresDestino.some((n) => /aurora rivera/i.test(n)) &&
+        nombresDestino.some((n) => /yamileth osorio/i.test(n)),
+      nombresDestino.join(" · ") || "nadie",
+    );
+    revisar(
+      "las dos tienen a dónde mandárselo",
+      destinos.every((u) => !!u.email),
+      destinos.map((u) => u.email ?? "sin correo").join(" · "),
+    );
+    revisar(
+      "quien recibe el aviso puede abrir la pantalla que el aviso le indica",
+      destinos.every((u) => puedeEntrarAPagos(u.rol, u.nombre)),
+      "el correo manda a Talento Humano → Solicitudes de pago",
+    );
   } finally {
     await ds.destroy();
   }
