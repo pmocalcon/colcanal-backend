@@ -12,6 +12,7 @@ import { ThVacacion } from "../../database/entities/th-vacacion.entity";
 import { ThParametroNomina } from "../../database/entities/th-parametro-nomina.entity";
 import { ThRetencionFicha } from "../../database/entities/th-retencion-ficha.entity";
 import { ThBanco } from "../../database/entities/th-banco.entity";
+import { partirNombreDeFicha } from "./nombre-ficha";
 
 /**
  * Talento humano: personal, incapacidades, ausentismos y préstamos.
@@ -330,65 +331,16 @@ export class TalentoHumanoService {
   }
 
   /**
-   * Apellidos y nombres de la ficha.
+   * Apellidos y nombres de la ficha, para los formatos.
    *
-   * Si están corregidos a mano se usan tal cual —**siempre que estén completos**—. Si no,
-   * se parte `nombre`, que viene «APELLIDOS NOMBRES» en una sola cadena: dos apellidos
-   * cuando hay cuatro palabras o más, uno cuando hay tres. No siempre acierta —«CASTILLO
-   * JORGE EDUARDO» es un apellido y dos nombres— y por eso la ficha guarda la corrección.
-   *
-   * Lo de «completos» no es paranoia: en la base hay una docena de fichas que traen
-   * `apellidos = 'BAEZA'` para «BAEZA MARÍN YAKI MICHELL», con el segundo apellido
-   * perdido en la importación de los datos bancarios. Eso no es una corrección, es un
-   * dato roto, y usarlo tal cual imprimiría a la persona con un apellido de menos en cada
-   * formato que firme.
+   * `apellidos`/`nombres` de la ficha son las casillas del archivo del banco —nombres y
+   * **primer** apellido—, así que casi nunca cubren el nombre completo. Nunca se imprimen
+   * tal cual si les falta algo: saldría la persona con un apellido de menos en cada
+   * formato que firme. Se usan como pista de dónde empiezan los nombres, y se escribe con
+   * las palabras de `nombre`. La regla completa está en nombre-ficha.ts.
    */
   private partirNombre(p: ThPersona): { apellidos: string; nombres: string } {
-    const guardados = {
-      apellidos: (p.apellidos ?? "").trim(),
-      nombres: (p.nombres ?? "").trim(),
-    };
-    if ((guardados.apellidos || guardados.nombres) && this.cubreElNombre(p, guardados)) {
-      return guardados;
-    }
-
-    const palabras = (p.nombre ?? "").trim().split(/\s+/).filter(Boolean);
-    if (palabras.length === 0) return { apellidos: "", nombres: "" };
-    if (palabras.length === 1) return { apellidos: palabras[0], nombres: "" };
-    const cuantos = palabras.length >= 4 ? 2 : 1;
-    return {
-      apellidos: palabras.slice(0, cuantos).join(" "),
-      nombres: palabras.slice(cuantos).join(" "),
-    };
-  }
-
-  /**
-   * Si el corte guardado usa exactamente las mismas palabras que `nombre`.
-   *
-   * Se comparan como conjunto y sin tildes: partir bien es repartir las palabras en dos
-   * casillas, no quitar ni agregar ninguna. Sin tildes porque el archivo del banco las
-   * quita —«HERNANDEZ» contra «HERNÁNDEZ»— y esa diferencia no significa que falte nada.
-   */
-  private cubreElNombre(
-    p: ThPersona,
-    corte: { apellidos: string; nombres: string },
-  ): boolean {
-    const normalizar = (v: string): string[] =>
-      v
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toUpperCase()
-        .split(/\s+/)
-        .filter(Boolean)
-        .sort();
-
-    const enLaFicha = normalizar(p.nombre ?? "");
-    const enElCorte = normalizar(`${corte.apellidos} ${corte.nombres}`);
-    return (
-      enLaFicha.length === enElCorte.length &&
-      enLaFicha.every((palabra, i) => palabra === enElCorte[i])
-    );
+    return partirNombreDeFicha(p.nombre, p.apellidos, p.nombres);
   }
 
   async getPersona(id: number): Promise<ThPersona> {
