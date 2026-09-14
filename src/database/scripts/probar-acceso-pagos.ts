@@ -83,23 +83,34 @@ async function main() {
     console.log(`\n== Reciben el aviso de la liquidación: ${destinos.length} ==`);
     for (const u of destinos) console.log(`        ${u.nombre.padEnd(30)} ${u.email ?? "SIN CORREO"}`);
     console.log("");
-    const nombresDestino = destinos.map((u) => u.nombre).sort();
     revisar(
-      "el aviso de la liquidación les llega a Yamileth y a Aurora, y a nadie más",
-      nombresDestino.length === 2 &&
-        nombresDestino.some((n) => /aurora rivera/i.test(n)) &&
-        nombresDestino.some((n) => /yamileth osorio/i.test(n)),
-      nombresDestino.join(" · ") || "nadie",
+      "el aviso de la liquidación le llega solo a Aurora",
+      destinos.length === 1 && /aurora rivera/i.test(destinos[0].nombre),
+      destinos.map((u) => u.nombre).join(" · ") || "nadie",
     );
     revisar(
-      "las dos tienen a dónde mandárselo",
-      destinos.every((u) => !!u.email),
+      "Yamileth ya no lo recibe, pero sigue entrando a pagos",
+      !destinos.some((u) => /yamileth osorio/i.test(u.nombre)) &&
+        usuarios.some((u) => /yamileth osorio/i.test(u.nombre) && puedeEntrarAPagos(u.rol, u.nombre)),
+      "se le quitó el correo, no la pantalla",
+    );
+    revisar(
+      "quien recibe el aviso tiene correo y puede abrir la pantalla que el aviso le indica",
+      destinos.every((u) => !!u.email && puedeEntrarAPagos(u.rol, u.nombre)),
       destinos.map((u) => u.email ?? "sin correo").join(" · "),
     );
+
+    // Si Aurora faltara, el aviso no puede quedarse sin nadie —sin destinatario no se manda
+    // la nómina— ni irse a todo el rol de Compras.
+    const sinAurora = elegirDestinatariosLiquidacion(
+      usuarios
+        .filter((u) => !/aurora rivera/i.test(u.nombre))
+        .map((u) => ({ ...u, role: { nombreRol: u.rol } })),
+    );
     revisar(
-      "quien recibe el aviso puede abrir la pantalla que el aviso le indica",
-      destinos.every((u) => puedeEntrarAPagos(u.rol, u.nombre)),
-      "el correo manda a Talento Humano → Solicitudes de pago",
+      "sin Aurora, el aviso cae en quien también hace el giro",
+      sinAurora.length === 1 && /yamileth osorio/i.test(sinAurora[0].nombre),
+      sinAurora.map((u) => u.nombre).join(" · ") || "nadie: la nómina no se podría mandar",
     );
   } finally {
     await ds.destroy();

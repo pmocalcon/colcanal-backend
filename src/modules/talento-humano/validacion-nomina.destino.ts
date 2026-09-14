@@ -6,35 +6,37 @@
  * recibe otra persona o el rol se llama distinto, se corrige acá.
  *
  * **No es un correo quemado a propósito.** Se resuelve contra la tabla de usuarios, así
- * que si a la persona le cambian la dirección, el sistema la sigue. Lo que sí hay que
- * afinar por nombre es cuál de las dos: hoy hay dos usuarias con el rol de Coordinación
- * Financiera —Yamileth Osorio y Yohana Tobón— y la nómina es de Yamileth. Si el filtro
- * por nombre no encuentra a nadie, el servicio cae de vuelta a todo el rol: es preferible
- * que el correo le llegue de más a alguien del área a que deje de salir en silencio.
+ * que si a la persona le cambian la dirección, el sistema la sigue.
+ *
+ * Hoy la recibe **Aurora Rivera**. Se afina por nombre y no solo por rol porque darle el
+ * aviso de la nómina a un rol entero se lo da a quien tenga ese rol mañana. Antes era
+ * Yamileth Osorio; sigue entrando a Solicitudes de pago (`ACCESO_SOLO_PAGOS`), pero ya no
+ * recibe el correo.
  */
 export const DESTINO_LIQUIDACION = {
-  rol: "Coordinador Financiero",
+  rol: "Compras",
   /** Se compara en minúsculas contra `users.nombre`. */
-  nombreContiene: "osorio",
+  nombreContiene: "rivera",
   /** Solo para mostrarlo en pantalla cuando todavía no se ha resuelto nadie. */
-  descripcion: "Coordinación Financiera",
+  descripcion: "Aurora Rivera",
 } as const;
 
 /**
- * Quienes, además de `DESTINO_LIQUIDACION`, **entran a Solicitudes de pago y reciben el
- * aviso de la liquidación**, sin ser del área de Talento Humano. Hoy:
+ * Quienes **entran** a Solicitudes de pago sin ser del área de Talento Humano y **sin**
+ * recibir el aviso de la liquidación. Hoy:
  *
- * - Aurora Rivera, única usuaria con el rol «Compras».
+ * - Yamileth Osorio. Hay otra usuaria con su mismo rol, Yohana Tobón, que no entra: por
+ *   eso va por rol y nombre.
  *
- * Es una sola lista para las dos cosas a propósito: quien recibe el correo «lista para
- * pago» tiene que poder abrir la pantalla que el correo le indica, y quien hace el giro
- * tiene que enterarse de que hay uno. Dos listas se separarían.
+ * Quien recibe el aviso (`DESTINO_LIQUIDACION`) entra también, sin necesidad de estar acá:
+ * el correo manda a esa pantalla y tiene que poder abrirla.
  *
- * Van por rol **y** nombre: darle esto a un rol entero se lo da a quien lo tenga mañana.
- * Espejo de `PAGOS_ADICIONALES` en el frontend (talentoHumano.service.ts).
+ * Espejo del acceso a pagos en el frontend (`puedeVerSolicitudesPago`,
+ * talentoHumano.service.ts): si se agrega alguien aquí y no allá, entra por la URL pero no
+ * ve la tarjeta; al revés, ve la tarjeta y le sale un 403.
  */
 export const ACCESO_SOLO_PAGOS: readonly { rol: string; nombreContiene: string }[] = [
-  { rol: "Compras", nombreContiene: "rivera" },
+  { rol: "Coordinador Financiero", nombreContiene: "osorio" },
 ];
 
 interface UsuarioConRol {
@@ -43,35 +45,25 @@ interface UsuarioConRol {
   role?: { nombreRol?: string | null } | null;
 }
 
+const coincide = (
+  u: UsuarioConRol,
+  p: { rol: string; nombreContiene: string },
+): boolean =>
+  (u.role?.nombreRol ?? "").trim().toLowerCase() === p.rol.toLowerCase() &&
+  (u.nombre ?? "").toLowerCase().includes(p.nombreContiene);
+
 /**
  * A quién le llega la liquidación, de entre los usuarios activos.
  *
- * Primero quien la recibe (`DESTINO_LIQUIDACION`), afinado por nombre porque hay dos
- * personas con el rol de Coordinación Financiera. Si el nombre no encuentra a nadie cae a
- * todo el rol: es preferible que el correo le llegue de más a alguien del área a que deje
- * de salir sin que nadie se entere.
+ * A `DESTINO_LIQUIDACION`, y a nadie más.
  *
- * Después, `ACCESO_SOLO_PAGOS`. Estas **no** tienen esa caída: si Aurora sale de la
- * empresa, el aviso no se le manda a quien herede el rol de Compras. Sin repetir a nadie.
+ * Si no se encuentra —salió de la empresa, le cambiaron el nombre o el rol— el aviso cae a
+ * las personas de `ACCESO_SOLO_PAGOS`, no al rol entero de Compras. Son quienes pueden
+ * hacer algo con él, y la alternativa es peor: sin destinatario no se puede mandar la
+ * nómina, y sesenta personas se quedan sin pago por un cambio en la ficha de una.
  */
 export function elegirDestinatariosLiquidacion<U extends UsuarioConRol>(activos: U[]): U[] {
-  const rolDe = (u: U) => (u.role?.nombreRol ?? "").trim().toLowerCase();
-  const nombreDe = (u: U) => (u.nombre ?? "").toLowerCase();
-
-  const delRol = activos.filter((u) => rolDe(u) === DESTINO_LIQUIDACION.rol.toLowerCase());
-  const afinado = delRol.filter((u) => nombreDe(u).includes(DESTINO_LIQUIDACION.nombreContiene));
-  const principales = afinado.length > 0 ? afinado : delRol;
-
-  const adicionales = activos.filter((u) =>
-    ACCESO_SOLO_PAGOS.some(
-      (p) => rolDe(u) === p.rol.toLowerCase() && nombreDe(u).includes(p.nombreContiene),
-    ),
-  );
-
-  const vistos = new Set<number>();
-  return [...principales, ...adicionales].filter((u) => {
-    if (vistos.has(u.userId)) return false;
-    vistos.add(u.userId);
-    return true;
-  });
+  const principales = activos.filter((u) => coincide(u, DESTINO_LIQUIDACION));
+  if (principales.length > 0) return principales;
+  return activos.filter((u) => ACCESO_SOLO_PAGOS.some((p) => coincide(u, p)));
 }

@@ -438,18 +438,8 @@ export class ValidacionNominaService {
 
   // ── Mandar a Financiera ──
 
-  /**
-   * A quién le llega la liquidación.
-   *
-   * Se resuelve por rol y se afina por nombre porque hay **dos** personas con el rol de
-   * Coordinación Financiera y la nómina es de una sola de ellas. Si el filtro por nombre
-   * no encuentra a nadie —la renombraron, se fue, la cambiaron de rol— cae de vuelta a
-   * todo el rol: es preferible que el correo le llegue de más a alguien del área a que
-   * deje de salir sin que nadie se entere.
-   */
+  /** A quién le llega la liquidación. La regla está en `elegirDestinatariosLiquidacion`. */
   private async destinatarios(): Promise<User[]> {
-    // Quien la recibe y quien, sin ser del área, también hace el giro. La regla completa
-    // está en `elegirDestinatariosLiquidacion`.
     const activos = await this.userRepo.find({ where: { estado: true }, relations: ["role"] });
     return elegirDestinatariosLiquidacion(activos);
   }
@@ -467,7 +457,8 @@ export class ValidacionNominaService {
     const destinos = await this.destinatarios();
     if (destinos.length === 0) {
       throw new BadRequestException(
-        `No hay ningún usuario activo con el rol «${DESTINO_LIQUIDACION.rol}» a quién mandársela.`,
+        `No se encontró a ${DESTINO_LIQUIDACION.descripcion} (rol «${DESTINO_LIQUIDACION.rol}») ` +
+          `ni a nadie más que haga el giro, activo, a quién mandársela.`,
       );
     }
 
