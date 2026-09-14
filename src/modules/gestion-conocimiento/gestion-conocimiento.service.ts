@@ -85,6 +85,7 @@ import {
   llenarDatosPrestamo,
   PrestamoEstado,
 } from "./prestamo-workflow";
+import { condicionesParaCartera } from "./prestamo-cartera";
 import {
   PERMISO_TRANSICIONES,
   PERMISO_ESTADOS,
@@ -3120,17 +3121,20 @@ export class GestionConocimientoService implements OnModuleInit {
      * sin que el préstamo exista de verdad.
      */
     if (accion === "aprobar_administrativa") {
+      /*
+       * Lo escrito a mano —«2.000.000», «15/09/2026»— no entra tal cual en columnas
+       * `numeric` y `date`: se convierte antes. Si algo no se entiende, se dice cuál
+       * casilla es y cómo se escribe, en vez de que la base rechace el insert con un
+       * error suyo que en pantalla se leía «An error occurred while processing your
+       * request».
+       */
       await this.talentoHumano.createPrestamo({
         // Deja amarrado el formato que lo originó, para poder deshacerlo si se anula.
         solicitudId: solicitud.solicitudId,
         nombre: data.nombreCompleto || "",
         identificacion: data.numero || null,
-        mesInicio: data.fechaDesembolso || null,
-        numeroCuotas: data.numeroCuotas ? Number(data.numeroCuotas) : null,
-        valorPrestamo: data.valorAprobado || null,
-        valorCuota: data.valorCuota || null,
+        ...condicionesParaCartera(data),
         valorCancelado: "0",
-        saldo: data.valorAprobado || null,
         observaciones: `Generado al aprobar la solicitud GTH-007-F N.º ${solicitud.solicitudId}.`,
       });
     }
