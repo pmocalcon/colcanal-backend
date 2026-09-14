@@ -108,6 +108,16 @@ export class PagosService {
 
   // ── Consulta ──
 
+  /** Lo mismo que `/nomina/periodos`, para quien entra a pagos sin ser del área. */
+  periodos(): Promise<string[]> {
+    return this.nominaService.listPeriodos();
+  }
+
+  /** Lo mismo que `/talento-humano/bancos`, de solo lectura y en el mismo orden. */
+  bancos(): Promise<ThBanco[]> {
+    return this.bancoRepo.find({ order: { nombre: "ASC" } });
+  }
+
   async list(): Promise<Array<ThSolicitudPago & { lineas: number; total: number }>> {
     const solicitudes = await this.solicitudRepo.find({
       order: { fecha: "DESC", solicitudId: "DESC" },

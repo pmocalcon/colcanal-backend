@@ -18,7 +18,7 @@ import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
  * se le gira. Que lo vea el área entera es más de lo que hace falta —una sola persona
  * hace el giro— y de más gente de la que debería tener esas cifras juntas.
  *
- * Entran dos:
+ * Entran tres:
  *
  * - **Quien recibe la liquidación**, que es quien paga. Se resuelve con el mismo
  *   `DESTINO_LIQUIDACION` que decide a quién se le manda el correo, y no con una lista
@@ -27,6 +27,10 @@ import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
  *   puede abrir—.
  * - **El PMO**, el comodín transversal del sistema, que es quien arma el documento y quien
  *   tiene que poder revisar que esto funcione.
+ * - **Las personas de `ACCESO_SOLO_PAGOS`**, que entran a esta pantalla y a ninguna otra
+ *   de Talento Humano. No se les da el rol ni la gestión del área: eso les abriría la
+ *   base de personal, la nómina y los préstamos de todo el mundo, que no es lo que se
+ *   pidió.
  *
  * Ojo con una diferencia frente al correo: allá, si el filtro por nombre no encuentra a
  * nadie, se cae de vuelta a todo el rol —es preferible que el aviso le llegue de más a
@@ -35,6 +39,34 @@ import { DESTINO_LIQUIDACION } from "./validacion-nomina.destino";
  * la empresa, esto se queda sin nadie hasta que se corrija `DESTINO_LIQUIDACION`, que es
  * el archivo hecho para eso.
  */
+/**
+ * Quienes entran a Solicitudes de pago **sin** ser del área de Talento Humano.
+ *
+ * Van por rol **y** nombre, igual que `DESTINO_LIQUIDACION`: el rol solo no alcanza,
+ * porque darle la entrada a un rol entero se la da a quien lo tenga mañana. Hoy:
+ *
+ * - Aurora Rivera, única usuaria con el rol «Compras».
+ *
+ * Yamileth Osorio no está acá porque ya entra como quien recibe la liquidación. Tenía el
+ * permiso y no tenía por dónde llegar: el módulo no le aparecía en el menú.
+ *
+ * Espejo de `PAGOS_ADICIONALES` en el frontend (talentoHumano.service.ts). Si se agrega
+ * alguien aquí y no allá, entra por la URL pero no ve la tarjeta; al revés, ve la tarjeta
+ * y le sale un 403.
+ */
+export const ACCESO_SOLO_PAGOS: readonly { rol: string; nombreContiene: string }[] = [
+  { rol: "Compras", nombreContiene: "rivera" },
+];
+
+/** ¿Esta persona entra a Solicitudes de pago? La usan el guard y quien la necesite. */
+export function puedeEntrarAPagos(rol: string | null | undefined, nombre: string | null | undefined): boolean {
+  if (esRolPmo(rol ?? undefined)) return true;
+  const r = (rol ?? "").trim();
+  const n = (nombre ?? "").toLowerCase();
+  if (r === DESTINO_LIQUIDACION.rol && n.includes(DESTINO_LIQUIDACION.nombreContiene)) return true;
+  return ACCESO_SOLO_PAGOS.some((p) => r === p.rol && n.includes(p.nombreContiene));
+}
+
 @Injectable()
 export class PagosAccesoGuard implements CanActivate {
   constructor(
@@ -53,14 +85,7 @@ export class PagosAccesoGuard implements CanActivate {
     });
     if (!user?.estado) throw new ForbiddenException("Tu usuario no está activo.");
 
-    if (esRolPmo(user.role?.nombreRol)) return true;
-
-    const esQuienPaga =
-      (user.role?.nombreRol ?? "").trim() === DESTINO_LIQUIDACION.rol &&
-      (user.nombre ?? "")
-        .toLowerCase()
-        .includes(DESTINO_LIQUIDACION.nombreContiene);
-    if (esQuienPaga) return true;
+    if (puedeEntrarAPagos(user.role?.nombreRol, user.nombre)) return true;
 
     throw new ForbiddenException(
       "Solicitudes de pago es de la Coordinación Financiera que hace el giro. " +

@@ -1,97 +1,88 @@
+/* SOLO LECTURA — este script no escribe nada en la base. */
 /**
- * Quién entra a Solicitudes de pago: solo quien hace el giro y el PMO.
+ * Quién entra a Solicitudes de pago, contra los usuarios reales.
  *
  *     npx ts-node src/database/scripts/probar-acceso-pagos.ts
  *
- * SOLO LECTURA. Pasa a los usuarios reales por el guard, uno por uno.
+ * Ahí está el archivo del portal bancario con la cuenta de cada empleado. Lo que importa
+ * probar no es que entren las que tienen que entrar —eso se nota el primer día— sino que
+ * **no entre nadie más**: un acceso de más no lo reporta nadie. Por eso se recorre la
+ * base entera y se compara contra la lista exacta.
  */
 import { DataSource } from "typeorm";
 import { dataSourceOptions } from "../data-source";
-import { PagosAccesoGuard } from "../../modules/talento-humano/pagos-acceso.guard";
-import { DESTINO_LIQUIDACION } from "../../modules/talento-humano/validacion-nomina.destino";
-import { User } from "../entities/user.entity";
+import { puedeEntrarAPagos } from "../../modules/talento-humano/pagos-acceso.guard";
 
-/** Un contexto de Nest de mentira: el guard solo mira `request.user.userId`. */
-const contextoDe = (userId?: number) =>
-  ({ switchToHttp: () => ({ getRequest: () => ({ user: userId ? { userId } : undefined }) }) }) as any;
+let malo = false;
+const revisar = (que: string, ok: boolean, detalle: string) => {
+  console.log(`${ok ? "OK " : "MAL"}  ${que}: ${detalle}`);
+  if (!ok) malo = true;
+};
 
 async function main() {
-  const ds = new DataSource({ ...dataSourceOptions, synchronize: false, logging: false } as any);
+  const ds = new DataSource({
+    ...dataSourceOptions,
+    synchronize: false,
+    migrationsRun: false,
+    cache: false,
+  });
   await ds.initialize();
-  const guard = new PagosAccesoGuard(ds.getRepository(User));
 
-  let malo = false;
-  const revisar = (que: string, ok: boolean, detalle: string) => {
-    console.log(`${ok ? "OK " : "MAL"}  ${que}: ${detalle}`);
-    if (!ok) malo = true;
-  };
-
-  const usuarios = await ds.getRepository(User).find({ relations: ["role"], where: { estado: true } });
-  const entran: string[] = [];
-  const noEntran: string[] = [];
-
-  for (const u of usuarios) {
-    const rol = (u.role?.nombreRol ?? "").trim();
-    let paso = false;
-    try {
-      paso = await guard.canActivate(contextoDe(u.userId));
-    } catch {
-      paso = false;
-    }
-
-    const esPmo = rol === "Analista PMO" || rol === "Director PMO";
-    const esQuienPaga =
-      rol === DESTINO_LIQUIDACION.rol &&
-      (u.nombre ?? "").toLowerCase().includes(DESTINO_LIQUIDACION.nombreContiene);
-    const deberia = esPmo || esQuienPaga;
-
-    if (paso !== deberia) {
-      malo = true;
-      console.log(`  MAL  ${u.nombre} (${rol}): ${paso ? "entra" : "no entra"} y debería ${deberia ? "entrar" : "no entrar"}`);
-    }
-    (paso ? entran : noEntran).push(`${u.nombre} (${rol})`);
-  }
-
-  revisar("solo entran los que deben", !malo, `${entran.length} de ${usuarios.length} usuarios`);
-  console.log("     entran:");
-  for (const e of entran) console.log(`       ${e}`);
-
-  // La otra usuaria del mismo rol no entra: es el punto de filtrar por nombre.
-  const delRol = usuarios.filter((u) => (u.role?.nombreRol ?? "").trim() === DESTINO_LIQUIDACION.rol);
-  const fuera = delRol.filter(
-    (u) => !(u.nombre ?? "").toLowerCase().includes(DESTINO_LIQUIDACION.nombreContiene),
-  );
-  revisar(
-    "el rol solo no basta",
-    fuera.every((u) => !entran.some((e) => e.startsWith(u.nombre ?? ""))),
-    fuera.map((u) => `${u.nombre} queda fuera`).join(" · ") || "no hay más usuarios en ese rol",
-  );
-
-  // Talento Humano entra al módulo pero no a esto.
-  const th = usuarios.find((u) => (u.role?.nombreRol ?? "").trim() === "Coordinador Talento Humano");
-  if (th) {
-    revisar(
-      "quien revisa la nómina no ve el archivo del banco",
-      !entran.some((e) => e.startsWith(th.nombre ?? "")),
-      `${th.nombre} (Coordinador Talento Humano) queda fuera`,
-    );
-  }
-
-  let sinSesion = true;
   try {
-    await guard.canActivate(contextoDe(undefined));
-    sinSesion = false;
-  } catch {
-    sinSesion = true;
-  }
-  revisar("sin sesión no entra nadie", sinSesion, "pide iniciar sesión");
+    const usuarios: { nombre: string; rol: string | null }[] = await ds.query(
+      `SELECT u.nombre, r.nombre_rol AS rol
+         FROM users u LEFT JOIN roles r ON r.rol_id = u.rol_id
+        WHERE COALESCE(u.estado, true) = true
+        ORDER BY u.nombre`,
+    );
 
-  await ds.destroy();
-  console.log(malo ? "HAY ALGO MAL" : "TODO CUADRA");
-  if (malo) process.exit(1);
+    const entran = usuarios.filter((u) => puedeEntrarAPagos(u.rol, u.nombre));
+    const noPmo = entran.filter((u) => u.rol !== "Analista PMO" && u.rol !== "Director PMO");
+
+    console.log(`\n== Entran a Solicitudes de pago: ${entran.length} de ${usuarios.length} activos ==`);
+    for (const u of entran) console.log(`        ${u.nombre.padEnd(30)} ${u.rol}`);
+    console.log("");
+
+    const nombres = noPmo.map((u) => u.nombre).sort();
+    revisar(
+      "fuera del PMO entran exactamente Aurora y Yamileth",
+      nombres.length === 2 &&
+        nombres.some((n) => /aurora rivera/i.test(n)) &&
+        nombres.some((n) => /yamileth osorio/i.test(n)),
+      nombres.join(" · ") || "nadie",
+    );
+
+    // Las que se parecen y no deben entrar: la otra Coordinadora Financiera, y la otra
+    // «Yamile», que es de PQRS Circasia.
+    for (const patron of [/yohana tob/i, /yamile rodr/i]) {
+      const u = usuarios.find((x) => patron.test(x.nombre));
+      if (!u) continue;
+      revisar(
+        `${u.nombre} no entra`,
+        !puedeEntrarAPagos(u.rol, u.nombre),
+        `${u.rol}: se parece por rol o por nombre, y no es a quien se le dio`,
+      );
+    }
+
+    // El área de Talento Humano no gana esta pantalla por ser del área: sigue siendo
+    // más cerrada que el resto del módulo.
+    const coordTh = usuarios.find((u) => u.rol === "Coordinador Talento Humano");
+    if (coordTh) {
+      revisar(
+        "la Coordinación de Talento Humano sigue sin entrar",
+        !puedeEntrarAPagos(coordTh.rol, coordTh.nombre),
+        `${coordTh.nombre}: ser del área no abre las cuentas bancarias`,
+      );
+    }
+  } finally {
+    await ds.destroy();
+  }
+
+  console.log(malo ? "\nHay algo mal en el acceso a pagos." : "\nEl acceso a pagos está bien.");
+  process.exit(malo ? 1 : 0);
 }
 
 main().catch((e) => {
-  console.error(e);
+  console.error("MAL ", e.message);
   process.exit(1);
 });

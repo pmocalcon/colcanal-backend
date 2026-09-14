@@ -30,6 +30,25 @@ import { PagosAccesoGuard } from "./pagos-acceso.guard";
 export class PagosController {
   constructor(private readonly service: PagosService) {}
 
+  /*
+   * Los periodos de nómina y el catálogo de bancos también están en `/nomina/periodos` y
+   * `/talento-humano/bancos`, pero esos se cierran con el rol del área. Quien entra solo a
+   * pagos —Coordinación Financiera, Compras— los necesita para crear una solicitud y leer
+   * las cuentas, y abrirle esos dos endpoints le abriría el controlador entero. Se sirven
+   * acá, de solo lectura, detrás del mismo guard de la pantalla.
+   */
+  @Get("periodos")
+  @ApiOperation({ summary: "Periodos de nómina con los que se puede llenar una solicitud" })
+  periodos() {
+    return this.service.periodos();
+  }
+
+  @Get("bancos")
+  @ApiOperation({ summary: "Entidades financieras, para mostrar el banco de cada línea" })
+  bancos() {
+    return this.service.bancos();
+  }
+
   @Get("solicitudes")
   @ApiOperation({ summary: "Solicitudes de pago, con su número de líneas y su total" })
   list() {
