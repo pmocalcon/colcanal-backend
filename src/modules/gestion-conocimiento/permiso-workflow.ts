@@ -164,3 +164,30 @@ export function fechaDelPermiso(data: Record<string, any> | null | undefined): s
   if (!desde) return "";
   return !hasta || hasta === desde ? desde : `${desde} a ${hasta}`;
 }
+
+/**
+ * Los pasos en que la Dirección Administrativa y Financiera puede corregir si el permiso
+ * es remunerado.
+ *
+ * El empleado marca la casilla al pedirlo, pero quien sabe si ese permiso se paga o se
+ * descuenta es la Dirección, y lo sabe justo cuando lo revisa. Antes tenía que devolver
+ * el permiso para que el empleado cambiara una casilla que no le corresponde decidir.
+ *
+ * Viaja con la acción y no con «Guardar» porque fuera del borrador el formato está
+ * cerrado, igual que el cuadro de aprobación del jefe.
+ */
+export const PERMISO_AJUSTA_REMUNERACION = new Set([
+  "revisar_administrativa",
+  "devolver_administrativa",
+]);
+
+/** Los dos valores que admite la casilla; vacío es «sin marcar». */
+export const PERMISO_REMUNERACIONES = ["", "remunerado", "no-remunerado"] as const;
+
+/** Como se nombra en un correo: «REMUNERADO», «NO REMUNERADO», «sin marcar». */
+export function etiquetaRemuneracion(valor: unknown): string {
+  const v = String(valor ?? "").trim();
+  if (v === "remunerado") return "REMUNERADO";
+  if (v === "no-remunerado") return "NO REMUNERADO";
+  return "sin marcar";
+}

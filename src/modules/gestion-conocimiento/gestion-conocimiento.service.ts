@@ -90,6 +90,9 @@ import {
   PERMISO_TRANSICIONES,
   PERMISO_ESTADOS,
   PERMISO_NOTIFICAR_AL_LLEGAR,
+  PERMISO_AJUSTA_REMUNERACION,
+  PERMISO_REMUNERACIONES,
+  etiquetaRemuneracion,
   fechaDelPermiso,
   FILAS_APROBACION_POR_ROL,
   PermisoEstado,
@@ -3440,6 +3443,28 @@ export class GestionConocimientoService implements OnModuleInit {
     /** El permiso queda concedido en este paso: es cuando nace el ausentismo. */
     const concede = destino === "aprobado";
 
+    /*
+     * La Dirección Administrativa corrige acá si el permiso es remunerado.
+     *
+     * Va antes del ausentismo a propósito: el ausentismo se crea con lo que quede en
+     * `data`, y con la corrección después nacería con la casilla que marcó el empleado.
+     * El cambio se le avisa por correo, porque le cambia lo que recibe en la nómina.
+     */
+    let cambioRemuneracion: { antes: string; ahora: string } | null = null;
+    if (PERMISO_AJUSTA_REMUNERACION.has(accion) && payload?.remuneracion !== undefined) {
+      const pedida = String(payload.remuneracion ?? "").trim();
+      if (!(PERMISO_REMUNERACIONES as readonly string[]).includes(pedida)) {
+        throw new BadRequestException(
+          "La remuneración del permiso solo puede ser «remunerado» o «no remunerado».",
+        );
+      }
+      const antes = String(data.remuneracion ?? "").trim();
+      if (antes !== pedida) {
+        cambioRemuneracion = { antes, ahora: pedida };
+        data.remuneracion = pedida;
+      }
+    }
+
     // La casilla «Revisado por» del pie la firma quien cierra el trámite, sea la
     // Dirección en su propio paso o ella misma cuando además era el jefe.
     if (concede) {
@@ -3512,6 +3537,12 @@ export class GestionConocimientoService implements OnModuleInit {
       userId,
       userName: user?.nombre ?? null,
       motivo: motivo?.trim() || undefined,
+      // Queda en la bitácora: cambia lo que la persona recibe en la nómina, así que
+      // tiene que poder verse después quién lo cambió y cuándo.
+      nota: cambioRemuneracion
+        ? `Permiso ${etiquetaRemuneracion(cambioRemuneracion.ahora)} ` +
+          `(antes ${etiquetaRemuneracion(cambioRemuneracion.antes)})`
+        : undefined,
     };
     solicitud.estado = destino;
     solicitud.estadoDesde = ahora;
@@ -3521,7 +3552,7 @@ export class GestionConocimientoService implements OnModuleInit {
 
     const guardada = await this.solicitudRepo.save(solicitud);
 
-    this.notificarPermiso(guardada, destino, motivo).catch((e) =>
+    this.notificarPermiso(guardada, destino, motivo, cambioRemuneracion).catch((e) =>
       this.logger.warn(`No se pudo notificar el permiso: ${e.message}`),
     );
 
@@ -3546,6 +3577,7 @@ export class GestionConocimientoService implements OnModuleInit {
     solicitud: GcSolicitud,
     estado: PermisoEstado,
     motivo?: string,
+    cambioRemuneracion?: { antes: string; ahora: string } | null,
   ): Promise<void> {
     const aviso = PERMISO_NOTIFICAR_AL_LLEGAR[estado];
     const usuarios: User[] = [];
@@ -3598,6 +3630,13 @@ export class GestionConocimientoService implements OnModuleInit {
           quien ? ` de <b>${quien}</b>` : ""
         }${cuando ? ` para el <b>${cuando}</b>` : ""} pasó al estado <b>${label}</b>.</p>
         ${motivo ? `<p><b>Motivo:</b> ${motivo}</p>` : ""}
+        ${
+          cambioRemuneracion
+            ? `<p><b>La Dirección Administrativa y Financiera lo dejó como ${etiquetaRemuneracion(
+                cambioRemuneracion.ahora,
+              )}</b>, antes estaba ${etiquetaRemuneracion(cambioRemuneracion.antes)}.</p>`
+            : ""
+        }
         <p>${cierre}</p>
         <p style="color:#6b7280;font-size:12px">Sistema de Gestión · Gestión del conocimiento</p>
       </div>`,
