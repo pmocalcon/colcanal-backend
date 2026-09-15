@@ -144,3 +144,23 @@ export const PERMISO_NOTIFICAR_AL_LLEGAR: Record<PermisoEstado, PermisoAviso> = 
   pendiente_administrativa: { roles: [ROL_ADMINISTRATIVA_PERMISO] },
   aprobado: { creador: true, roles: [ROL_TALENTO_HUMANO_PERMISO] },
 };
+
+/**
+ * Cuándo es el permiso, para nombrarlo en el correo: «17/09/2026», o «17/09/2026 a
+ * 19/09/2026» si toma varios días.
+ *
+ * El formato anterior guardaba una sola casilla, `fechaPermiso`; el de ahora guarda
+ * `desde` y `hasta`. El correo seguía leyendo la vieja, así que en todos los permisos de
+ * hoy salía sin fecha. Se leen las dos, que los permisos antiguos siguen ahí.
+ */
+export function fechaDelPermiso(data: Record<string, any> | null | undefined): string {
+  const dia = (v: unknown): string => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? "").trim());
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v ?? "").trim();
+  };
+  const d = data ?? {};
+  const desde = dia(d.desde || d.fechaPermiso);
+  const hasta = dia(d.hasta);
+  if (!desde) return "";
+  return !hasta || hasta === desde ? desde : `${desde} a ${hasta}`;
+}

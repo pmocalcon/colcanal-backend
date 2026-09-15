@@ -90,6 +90,7 @@ import {
   PERMISO_TRANSICIONES,
   PERMISO_ESTADOS,
   PERMISO_NOTIFICAR_AL_LLEGAR,
+  fechaDelPermiso,
   FILAS_APROBACION_POR_ROL,
   PermisoEstado,
   ROL_ADMINISTRATIVA_PERMISO,
@@ -3567,7 +3568,7 @@ export class GestionConocimientoService implements OnModuleInit {
     const label = PERMISO_ESTADOS[estado].label;
     const nro = String(solicitud.solicitudId);
     const quien = String(solicitud.data?.nombre ?? "").trim();
-    const cuando = String(solicitud.data?.fechaPermiso ?? "").trim();
+    const cuando = fechaDelPermiso(solicitud.data);
 
     /*
      * Qué se le pide a quien lo recibe. No es lo mismo un correo que dice «te toca» que
