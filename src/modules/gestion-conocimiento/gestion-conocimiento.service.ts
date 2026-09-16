@@ -3825,9 +3825,16 @@ export class GestionConocimientoService implements OnModuleInit {
 
     const guardada = await this.solicitudRepo.save(solicitud);
 
-    this.notificarHorasExtras(guardada, destino, motivo).catch((e) =>
-      this.logger.warn(`No se pudo notificar la planilla de horas extras: ${e.message}`),
-    );
+    /*
+     * El visto bueno de Dirección Administrativa no se avisa: la planilla no se mueve
+     * —sigue aprobada— y el correo de ese estado va al creador y a ella misma, así que
+     * sería mandarles otra vez el aviso de una aprobación que ya conocen.
+     */
+    if (accion !== "revisar_administrativa") {
+      this.notificarHorasExtras(guardada, destino, motivo).catch((e) =>
+        this.logger.warn(`No se pudo notificar la planilla de horas extras: ${e.message}`),
+      );
+    }
 
     return guardada;
   }

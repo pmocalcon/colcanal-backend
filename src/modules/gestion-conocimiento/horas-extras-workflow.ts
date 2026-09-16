@@ -130,6 +130,20 @@ export const HORAS_EXTRAS_TRANSICIONES: Record<string, HorasExtrasTransicion> = 
     correctiva: true,
     label: 'Devolver la planilla',
   },
+  /*
+   * El visto bueno de Dirección Administrativa. No mueve la planilla —sigue aprobada,
+   * que es lo que se liquida— sino que firma el recuadro «Control Administrativo» del
+   * formato: deja constancia de que ella ya la revisó contra lo que va a pagar. Sin él,
+   * su casilla salía impresa con el nombre preimpreso y sin fecha, y por fuera del
+   * sistema no había forma de saber si la había mirado.
+   */
+  revisar_administrativa: {
+    from: 'aprobado',
+    to: 'aprobado',
+    roles: [ROL_ADMINISTRATIVA],
+    correctiva: true,
+    label: 'Revisado',
+  },
 };
 
 /**
@@ -161,4 +175,8 @@ export const HORAS_EXTRAS_FIRMA_POR_ACCION: Record<string, { nombre: string; fec
   revisar_director: { nombre: 'revisadoPor', fecha: 'fechaRevision' },
   revisar_tecnica: { nombre: 'revisadoTecnicaPor', fecha: 'fechaRevisionTecnica' },
   aprobar_gp: { nombre: 'aprobadoGpPor', fecha: 'fechaAprobacionGp' },
+  revisar_administrativa: {
+    nombre: 'controlAdministrativoPor',
+    fecha: 'fechaControlAdministrativo',
+  },
 };
