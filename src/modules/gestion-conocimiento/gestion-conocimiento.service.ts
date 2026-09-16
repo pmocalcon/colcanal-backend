@@ -3702,8 +3702,17 @@ export class GestionConocimientoService implements OnModuleInit {
     // derecho a Dirección Técnica. Antes se le ofrecía a los cuatro directores por igual,
     // lo que era pedirle a alguien que avale el trabajo de una persona que no tiene a
     // cargo: una firma sin fundamento y un paso más en el camino.
+    //
+    // La otra excepción es que la reporte un Director de Proyecto. El paso del Director
+    // de Proyecto existe para que alguien que conoce la operación avale las horas de su
+    // gente; si el que reporta es él mismo, ese aval ya va en el reporte, y mandársela a
+    // su propia bandeja —o a la de otro director— era pedirle que se revisara a sí mismo.
+    // Lo que reporta un PQRS sigue pasando por su Director de Proyecto, como siempre.
+    const reportaUnDirector =
+      accion === "enviar" && (await this.reportaUnDirectorDeProyecto(solicitud));
     const destino: HorasExtrasEstado =
-      accion === "enviar" && !(await this.hayQuienRevisePorProyecto(solicitud))
+      accion === "enviar" &&
+      (reportaUnDirector || !(await this.hayQuienRevisePorProyecto(solicitud)))
         ? "pendiente_direccion_tecnica"
         : t.to;
 
@@ -3731,6 +3740,18 @@ export class GestionConocimientoService implements OnModuleInit {
     if (firma) {
       data[firma.nombre] = user?.nombre ?? "";
       data[firma.fecha] = data[firma.fecha] || hoy;
+    }
+
+    // Cuando el que reporta es el Director de Proyecto, su aval queda puesto al enviar:
+    // es el mismo que habría dado en el paso que se salta, y sin él la planilla llegaría
+    // a Dirección Técnica sin constancia de que un director respondió por esas horas.
+    if (reportaUnDirector) {
+      const director = HORAS_EXTRAS_FIRMA_POR_ACCION.revisar_director;
+      const creador = solicitud.createdBy
+        ? await this.userRepo.findOne({ where: { userId: solicitud.createdBy } })
+        : null;
+      data[director.nombre] = creador?.nombre ?? user?.nombre ?? "";
+      data[director.fecha] = hoy;
     }
 
     // Devolver la planilla borra las firmas: vuelve a recorrer el camino completo y
@@ -4139,6 +4160,16 @@ export class GestionConocimientoService implements OnModuleInit {
    * No cuando la reporta alguien de otra área sin director asignado —Talento Humano,
    * PQRS, coordinación—. Ahí el paso sobra y la planilla arranca en Dirección Técnica.
    */
+  /** ¿Quien creó la planilla es un Director de Proyecto? */
+  private async reportaUnDirectorDeProyecto(solicitud: GcSolicitud): Promise<boolean> {
+    if (!solicitud.createdBy) return false;
+    const creador = await this.userRepo.findOne({
+      where: { userId: solicitud.createdBy },
+      relations: ["role"],
+    });
+    return ROLES_DIRECTOR_PROYECTO.includes(creador?.role?.nombreRol ?? "");
+  }
+
   private async hayQuienRevisePorProyecto(solicitud: GcSolicitud): Promise<boolean> {
     const aCargo = await this.directoresDeProyectoDelCreador(solicitud);
     if (aCargo.length > 0) return true;
