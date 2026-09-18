@@ -91,7 +91,7 @@ request. No despliega ni toca la base.
 ## Respaldos
 
 El procedimiento completo, con la prueba de restauración, está en
-[`docs/respaldos-y-restauracion.md`](../docs/respaldos-y-restauracion.md). Falta
+[`respaldos-y-restauracion.md`](respaldos-y-restauracion.md). Falta
 confirmar en Render si los respaldos automáticos están activos y cuántos días se guardan.
 
 ## Detalles que sorprenden

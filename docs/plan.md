@@ -43,7 +43,7 @@ anterior; en Vercel, *Instant Rollback*.
 
 1. **Respaldos.** Confirmar en Render si están activos, cuántos días se guardan y a qué
    hora corren, y **probar una restauración**. El procedimiento está escrito en
-   [`docs/respaldos-y-restauracion.md`](../docs/respaldos-y-restauracion.md). La base pesa
+   [`respaldos-y-restauracion.md`](respaldos-y-restauracion.md). La base pesa
    20 MB: la prueba toma minutos. Es lo único de toda la lista que protege cuando algo ya
    salió mal.
 2. **Pruebas.** Hoy hay 1 archivo de prueba en el backend (el de ejemplo, vacío) y 0 en el
